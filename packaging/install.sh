@@ -20,7 +20,8 @@ glibc_ok() {
   [ "$(printf '%s\n2.39\n' "$have" | sort -V | head -1)" = "2.39" ]
 }
 prebuilt_ok() { [ -x "bin/$1" ] && [ "$(uname -m)" = "x86_64" ] && glibc_ok; }
-webkit_runtime() { ldconfig -p 2>/dev/null | grep -q 'libwebkit2gtk-4.1.so.0'; }
+# Can the prebuilt window actually load? (Checks every library it links, WebKitGTK included.)
+app_libs_ok() { ldd bin/phonelink-app >/dev/null 2>&1 && ! ldd bin/phonelink-app 2>/dev/null | grep -q 'not found'; }
 webkit_dev() { pkg-config --exists webkit2gtk-4.1 2>/dev/null; }
 webkit_hint() {
   echo "    Kubuntu/Ubuntu:  sudo apt install $1"
@@ -49,7 +50,7 @@ install -Dm644 packaging/systemd/phonelinkd.service "$HOME/.config/systemd/user/
 # ---------------------------------------------------------------- desktop window
 APP_OK=0
 if prebuilt_ok phonelink-app; then
-  if webkit_runtime; then
+  if app_libs_ok; then
     install -Dm755 bin/phonelink-app "$BIN/phonelink-app"
     APP_OK=1
   else

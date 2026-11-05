@@ -123,6 +123,11 @@ struct Inner {
     events: mpsc::UnboundedSender<Event>,
     next_session: AtomicU64,
     shutdown: watch::Sender<bool>,
+    /// Fresh addresses learned from LAN discovery, most recent first.
+    addr_hints: Mutex<HashMap<Fingerprint, Vec<SocketAddr>>>,
+    /// Bumped to make reconnect loops retry at once (network changed / peer discovered).
+    /// A counter in a watch channel cannot lose a wake-up, unlike a bare Notify.
+    nudge: watch::Sender<u64>,
 }
 
 #[derive(Clone)]
@@ -174,6 +179,8 @@ impl Node {
                 events,
                 next_session: AtomicU64::new(1),
                 shutdown: watch::channel(false).0,
+                addr_hints: Mutex::new(HashMap::new()),
+                nudge: watch::channel(0).0,
             }),
         };
         info!(fingerprint = %node.fingerprint().short(), addr = ?node.local_addr(), "node started");
@@ -407,13 +414,41 @@ impl Node {
 
     /// Connect to a paired peer at `addr`. No-op if already connected.
     pub async fn connect(&self, peer: Fingerprint, addr: SocketAddr) -> Result<()> {
+        self.connect_any(peer, vec![addr]).await
+    }
+
+    /// Dial all `addrs` in parallel and keep the first that completes the handshake.
+    /// A dead address (laptop moved, old Wi-Fi) therefore never delays a live one.
+    pub async fn connect_any(&self, peer: Fingerprint, addrs: Vec<SocketAddr>) -> Result<()> {
         if !self.inner.gate.is_trusted(&peer) {
             return Err(Error::NotPaired);
         }
         if self.is_connected(&peer) {
             return Ok(());
         }
-        let conn = self.dial(addr, peer).await?;
+        if addrs.is_empty() {
+            return Err(Error::Protocol("no known address for peer".into()));
+        }
+        let mut dials = tokio::task::JoinSet::new();
+        for addr in addrs {
+            let node = self.clone();
+            dials.spawn(async move { node.dial(addr, peer).await });
+        }
+        let mut last_err = Error::Timeout;
+        while let Some(res) = dials.join_next().await {
+            match res {
+                Ok(Ok(conn)) => {
+                    dials.abort_all(); // losers are dropped, which closes them
+                    return self.establish(conn, peer).await;
+                }
+                Ok(Err(e)) => last_err = e,
+                Err(_) => {}
+            }
+        }
+        Err(last_err)
+    }
+
+    async fn establish(&self, conn: Connection, peer: Fingerprint) -> Result<()> {
         let handshake = async {
             let (mut send, mut recv) = conn.open_bi().await?;
             wire::write_frame(&mut send, &self.hello()).await?;
@@ -702,11 +737,65 @@ impl Node {
         Ok(id)
     }
 
+    /// Tell reconnect loops to retry right now instead of waiting out their backoff.
+    /// Call when the OS reports a network change.
+    pub fn nudge(&self) {
+        self.inner.nudge.send_modify(|n| *n = n.wrapping_add(1));
+    }
+
+    /// Addresses where `peer` was just seen (e.g. via mDNS). Tried first on reconnect.
+    pub fn add_addr_hints(&self, peer: Fingerprint, addrs: Vec<SocketAddr>) {
+        if addrs.is_empty() || !self.inner.gate.is_trusted(&peer) {
+            return;
+        }
+        {
+            let mut hints = self
+                .inner
+                .addr_hints
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let list = hints.entry(peer).or_default();
+            for a in addrs.into_iter().rev() {
+                list.retain(|x| *x != a);
+                list.insert(0, a);
+            }
+            list.truncate(8);
+        }
+        if !self.is_connected(&peer) {
+            self.nudge();
+        }
+    }
+
+    fn candidate_addrs(&self, rec: &PeerRecord, extra: &[SocketAddr]) -> Vec<SocketAddr> {
+        let hints = self
+            .inner
+            .addr_hints
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&rec.fingerprint)
+            .cloned()
+            .unwrap_or_default();
+        let mut out: Vec<SocketAddr> = Vec::new();
+        for a in hints.iter().chain(&rec.last_addrs).chain(extra) {
+            if !out.contains(a) {
+                out.push(*a);
+            }
+        }
+        out
+    }
+
+    /// Resolves once [`Node::shutdown`] has been called.
+    pub async fn closed(&self) {
+        let mut rx = self.inner.shutdown.subscribe();
+        let _ = rx.wait_for(|v| *v).await;
+    }
+
     /// Keep a connection to `peer` alive: reconnect with exponential backoff (with jitter)
-    /// whenever it drops, trying every remembered address plus `extra_addrs`.
+    /// whenever it drops, trying discovered addresses, remembered addresses and `extra_addrs`.
     pub fn maintain(&self, peer: Fingerprint, extra_addrs: Vec<SocketAddr>) -> JoinHandle<()> {
         let node = self.clone();
         let mut shutdown = self.inner.shutdown.subscribe();
+        let mut nudges = self.inner.nudge.subscribe();
         tokio::spawn(async move {
             let mut backoff = BACKOFF_MIN;
             loop {
@@ -722,28 +811,32 @@ impl Node {
                         _ = shutdown.changed() => return,
                     }
                 }
-                let mut addrs = rec.last_addrs.clone();
-                addrs.extend(extra_addrs.iter().filter(|a| !rec.last_addrs.contains(a)));
-                let mut connected = false;
-                for addr in addrs {
-                    match node.connect(peer, addr).await {
+                nudges.borrow_and_update();
+                let addrs = node.candidate_addrs(&rec, &extra_addrs);
+                tokio::select! {
+                    res = node.connect_any(peer, addrs) => match res {
                         Ok(()) => {
-                            connected = true;
-                            break;
+                            backoff = BACKOFF_MIN;
+                            continue;
                         }
-                        Err(e) => debug!(%addr, "reconnect attempt failed: {e}"),
+                        Err(e) => debug!(peer = %peer.short(), "reconnect attempt failed: {e}"),
+                    },
+                    // New information (address hint, network change): abandon this attempt
+                    // and start over with the fresh candidate list.
+                    _ = nudges.changed() => {
+                        backoff = BACKOFF_MIN;
+                        continue;
                     }
-                }
-                if connected {
-                    backoff = BACKOFF_MIN;
-                    continue;
+                    _ = shutdown.changed() => return,
                 }
                 let jitter = 0.8 + rand::random::<f64>() * 0.4;
                 tokio::select! {
-                    _ = tokio::time::sleep(backoff.mul_f64(jitter)) => {}
+                    _ = tokio::time::sleep(backoff.mul_f64(jitter)) => {
+                        backoff = (backoff * 2).min(BACKOFF_MAX);
+                    }
+                    _ = nudges.changed() => backoff = BACKOFF_MIN,
                     _ = shutdown.changed() => return,
                 }
-                backoff = (backoff * 2).min(BACKOFF_MAX);
             }
         })
     }

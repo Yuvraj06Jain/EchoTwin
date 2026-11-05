@@ -10,6 +10,7 @@
 pub mod discovery;
 pub mod error;
 pub mod identity;
+pub mod lan;
 pub mod limiter;
 pub mod node;
 pub mod outbox;

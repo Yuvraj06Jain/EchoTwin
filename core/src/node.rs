@@ -56,6 +56,9 @@ const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(5);
 const BACKOFF_MIN: Duration = Duration::from_millis(250);
 const BACKOFF_MAX: Duration = Duration::from_secs(30);
 const SEEN_RETENTION_SECS: u64 = 60 * 60 * 24 * 30;
+/// Undelivered messages are given up after a week (well inside SEEN_RETENTION_SECS, so a
+/// late delivery can still never be a duplicate).
+const PENDING_RETENTION_SECS: u64 = 60 * 60 * 24 * 7;
 
 #[derive(Clone, Debug)]
 pub struct NodeConfig {
@@ -153,6 +156,7 @@ impl Node {
                 std::fs::create_dir_all(dir)?;
                 let outbox = Outbox::open(&dir.join("outbox.sqlite3"))?;
                 let _ = outbox.prune_seen(SEEN_RETENTION_SECS);
+                let _ = outbox.prune_pending(PENDING_RETENTION_SECS);
                 (
                     Identity::load_or_create(dir)?,
                     TrustStore::load(dir.join("peers.json"))?,

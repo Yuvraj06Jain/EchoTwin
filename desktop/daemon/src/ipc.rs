@@ -1,7 +1,11 @@
 //! Local control protocol: one JSON object per line, over a Unix socket that only the
 //! owning user can open.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
+
+pub use crate::notifications::{AppInfo, NotificationInfo};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
@@ -26,6 +30,30 @@ pub enum Request {
     /// Turn desktop notifications on or off (saved to config.toml).
     SetNotifications {
         enabled: bool,
+    },
+    /// Notifications mirrored from the phone (newest first) and the apps that sent them.
+    Notifications,
+    /// App icons as `data:` URLs, by package.
+    AppIcons,
+    /// Remove one from this computer (and from the phone if "dismiss on both" is on).
+    DismissNotification {
+        id: String,
+    },
+    ClearNotifications,
+    ReplyNotification {
+        id: String,
+        text: String,
+    },
+    NotificationAction {
+        id: String,
+        index: u32,
+    },
+    SetSyncDismissals {
+        enabled: bool,
+    },
+    SetAppMuted {
+        package: String,
+        muted: bool,
     },
 }
 
@@ -61,6 +89,25 @@ pub enum WatchEvent {
         name: String,
         text: String,
     },
+    NotificationPosted {
+        item: NotificationInfo,
+    },
+    /// `deleted`: gone from the list; otherwise only marked as cleared on the phone.
+    NotificationRemoved {
+        id: String,
+        deleted: bool,
+    },
+    /// Many changes at once (snapshot, clear all, mute): fetch the list again.
+    NotificationsChanged,
+    /// Outcome of a reply / action / dismissal on the phone.
+    ActionResult {
+        id: String,
+        ok: bool,
+        message: String,
+    },
+    AppIcon {
+        package: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -75,6 +122,15 @@ pub enum Reply {
         /// Whether desktop notifications are on (absent from older daemons).
         #[serde(default)]
         notifications: bool,
+        #[serde(default)]
+        sync_dismissals: bool,
+    },
+    Notifications {
+        items: Vec<NotificationInfo>,
+        apps: Vec<AppInfo>,
+    },
+    AppIcons {
+        icons: BTreeMap<String, String>,
     },
     Devices {
         devices: Vec<DeviceInfo>,

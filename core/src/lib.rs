@@ -23,7 +23,7 @@ pub mod wire;
 
 pub use error::{Error, Result};
 pub use identity::{Fingerprint, Identity};
-pub use message::AppMessage;
+pub use message::{AppMessage, PhoneNotification, CAP_NOTIFICATIONS};
 pub use node::{Event, Node, NodeConfig};
 pub use pairing::PairingOffer;
 pub use trust::PeerRecord;

@@ -117,6 +117,15 @@ impl Outbox {
         Ok(changed == 1)
     }
 
+    /// Drop queued messages older than `max_age_secs` that never got through (the other
+    /// device was away for a very long time). Keeps the outbox from growing forever.
+    pub fn prune_pending(&self, max_age_secs: u64) -> Result<usize> {
+        let cutoff = util::now_unix().saturating_sub(max_age_secs) as i64;
+        Ok(self
+            .db()
+            .execute("DELETE FROM outbox WHERE created < ?1", params![cutoff])?)
+    }
+
     /// Forget dedup entries older than `max_age_secs` (senders give up long before that).
     pub fn prune_seen(&self, max_age_secs: u64) -> Result<usize> {
         let cutoff = util::now_unix().saturating_sub(max_age_secs) as i64;
@@ -178,5 +187,24 @@ mod tests {
             let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o600, "message store must be owner-only");
         }
+    }
+
+    #[test]
+    fn very_old_undelivered_messages_expire() {
+        let o = Outbox::in_memory().unwrap();
+        let peer = Fingerprint([3; 32]);
+        let old = o.enqueue(&peer, b"from last month").unwrap();
+        let fresh = o.enqueue(&peer, b"from today").unwrap();
+        o.db()
+            .execute(
+                "UPDATE outbox SET created = 0 WHERE id = ?1",
+                params![&old.0[..]],
+            )
+            .unwrap();
+        assert_eq!(o.prune_pending(7 * 24 * 3600).unwrap(), 1);
+        assert_eq!(
+            o.pending(&peer).unwrap(),
+            vec![(fresh, b"from today".to_vec())]
+        );
     }
 }

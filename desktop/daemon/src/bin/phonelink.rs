@@ -49,6 +49,8 @@ enum Cmd {
     },
     /// Print events (connections, messages) as they happen.
     Watch,
+    /// List notifications mirrored from the phone.
+    Notifications,
 }
 
 fn print_devices(devices: &[DeviceInfo]) {
@@ -73,6 +75,30 @@ fn print_event(e: &WatchEvent) {
         WatchEvent::Connected { id, name } => println!("connected     {id}  {name}"),
         WatchEvent::Disconnected { id, name } => println!("disconnected  {id}  {name}"),
         WatchEvent::Text { id, name, text } => println!("message       {id}  {name}: {text}"),
+        WatchEvent::NotificationPosted { item } => {
+            println!(
+                "notification  {}  {} · {}: {}",
+                item.device, item.app, item.title, item.text
+            )
+        }
+        WatchEvent::NotificationRemoved { id, deleted } => {
+            println!(
+                "cleared       {id}{}",
+                if *deleted {
+                    ""
+                } else {
+                    " (on phone; kept here)"
+                }
+            )
+        }
+        WatchEvent::NotificationsChanged => println!("notifications changed"),
+        WatchEvent::ActionResult { id, ok, message } => {
+            println!(
+                "{}  {id}  {message}",
+                if *ok { "done        " } else { "failed      " }
+            )
+        }
+        WatchEvent::AppIcon { package } => println!("icon          {package}"),
     }
 }
 
@@ -162,6 +188,30 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                         "Phone is offline; queued until it reconnects."
                     }
                 );
+            }
+        }
+        Cmd::Notifications => {
+            let r = c.request(&Request::Notifications).await?;
+            fail_on_error(&r)?;
+            show(&r);
+            if let (false, Reply::Notifications { items, .. }) = (cli.json, &r) {
+                if items.is_empty() {
+                    println!("No notifications from your phone.");
+                }
+                for n in items {
+                    let cleared = if n.removed_on_phone {
+                        "  (cleared on phone)"
+                    } else {
+                        ""
+                    };
+                    println!(
+                        "  {} · {}{}\n    {}",
+                        n.app,
+                        n.title,
+                        cleared,
+                        n.text.replace('\n', "\n    ")
+                    );
+                }
             }
         }
         Cmd::Watch => {

@@ -16,6 +16,10 @@ pub struct Config {
     pub notifications: bool,
     /// Advertise on the LAN (anonymously) so the phone finds the laptop after IP changes.
     pub discovery: bool,
+    /// "Dismiss on both devices": clearing a notification on one side clears it on the other.
+    pub sync_dismissals: bool,
+    /// Phone apps (package names) whose notifications are not shown here.
+    pub muted_apps: Vec<String>,
 }
 
 impl Default for Config {
@@ -25,6 +29,8 @@ impl Default for Config {
             device_name: None,
             notifications: true,
             discovery: true,
+            sync_dismissals: false,
+            muted_apps: Vec::new(),
         }
     }
 }

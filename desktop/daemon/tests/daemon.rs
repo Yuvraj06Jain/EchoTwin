@@ -34,12 +34,14 @@ async fn start_daemon() -> TestDaemon {
         device_name: Some("Test Laptop".into()),
         notifications: false,
         discovery: false,
+        ..Config::default()
     };
     let opts = DaemonOptions {
         data_dir: dir.path().join("data"),
         socket: socket.clone(),
         config,
         config_path: Some(dir.path().join("config.toml")),
+        popups: Some(phonelink_desktop::notifications::Popups::recording().0),
     };
     let (tx, rx) = oneshot::channel::<()>();
     let task = tokio::spawn(run(opts, async move {
@@ -239,6 +241,7 @@ async fn full_pairing_and_messaging_through_the_daemon() {
             ..Config::default()
         },
         config_path: None,
+        popups: Some(phonelink_desktop::notifications::Popups::recording().0),
     };
     let err = run(dup, async {}).await.unwrap_err();
     assert!(err.to_string().contains("already running"), "{err}");

@@ -9,4 +9,5 @@ pub mod config;
 pub mod daemon;
 pub mod ipc;
 pub mod netaddrs;
+pub mod notifications;
 pub mod paths;

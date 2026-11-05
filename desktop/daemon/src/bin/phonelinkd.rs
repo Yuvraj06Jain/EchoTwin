@@ -30,6 +30,7 @@ async fn main() -> anyhow::Result<()> {
         socket: paths::socket_path(),
         config,
         config_path: Some(config_path),
+        popups: None,
     };
     let mut term = signal(SignalKind::terminate())?;
     run(opts, async move {

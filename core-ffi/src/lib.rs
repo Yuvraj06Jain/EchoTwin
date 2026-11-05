@@ -15,7 +15,10 @@ use std::{
 };
 
 use phonelink_core::{
-    lan::Lan, AppMessage, Event, Fingerprint, Node, NodeConfig, PairingOffer, PeerRecord,
+    lan::Lan,
+    message::{truncate_text, MAX_NOTIFICATION_TEXT, MAX_SNAPSHOT_ITEMS},
+    AppMessage, Event, Fingerprint, Node, NodeConfig, PairingOffer, PeerRecord, PhoneNotification,
+    CAP_NOTIFICATIONS,
 };
 use tokio::{runtime::Runtime, task::JoinHandle};
 
@@ -70,6 +73,56 @@ pub enum LinkEvent {
         name: String,
         text: String,
     },
+    /// The computer asks to clear this notification on the phone ("dismiss on both").
+    DismissRequested {
+        id: String,
+        key: String,
+    },
+    /// The computer replies to this notification.
+    ReplyRequested {
+        id: String,
+        key: String,
+        text: String,
+    },
+    /// The computer presses action button `index` (position in `MirroredNotification::actions`).
+    ActionRequested {
+        id: String,
+        key: String,
+        index: u32,
+    },
+}
+
+/// A notification shown on this phone, to mirror to the computer.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct MirroredNotification {
+    pub key: String,
+    pub package: String,
+    pub app: String,
+    pub title: String,
+    pub text: String,
+    pub posted_ms: u64,
+    pub can_reply: bool,
+    pub actions: Vec<String>,
+}
+
+impl MirroredNotification {
+    fn into_wire(self) -> PhoneNotification {
+        PhoneNotification {
+            key: self.key,
+            package: self.package,
+            app: truncate_text(&self.app, 100),
+            title: truncate_text(&self.title, 300),
+            text: truncate_text(&self.text, MAX_NOTIFICATION_TEXT),
+            posted_ms: self.posted_ms,
+            can_reply: self.can_reply,
+            actions: self
+                .actions
+                .into_iter()
+                .take(3)
+                .map(|a| truncate_text(&a, 60))
+                .collect(),
+        }
+    }
 }
 
 /// Implemented in Kotlin. Called on a background thread, one event at a time, in order.
@@ -135,13 +188,9 @@ impl PhoneLink {
                 SocketAddr::from(([0u16; 8], 0)),
                 SocketAddr::from(([0u8; 4], 0)),
             ] {
-                match Node::start(NodeConfig::new(
-                    device_name.clone(),
-                    Some(dir.clone()),
-                    bind,
-                ))
-                .await
-                {
+                let mut cfg = NodeConfig::new(device_name.clone(), Some(dir.clone()), bind);
+                cfg.capabilities.push(CAP_NOTIFICATIONS.to_string());
+                match Node::start(cfg).await {
                     Ok(x) => return Ok(x),
                     Err(e) => last = Some(e),
                 }
@@ -190,7 +239,24 @@ impl PhoneLink {
                             name: name_of(&pump_node, &peer),
                             text,
                         },
-                        AppMessage::Unsupported => continue,
+                        AppMessage::DismissNotification { key } => LinkEvent::DismissRequested {
+                            id: peer.short(),
+                            key,
+                        },
+                        AppMessage::ReplyNotification { key, text } => LinkEvent::ReplyRequested {
+                            id: peer.short(),
+                            key,
+                            text,
+                        },
+                        AppMessage::NotificationAction { key, index } => {
+                            LinkEvent::ActionRequested {
+                                id: peer.short(),
+                                key,
+                                index,
+                            }
+                        }
+                        // Phone → computer messages never arrive here; unknown ones are skipped.
+                        _ => continue,
                     },
                 };
                 if tx.send(out).is_err() {
@@ -292,6 +358,45 @@ impl PhoneLink {
         Ok(())
     }
 
+    /// Mirror a new or updated notification to every paired computer.
+    pub fn post_notification(&self, notification: MirroredNotification) -> Result<(), LinkError> {
+        self.send_all(AppMessage::NotificationPosted(notification.into_wire()))
+    }
+
+    /// The notification was cleared on the phone.
+    pub fn remove_notification(&self, key: String) -> Result<(), LinkError> {
+        self.send_all(AppMessage::NotificationRemoved { key })
+    }
+
+    /// Everything currently shown; call when a computer (re)connects.
+    pub fn send_snapshot(&self, notifications: Vec<MirroredNotification>) -> Result<(), LinkError> {
+        let items = notifications
+            .into_iter()
+            .take(MAX_SNAPSHOT_ITEMS)
+            .map(|n| n.into_wire())
+            .collect();
+        self.send_all(AppMessage::NotificationSnapshot { items })
+    }
+
+    /// An app's icon as a small PNG (sent once per app).
+    pub fn send_app_icon(&self, package: String, png: Vec<u8>) -> Result<(), LinkError> {
+        self.send_all(AppMessage::AppIcon { package, png })
+    }
+
+    /// Tell the computer `device_id` how its request about `key` went.
+    pub fn send_action_result(
+        &self,
+        device_id: String,
+        key: String,
+        ok: bool,
+        message: String,
+    ) -> Result<(), LinkError> {
+        let fp = self.resolve(Some(device_id))?;
+        let body = AppMessage::ActionResult { key, ok, message }.encode()?;
+        self.node.send(&fp, body)?;
+        Ok(())
+    }
+
     /// Call from `ConnectivityManager.NetworkCallback`: retry immediately instead of
     /// waiting out the reconnect backoff.
     pub fn on_network_changed(&self) {
@@ -305,6 +410,15 @@ impl PhoneLink {
 }
 
 impl PhoneLink {
+    /// Queue a message for every paired computer (durably: it arrives after a reconnect).
+    fn send_all(&self, msg: AppMessage) -> Result<(), LinkError> {
+        let body = msg.encode()?;
+        for p in self.node.peers() {
+            self.node.send(&p.fingerprint, body.clone())?;
+        }
+        Ok(())
+    }
+
     fn resolve(&self, device_id: Option<String>) -> Result<Fingerprint, LinkError> {
         let peers = self.node.peers();
         match device_id {
@@ -427,6 +541,145 @@ mod tests {
         phone.on_network_changed(); // must be harmless while connected
         phone.unpair(dev.id).unwrap();
         assert!(phone.devices().is_empty());
+        phone.shutdown();
+        rt.block_on(laptop.shutdown());
+    }
+
+    /// The calls MirrorService makes, against a real laptop node.
+    #[test]
+    fn notification_mirroring_call_sequence() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let (laptop, mut lrx) = rt
+            .block_on(Node::start(NodeConfig::new(
+                "Kubuntu",
+                None,
+                "127.0.0.1:0".parse().unwrap(),
+            )))
+            .unwrap();
+        let uri = laptop
+            .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
+            .to_uri();
+        let dir = tempfile::tempdir().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let phone = PhoneLink::start(
+            dir.path().to_string_lossy().into(),
+            "S24".into(),
+            Arc::new(Collect(Mutex::new(tx))),
+        )
+        .unwrap();
+        phone.pair(uri).unwrap();
+        wait(&rx, |e| matches!(e, LinkEvent::Connected { .. }));
+
+        let next_msg = |lrx: &mut tokio::sync::mpsc::UnboundedReceiver<Event>| {
+            rt.block_on(async {
+                tokio::time::timeout(Duration::from_secs(10), async {
+                    loop {
+                        if let Some(Event::Message { body, .. }) = lrx.recv().await {
+                            return AppMessage::decode(&body);
+                        }
+                    }
+                })
+                .await
+                .expect("laptop got a message")
+            })
+        };
+
+        let long = "x".repeat(5000);
+        phone
+            .post_notification(MirroredNotification {
+                key: "k1".into(),
+                package: "com.whatsapp".into(),
+                app: "WhatsApp".into(),
+                title: "Rahul".into(),
+                text: long,
+                posted_ms: 1,
+                can_reply: true,
+                actions: vec!["a".into(), "b".into(), "c".into(), "d".into()],
+            })
+            .unwrap();
+        let AppMessage::NotificationPosted(n) = next_msg(&mut lrx) else {
+            panic!("expected a posted notification")
+        };
+        assert_eq!(
+            n.text.len(),
+            phonelink_core::message::MAX_NOTIFICATION_TEXT,
+            "long text truncated"
+        );
+        assert_eq!(n.actions.len(), 3, "at most three buttons");
+
+        phone.send_snapshot(vec![]).unwrap();
+        assert_eq!(
+            next_msg(&mut lrx),
+            AppMessage::NotificationSnapshot { items: vec![] }
+        );
+        phone
+            .send_app_icon("com.whatsapp".into(), vec![1, 2, 3])
+            .unwrap();
+        assert!(matches!(next_msg(&mut lrx), AppMessage::AppIcon { .. }));
+        phone.remove_notification("k1".into()).unwrap();
+        assert_eq!(
+            next_msg(&mut lrx),
+            AppMessage::NotificationRemoved { key: "k1".into() }
+        );
+
+        // The laptop asks the phone to reply; the phone reports back.
+        let phone_fp = laptop.peers()[0].fingerprint;
+        laptop
+            .send(
+                &phone_fp,
+                AppMessage::ReplyNotification {
+                    key: "k1".into(),
+                    text: "On my way".into(),
+                }
+                .encode()
+                .unwrap(),
+            )
+            .unwrap();
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::ReplyRequested { .. }));
+        let LinkEvent::ReplyRequested { id, key, text } = ev else {
+            unreachable!()
+        };
+        assert_eq!((key.as_str(), text.as_str()), ("k1", "On my way"));
+        phone
+            .send_action_result(id, key, true, "Reply sent".into())
+            .unwrap();
+        assert_eq!(
+            next_msg(&mut lrx),
+            AppMessage::ActionResult {
+                key: "k1".into(),
+                ok: true,
+                message: "Reply sent".into()
+            }
+        );
+
+        laptop
+            .send(
+                &phone_fp,
+                AppMessage::DismissNotification { key: "k9".into() }
+                    .encode()
+                    .unwrap(),
+            )
+            .unwrap();
+        assert!(matches!(
+            wait(&rx, |e| matches!(e, LinkEvent::DismissRequested { .. })),
+            LinkEvent::DismissRequested { .. }
+        ));
+        laptop
+            .send(
+                &phone_fp,
+                AppMessage::NotificationAction {
+                    key: "k9".into(),
+                    index: 1,
+                }
+                .encode()
+                .unwrap(),
+            )
+            .unwrap();
+        assert!(matches!(
+            wait(&rx, |e| matches!(e, LinkEvent::ActionRequested { .. })),
+            LinkEvent::ActionRequested { index: 1, .. }
+        ));
+
         phone.shutdown();
         rt.block_on(laptop.shutdown());
     }

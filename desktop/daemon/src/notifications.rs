@@ -79,7 +79,7 @@ impl Store {
     /// Newest first.
     pub fn list(&self) -> Vec<NotificationInfo> {
         let mut v: Vec<NotificationInfo> = self.items.iter().map(|(_, n)| n.clone()).collect();
-        v.sort_by(|a, b| b.posted_ms.cmp(&a.posted_ms));
+        v.sort_by_key(|n| std::cmp::Reverse(n.posted_ms));
         v
     }
 
@@ -93,7 +93,7 @@ impl Store {
                 muted: muted(p),
             })
             .collect();
-        v.sort_by(|a, b| a.app.to_lowercase().cmp(&b.app.to_lowercase()));
+        v.sort_by_key(|a| a.app.to_lowercase());
         v
     }
 

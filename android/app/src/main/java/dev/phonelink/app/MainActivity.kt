@@ -2,6 +2,7 @@ package dev.phonelink.app
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -65,6 +66,7 @@ class MainActivity : ComponentActivity() {
     private var busy by mutableStateOf(false)
     private var notice by mutableStateOf<String?>(null)
     private var batteryOk by mutableStateOf(true)
+    private var mirrorOn by mutableStateOf(true)
 
     private val scan = registerForActivityResult(ScanContract()) { result ->
         result.contents?.let { onScanned(it) }
@@ -97,6 +99,9 @@ class MainActivity : ComponentActivity() {
                         messages = messages,
                         busy = busy,
                         batteryOk = batteryOk,
+                        mirrorOn = mirrorOn,
+                        onAllowMirror = ::openNotificationAccess,
+                        onOpenAppInfo = ::openAppInfo,
                         onPair = ::startScan,
                         onSend = ::sendText,
                         onUnpair = ::unpair,
@@ -117,6 +122,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         batteryOk = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+        mirrorOn = LinkManager.mirrorEnabled(this)
         lifecycleScope.launch(Dispatchers.IO) { runCatching { LinkManager.link() }; LinkManager.refresh() }
     }
 
@@ -131,6 +137,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onScanned(contents: String) {
+        giveUpCamera()
         lifecycleScope.launch {
             val code = withContext(Dispatchers.IO) { runCatching { LinkManager.link().readPairingCode(contents) } }
             code.onSuccess { pendingPair = contents to it }
@@ -170,6 +177,40 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * The camera is only needed for the pairing scan. From Android 13 we hand the permission
+     * back: Android removes it as soon as this app's process ends, and the next pairing
+     * asks again. The app never uses the camera (or microphone) in the background.
+     */
+    private fun giveUpCamera() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        ) {
+            revokeSelfPermissionOnKill(Manifest.permission.CAMERA)
+        }
+    }
+
+    private fun openNotificationAccess() {
+        val general = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+        if (Build.VERSION.SDK_INT < 30) {
+            startActivity(general)
+            return
+        }
+        // Android 11+: straight to PhoneLink's own switch.
+        val component = ComponentName(this, MirrorService::class.java).flattenToString()
+        val detail = Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+            .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, component)
+        try {
+            startActivity(detail)
+        } catch (e: Exception) {
+            startActivity(general)
+        }
+    }
+
+    private fun openAppInfo() {
+        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+    }
+
     @SuppressLint("BatteryLife") // sideloaded personal app: this is the intended use
     private fun fixBattery() {
         startActivity(
@@ -186,6 +227,9 @@ private fun HomeScreen(
     messages: List<String>,
     busy: Boolean,
     batteryOk: Boolean,
+    mirrorOn: Boolean,
+    onAllowMirror: () -> Unit,
+    onOpenAppInfo: () -> Unit,
     onPair: () -> Unit,
     onSend: (String) -> Unit,
     onUnpair: (Device) -> Unit,
@@ -202,6 +246,27 @@ private fun HomeScreen(
             Spacer(Modifier.padding(top = 8.dp))
             Text("PhoneLink", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("This phone's id: $myId", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+        }
+
+        if (devices.isNotEmpty() && !mirrorOn) {
+            item {
+                Card {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Show this phone's notifications on your computer", fontWeight = FontWeight.Bold)
+                        Text(
+                            "Allow PhoneLink to read notifications. They go only to your paired computer, " +
+                                "encrypted, and nothing from the computer is shown here."
+                        )
+                        Button(onClick = onAllowMirror) { Text("Allow notification access") }
+                        Text(
+                            "Switch greyed out? Android blocks this for apps installed from a file. Open App info, " +
+                                "tap ⋮ (top right) → Allow restricted settings, then try again.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        OutlinedButton(onClick = onOpenAppInfo) { Text("Open App info") }
+                    }
+                }
+            }
         }
 
         if (!batteryOk) {

@@ -707,7 +707,17 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_pair(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_post_notification(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_read_pairing_code(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_remove_notification(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_action_result(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_app_icon(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_snapshot(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_text(
     ): Int
@@ -764,8 +774,18 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_pair(`ptr`: Long,`uri`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_post_notification(`ptr`: Long,`notification`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_read_pairing_code(`ptr`: Long,`uri`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_remove_notification(`ptr`: Long,`key`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_send_action_result(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,`ok`: Byte,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_send_app_icon(`ptr`: Long,`package`: RustBuffer.ByValue,`png`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_send_snapshot(`ptr`: Long,`notifications`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_text(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     external fun uniffi_phonelink_ffi_fn_method_phonelink_shutdown(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -910,7 +930,22 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_pair() and 0xFFFF) != 53184) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_post_notification() and 0xFFFF) != 35757) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_read_pairing_code() and 0xFFFF) != 31519) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_remove_notification() and 0xFFFF) != 20485) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_action_result() and 0xFFFF) != 31285) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_app_icon() and 0xFFFF) != 29622) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_snapshot() and 0xFFFF) != 32996) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_text() and 0xFFFF) != 3677) {
@@ -1122,6 +1157,29 @@ private class JavaLangRefCleanable(
 /**
  * @suppress
  */
+public object FfiConverterUInt: FfiConverter<UInt, Int> {
+    override fun lift(value: Int): UInt {
+        return value.toUInt()
+    }
+
+    override fun read(buf: ByteBuffer): UInt {
+        return lift(buf.getInt())
+    }
+
+    override fun lower(value: UInt): Int {
+        return value.toInt()
+    }
+
+    override fun allocationSize(value: UInt) = 4UL
+
+    override fun write(value: UInt, buf: ByteBuffer) {
+        buf.putInt(value.toInt())
+    }
+}
+
+/**
+ * @suppress
+ */
 public object FfiConverterULong: FfiConverter<ULong, Long> {
     override fun lift(value: Long): ULong {
         return value.toULong()
@@ -1219,6 +1277,25 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
         val byteBuf = toUtf8(value)
         buf.putInt(byteBuf.limit())
         buf.put(byteBuf)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
+    override fun read(buf: ByteBuffer): ByteArray {
+        val len = buf.getInt()
+        val byteArr = ByteArray(len)
+        buf.get(byteArr)
+        return byteArr
+    }
+    override fun allocationSize(value: ByteArray): ULong {
+        return 4UL + value.size.toULong()
+    }
+    override fun write(value: ByteArray, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        buf.put(value)
     }
 }
 
@@ -1656,9 +1733,34 @@ public interface PhoneLinkInterface {
     fun `pair`(`uri`: kotlin.String): Device
     
     /**
+     * Mirror a new or updated notification to every paired computer.
+     */
+    fun `postNotification`(`notification`: MirroredNotification)
+    
+    /**
      * Parse a scanned QR code without contacting anything.
      */
     fun `readPairingCode`(`uri`: kotlin.String): PairingCode
+    
+    /**
+     * The notification was cleared on the phone.
+     */
+    fun `removeNotification`(`key`: kotlin.String)
+    
+    /**
+     * Tell the computer `device_id` how its request about `key` went.
+     */
+    fun `sendActionResult`(`deviceId`: kotlin.String, `key`: kotlin.String, `ok`: kotlin.Boolean, `message`: kotlin.String)
+    
+    /**
+     * An app's icon as a small PNG (sent once per app).
+     */
+    fun `sendAppIcon`(`package`: kotlin.String, `png`: kotlin.ByteArray)
+    
+    /**
+     * Everything currently shown; call when a computer (re)connects.
+     */
+    fun `sendSnapshot`(`notifications`: List<MirroredNotification>)
     
     /**
      * Queue a text for `device_id` (or the only paired device). Returns true if the
@@ -1847,6 +1949,23 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
 
     
     /**
+     * Mirror a new or updated notification to every paired computer.
+     */
+    @Throws(LinkException::class)override fun `postNotification`(`notification`: MirroredNotification)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_post_notification(
+        it,
+        
+        FfiConverterTypeMirroredNotification.lower(`notification`),_status)
+}
+    }
+    
+    
+
+    
+    /**
      * Parse a scanned QR code without contacting anything.
      */
     @Throws(LinkException::class)override fun `readPairingCode`(`uri`: kotlin.String): PairingCode {
@@ -1861,6 +1980,78 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
     }
     )
     }
+    
+
+    
+    /**
+     * The notification was cleared on the phone.
+     */
+    @Throws(LinkException::class)override fun `removeNotification`(`key`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_remove_notification(
+        it,
+        
+        FfiConverterString.lower(`key`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Tell the computer `device_id` how its request about `key` went.
+     */
+    @Throws(LinkException::class)override fun `sendActionResult`(`deviceId`: kotlin.String, `key`: kotlin.String, `ok`: kotlin.Boolean, `message`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_send_action_result(
+        it,
+        
+        FfiConverterString.lower(`deviceId`),
+        FfiConverterString.lower(`key`),
+        FfiConverterBoolean.lower(`ok`),
+        FfiConverterString.lower(`message`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * An app's icon as a small PNG (sent once per app).
+     */
+    @Throws(LinkException::class)override fun `sendAppIcon`(`package`: kotlin.String, `png`: kotlin.ByteArray)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_send_app_icon(
+        it,
+        
+        FfiConverterString.lower(`package`),
+        FfiConverterByteArray.lower(`png`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Everything currently shown; call when a computer (re)connects.
+     */
+    @Throws(LinkException::class)override fun `sendSnapshot`(`notifications`: List<MirroredNotification>)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_send_snapshot(
+        it,
+        
+        FfiConverterSequenceTypeMirroredNotification.lower(`notifications`),_status)
+}
+    }
+    
     
 
     
@@ -2049,6 +2240,77 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
 
 
 /**
+ * A notification shown on this phone, to mirror to the computer.
+ */
+data class MirroredNotification (
+    var `key`: kotlin.String
+    , 
+    var `package`: kotlin.String
+    , 
+    var `app`: kotlin.String
+    , 
+    var `title`: kotlin.String
+    , 
+    var `text`: kotlin.String
+    , 
+    var `postedMs`: kotlin.ULong
+    , 
+    var `canReply`: kotlin.Boolean
+    , 
+    var `actions`: List<kotlin.String>
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMirroredNotification: FfiConverterRustBuffer<MirroredNotification> {
+    override fun read(buf: ByteBuffer): MirroredNotification {
+        return MirroredNotification(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterSequenceString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MirroredNotification) = (
+            FfiConverterString.allocationSize(value.`key`) +
+            FfiConverterString.allocationSize(value.`package`) +
+            FfiConverterString.allocationSize(value.`app`) +
+            FfiConverterString.allocationSize(value.`title`) +
+            FfiConverterString.allocationSize(value.`text`) +
+            FfiConverterULong.allocationSize(value.`postedMs`) +
+            FfiConverterBoolean.allocationSize(value.`canReply`) +
+            FfiConverterSequenceString.allocationSize(value.`actions`)
+    )
+
+    override fun write(value: MirroredNotification, buf: ByteBuffer) {
+            FfiConverterString.write(value.`key`, buf)
+            FfiConverterString.write(value.`package`, buf)
+            FfiConverterString.write(value.`app`, buf)
+            FfiConverterString.write(value.`title`, buf)
+            FfiConverterString.write(value.`text`, buf)
+            FfiConverterULong.write(value.`postedMs`, buf)
+            FfiConverterBoolean.write(value.`canReply`, buf)
+            FfiConverterSequenceString.write(value.`actions`, buf)
+    }
+}
+
+
+
+/**
  * What a scanned QR code says, shown before the user confirms pairing.
  */
 data class PairingCode (
@@ -2174,6 +2436,47 @@ sealed class LinkEvent {
         companion object
     }
     
+    /**
+     * The computer asks to clear this notification on the phone ("dismiss on both").
+     */
+    data class DismissRequested(
+        val `id`: kotlin.String, 
+        val `key`: kotlin.String) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * The computer replies to this notification.
+     */
+    data class ReplyRequested(
+        val `id`: kotlin.String, 
+        val `key`: kotlin.String, 
+        val `text`: kotlin.String) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * The computer presses action button `index` (position in `MirroredNotification::actions`).
+     */
+    data class ActionRequested(
+        val `id`: kotlin.String, 
+        val `key`: kotlin.String, 
+        val `index`: kotlin.UInt) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
 
     
 
@@ -2206,6 +2509,20 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
+                )
+            5 -> LinkEvent.DismissRequested(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                )
+            6 -> LinkEvent.ReplyRequested(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                )
+            7 -> LinkEvent.ActionRequested(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterUInt.read(buf),
                 )
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
         }
@@ -2245,6 +2562,32 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 + FfiConverterString.allocationSize(value.`text`)
             )
         }
+        is LinkEvent.DismissRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterString.allocationSize(value.`key`)
+            )
+        }
+        is LinkEvent.ReplyRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterString.allocationSize(value.`key`)
+                + FfiConverterString.allocationSize(value.`text`)
+            )
+        }
+        is LinkEvent.ActionRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterString.allocationSize(value.`key`)
+                + FfiConverterUInt.allocationSize(value.`index`)
+            )
+        }
     }
 
     override fun write(value: LinkEvent, buf: ByteBuffer) {
@@ -2272,6 +2615,26 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`text`, buf)
+                Unit
+            }
+            is LinkEvent.DismissRequested -> {
+                buf.putInt(5)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterString.write(value.`key`, buf)
+                Unit
+            }
+            is LinkEvent.ReplyRequested -> {
+                buf.putInt(6)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterString.write(value.`key`, buf)
+                FfiConverterString.write(value.`text`, buf)
+                Unit
+            }
+            is LinkEvent.ActionRequested -> {
+                buf.putInt(7)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterString.write(value.`key`, buf)
+                FfiConverterUInt.write(value.`index`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -2318,6 +2681,34 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
 /**
  * @suppress
  */
+public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
+    override fun read(buf: ByteBuffer): List<kotlin.String> {
+        val len = buf.getInt()
+        return List<kotlin.String>(len) {
+            FfiConverterString.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.String>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterString.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.String>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterString.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeDevice: FfiConverterRustBuffer<List<Device>> {
     override fun read(buf: ByteBuffer): List<Device> {
         val len = buf.getInt()
@@ -2336,6 +2727,34 @@ public object FfiConverterSequenceTypeDevice: FfiConverterRustBuffer<List<Device
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeDevice.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeMirroredNotification: FfiConverterRustBuffer<List<MirroredNotification>> {
+    override fun read(buf: ByteBuffer): List<MirroredNotification> {
+        val len = buf.getInt()
+        return List<MirroredNotification>(len) {
+            FfiConverterTypeMirroredNotification.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<MirroredNotification>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeMirroredNotification.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<MirroredNotification>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeMirroredNotification.write(it, buf)
         }
     }
 }

@@ -219,3 +219,52 @@ async fn unpair_revokes_access_immediately() {
     assert!(err.is_err(), "revoked phone must not reconnect");
     assert!(!laptop.is_connected(&pfp));
 }
+
+#[tokio::test]
+async fn concurrent_dials_to_the_same_peer_make_one_connection() {
+    let ldir = tempfile::tempdir().unwrap();
+    let (laptop, mut lrx) = node_at("Laptop", Some(ldir.path().into()), "127.0.0.1:0").await;
+    let (laddr, lfp) = (laptop.local_addr().unwrap(), laptop.fingerprint());
+    let (phone, mut prx) = node("Phone").await;
+    phone
+        .pair_with(&laptop.start_pairing(Duration::from_secs(60), vec![laddr]))
+        .await
+        .unwrap();
+    wait_for(&mut lrx, "connected", |e| {
+        matches!(e, Event::PeerConnected { .. })
+    })
+    .await;
+
+    // The laptop restarts; afterwards several callers on the phone (pairing, the reconnect
+    // loop, a network-change nudge) try to reconnect at the same moment.
+    laptop.shutdown().await;
+    drop(laptop);
+    drop(lrx);
+    wait_for(&mut prx, "drop noticed", |e| {
+        matches!(e, Event::PeerDisconnected { .. })
+    })
+    .await;
+    let (_laptop2, mut l2rx) =
+        node_at("Laptop", Some(ldir.path().into()), &laddr.to_string()).await;
+    let (a, b, c) = tokio::join!(
+        phone.connect_any(lfp, vec![laddr]),
+        phone.connect_any(lfp, vec![laddr]),
+        phone.connect_any(lfp, vec![laddr]),
+    );
+    assert!(a.is_ok() && b.is_ok() && c.is_ok(), "{a:?} {b:?} {c:?}");
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let (mut connects, mut disconnects) = (0, 0);
+    while let Ok(e) = l2rx.try_recv() {
+        match e {
+            Event::PeerConnected { .. } => connects += 1,
+            Event::PeerDisconnected { .. } => disconnects += 1,
+            _ => {}
+        }
+    }
+    assert!(phone.is_connected(&lfp));
+    assert_eq!(
+        (connects, disconnects),
+        (1, 0),
+        "exactly one connection, none replaced"
+    );
+}

@@ -4,6 +4,18 @@
 
 (function () {
   const api = window.PhoneLinkAPI;
+  const win = window.PhoneLinkWindow || null; // real window controls inside the desktop app
+  const caps = {
+    preview: true,
+    notificationMirroring: true,
+    sms: true,
+    files: true,
+    clipboard: true,
+    deviceDetails: true,
+    appFilters: true,
+    discoveryToggle: true,
+    ...(api.capabilities || {}),
+  };
 
   // ------------------------------------------------------------------ helpers
 
@@ -35,7 +47,7 @@
   };
   const icon = (name) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 
-  const APP_COLORS = { WhatsApp: '#62c18e', Gmail: '#e2847b', Calendar: '#79a9e6', Messages: '#86b8d8', Swiggy: '#e6a463', Instagram: '#d491b8' };
+  const APP_COLORS = { PhoneLink: '#3dbb82', WhatsApp: '#62c18e', Gmail: '#e2847b', Calendar: '#79a9e6', Messages: '#86b8d8', Swiggy: '#e6a463', Instagram: '#d491b8' };
   const PALETTE = ['#86b8d8', '#e3ab76', '#9fcb8f', '#c5a3da', '#e39393', '#80d0c4', '#d8c27e'];
   function hash(s) {
     let h = 0;
@@ -89,6 +101,8 @@
     mode: 'connected',
     computer: null,
     device: null,
+    devices: [],
+    serviceDown: false,
     tab: 'notifications',
     notifications: [],
     threads: [],
@@ -102,7 +116,7 @@
     replied: new Set(),
     busy: new Set(),
     showPairing: false,
-    pairing: null, // { expiresAt, cancellable }
+    pairing: null, // { expiresAt, cancellable, qr, id, loading, error }
   };
   let loadSeq = 0;
   let tempSeq = 0;
@@ -131,6 +145,7 @@
     composerInput: $('#composer-input'),
     composerSend: $('#composer-send'),
     pairing: $('#pairing'),
+    service: $('#service'),
     toast: $('#toast'),
     fileInput: $('#file-input'),
   };
@@ -165,7 +180,20 @@
 
   async function load() {
     const seq = ++loadSeq;
-    const st = await api.status();
+    let st;
+    try {
+      st = await api.status();
+    } catch (err) {
+      if (err && err.code === 'daemon-down') {
+        if (seq !== loadSeq) return;
+        state.serviceDown = true;
+        renderChrome();
+        renderService();
+        return;
+      }
+      throw err;
+    }
+    state.serviceDown = false;
     const [notifications, threads, transfers, settings] = await Promise.all([
       api.notifications(),
       api.threads(),
@@ -177,6 +205,7 @@
     requestedMode = st.mode;
     state.computer = st.computer;
     state.device = st.device;
+    state.devices = st.devices || (st.device ? [st.device] : []);
     state.notifications = notifications.sort((a, b) => b.time - a.time);
     state.threads = threads;
     state.transfers = transfers;
@@ -185,9 +214,11 @@
       state.activeThread = threads.length ? sortedThreads()[0].id : null;
     }
     if (!state.device) {
-      startPairing(false);
+      if (!state.showPairing) startPairing(false);
+      else if (state.pairing) state.pairing.cancellable = false;
     } else if (state.showPairing && !state.pairing?.cancellable) {
       state.showPairing = false;
+      state.pairing = null;
     }
     renderAll();
     if (state.tab === 'messages') markActiveRead();
@@ -218,10 +249,18 @@
     for (const b of document.querySelectorAll('[data-preview]')) {
       b.setAttribute('aria-pressed', String(b.dataset.preview === state.mode));
     }
-    el.body.hidden = state.showPairing;
-    el.pairing.hidden = !state.showPairing;
+    const view = state.serviceDown ? 'service' : state.showPairing ? 'pairing' : 'main';
+    el.body.hidden = view !== 'main';
+    el.pairing.hidden = view !== 'pairing';
+    el.service.hidden = view !== 'service';
+    if (view === 'service') {
+      el.pill.innerHTML = '<span class="dot warn"></span>Service not running';
+    }
+    const gear = $('.titlebar [data-action="open-settings"]');
+    gear.disabled = view === 'service';
+    gear.title = gear.disabled ? 'Settings are available once the service is running' : 'Settings';
 
-    const offline = d && !d.connected;
+    const offline = view === 'main' && d && !d.connected;
     el.banner.hidden = !offline;
     if (offline) {
       el.banner.innerHTML = `${icon('alert')}<span class="grow"><strong>${esc(d.name)} is offline.</strong> Messages and files will be sent when it reconnects.</span><button type="button" class="link-btn" data-action="troubleshoot">Troubleshoot</button>`;
@@ -236,13 +275,16 @@
     }
     const now = new Date();
     const date = now.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
-    const battWidth = Math.round((14 * d.battery) / 100);
+    const hasBattery = typeof d.battery === 'number';
+    const battWidth = hasBattery ? Math.round((14 * d.battery) / 100) : 0;
     const statusRows = d.connected
       ? `<li class="stat"><span class="dot ok"></span><span>Connected</span></li>
-         <li class="stat">${icon('wifi')}<span>${esc(d.network)}</span></li>
-         <li class="stat"><span class="battery${d.battery < 20 ? ' low' : ''}" aria-hidden="true"><i style="width:${battWidth}px"></i></span><span class="tnum">${d.battery}%${d.charging ? ' · charging' : ''}</span></li>`
-      : `<li class="stat"><span class="dot warn"></span><span>Offline · last seen <span data-ts="${d.lastSeen}" data-rel="ago">${esc(relTime(d.lastSeen))}</span></span></li>
-         <li class="stat faint">${icon('wifi')}<span>Not on this network</span></li>`;
+         ${d.network ? `<li class="stat">${icon('wifi')}<span>${esc(d.network)}</span></li>` : ''}
+         ${hasBattery ? `<li class="stat"><span class="battery${d.battery < 20 ? ' low' : ''}" aria-hidden="true"><i style="width:${battWidth}px"></i></span><span class="tnum">${d.battery}%${d.charging ? ' · charging' : ''}</span></li>` : ''}
+         ${d.pending ? `<li class="stat faint">${icon('send')}<span>${esc(plural(d.pending, 'message', 'messages'))} sending…</span></li>` : ''}`
+      : `<li class="stat"><span class="dot warn"></span><span>Offline${d.lastSeen ? ` · last seen <span data-ts="${d.lastSeen}" data-rel="ago">${esc(relTime(d.lastSeen))}</span>` : ''}</span></li>
+         ${caps.deviceDetails ? `<li class="stat faint">${icon('wifi')}<span>Not on this network</span></li>` : ''}
+         ${d.pending ? `<li class="stat faint">${icon('send')}<span>${esc(plural(d.pending, 'message', 'messages'))} waiting</span></li>` : ''}`;
     const clipOn = !!state.settings?.clipboardSync;
     el.device.innerHTML = `
       <div class="phone-art${d.connected ? '' : ' off'}" aria-hidden="true">
@@ -251,20 +293,22 @@
       </div>
       <div class="device-head">
         <div class="device-name" title="${esc(d.name)}">${esc(d.name)}</div>
-        <div class="device-model">${esc(d.model)}</div>
+        <div class="device-model">${esc(d.model || 'Paired phone')}</div>
       </div>
       <ul class="stats">${statusRows}</ul>
       <div>
         <p class="section-label">Quick actions</p>
         <div class="actions">
           <button type="button" class="action" data-action="send-note">${icon('send')}<span class="grow">Send a note</span></button>
-          <button type="button" class="action" data-action="send-file">${icon('upload')}<span class="grow">Send files</span></button>
-          <button type="button" class="action" role="switch" aria-checked="${clipOn}" data-action="toggle-clipboard">${icon('clipboard')}<span class="grow">Sync clipboard</span><span class="switch" aria-hidden="true"></span></button>
+          ${caps.files ? `<button type="button" class="action" data-action="send-file">${icon('upload')}<span class="grow">Send files</span></button>` : ''}
+          ${caps.clipboard ? `<button type="button" class="action" role="switch" aria-checked="${clipOn}" data-action="toggle-clipboard">${icon('clipboard')}<span class="grow">Sync clipboard</span><span class="switch" aria-hidden="true"></span></button>` : ''}
         </div>
       </div>
       <div class="devices-foot">
         <p class="section-label">Devices</p>
-        <div class="dev-row">${icon('phone')}<span class="grow" title="${esc(d.name)}">${esc(d.name)}</span><span class="dot ${d.connected ? 'ok' : 'warn'}"></span></div>
+        ${state.devices
+          .map((x) => `<div class="dev-row">${icon('phone')}<span class="grow" title="${esc(x.name)}">${esc(x.name)}</span><span class="dot ${x.connected ? 'ok' : 'warn'}"></span></div>`)
+          .join('')}
         <button type="button" class="link-btn" data-action="pair-new">Pair another device</button>
       </div>`;
   }
@@ -290,7 +334,10 @@
   function renderNotifications() {
     const list = state.notifications;
     if (!list.length) {
-      el.panels.notifications.innerHTML = `<div class="empty">${icon('bell')}<strong>You're all caught up</strong><span>New notifications from ${esc(deviceName())} appear here.</span></div>`;
+      const hint = caps.notificationMirroring
+        ? `New notifications from ${esc(deviceName())} appear here.`
+        : `Notes you send from PhoneLink on ${esc(deviceName())} appear here.<br>Showing your phone's app notifications (WhatsApp, Gmail…) comes in the next update.`;
+      el.panels.notifications.innerHTML = `<div class="empty">${icon('bell')}<strong>You're all caught up</strong><span>${hint}</span></div>`;
       return;
     }
     const groups = new Map();
@@ -343,6 +390,8 @@
   }
 
   function renderThreads() {
+    el.panels.messages.classList.toggle('unavailable', !caps.sms);
+    if (!caps.sms) return;
     const q = state.threadSearch.trim().toLowerCase();
     const list = sortedThreads().filter(
       (t) => !q || t.name.toLowerCase().includes(q) || t.messages.some((m) => m.text.toLowerCase().includes(q)),
@@ -431,6 +480,10 @@
   }
 
   function renderFiles() {
+    if (!caps.files) {
+      el.panels.files.innerHTML = `<div class="empty">${icon('folder')}<strong>File transfer is coming in the next update</strong><span>You'll be able to drop files here to send them to ${esc(deviceName())}, with transfers that resume if the connection drops.</span></div>`;
+      return;
+    }
     const items = state.transfers
       .map((t) => {
         const side =
@@ -462,27 +515,32 @@
   function renderPairing() {
     const p = state.pairing;
     if (!p) return;
-    const left = Math.max(0, Math.ceil((p.expiresAt - Date.now()) / 1000));
-    const expired = left === 0;
-    const qr = window.PREVIEW_QR;
+    const left = p.loading || p.error ? 0 : Math.max(0, Math.ceil((p.expiresAt - Date.now()) / 1000));
+    const expired = !p.loading && !p.error && left === 0;
+    let qrInner;
+    if (p.loading) {
+      qrInner = '<div class="qr-expired">Preparing a code…</div>';
+    } else if (p.error) {
+      qrInner = `<div class="qr-expired"><span>${esc(p.error)}</span><button type="button" class="btn btn-primary btn-sm" data-action="new-code">Try again</button></div>`;
+    } else {
+      qrInner = `<svg viewBox="0 0 ${p.qr.size} ${p.qr.size}" role="img" aria-label="Pairing code to scan with your phone"><path fill="#111417" d="${esc(p.qr.path)}"/></svg>
+        ${expired ? '<div class="qr-expired">This code expired<button type="button" class="btn btn-primary btn-sm" data-action="new-code">Show a new code</button></div>' : ''}`;
+    }
     el.pairing.innerHTML = `<div class="pair-card">
-      <div class="qr-box${expired ? ' expired' : ''}">
-        <svg viewBox="0 0 ${qr.size} ${qr.size}" role="img" aria-label="Pairing code to scan with your phone"><path fill="#111417" d="${qr.path}"/></svg>
-        ${expired ? '<div class="qr-expired">This code expired<button type="button" class="btn btn-primary btn-sm" data-action="new-code">Show a new code</button></div>' : ''}
-      </div>
+      <div class="qr-box${expired ? ' expired' : ''}">${qrInner}</div>
       <div class="pair-text">
         <h1>Pair your phone</h1>
-        <p>Your phone and this computer must be on the same Wi-Fi, or this computer on your phone's hotspot.</p>
+        <p>Your phone and this computer must be on the same Wi&#8209;Fi, or this computer on your phone's hotspot.</p>
         <ol class="steps">
           <li><span>Install <strong>PhoneLink</strong> on your Android phone.</span></li>
           <li><span>Open it and tap <strong>Pair a computer</strong>.</span></li>
           <li><span>Scan this code. Check that the phone shows the same id as below.</span></li>
         </ol>
-        <div class="id-box"><span class="muted">This computer</span><span class="mono">${esc(state.computer ? state.computer.id : '')}</span></div>
+        <div class="id-box"><span class="muted">This computer</span><span class="mono">${esc(p.id || (state.computer ? state.computer.id : ''))}</span></div>
         <div class="pair-foot">
-          <span class="tnum" data-countdown>${expired ? 'Code expired' : `Expires in ${Math.floor(left / 60)}:${pad(left % 60)} · single use`}</span>
+          <span class="tnum" data-countdown>${p.loading || p.error ? '' : expired ? 'Code expired' : `Expires in ${Math.floor(left / 60)}:${pad(left % 60)} · single use`}</span>
           ${p.cancellable ? '<button type="button" class="btn btn-sm" data-action="cancel-pairing">Cancel</button>' : ''}
-          <button type="button" class="link-btn" data-action="simulate-pair">Simulate a scan (preview)</button>
+          ${caps.preview && !p.loading && !p.error ? '<button type="button" class="link-btn" data-action="simulate-pair">Simulate a scan (preview)</button>' : ''}
         </div>
       </div>
     </div>`;
@@ -607,6 +665,10 @@
 
   async function sendFiles(files) {
     if (!files.length) return;
+    if (!caps.files) {
+      toast('File transfer is coming in the next update.');
+      return;
+    }
     if (!state.device) {
       toast('Pair your phone first.');
       return;
@@ -712,7 +774,7 @@
     if (!text) return;
     for (const c of form.elements) c.disabled = true;
     try {
-      const res = await api.sendText(text);
+      const res = await api.sendText(text, state.device ? state.device.id : null);
       closeDialog();
       toast(res.queued ? `Queued. It will be delivered when ${deviceName()} reconnects.` : `Sent to ${deviceName()}`);
     } catch (err) {
@@ -726,8 +788,8 @@
       <div class="dialog-body">
         <h2 id="tips-title">Can't reach ${esc(deviceName())}</h2>
         <ol class="tips">
-          <li><strong>Same network?</strong> The phone must be on the same Wi-Fi, not mobile data or a guest network.</li>
-          <li><strong>College or office Wi-Fi</strong> often blocks devices from reaching each other. Turn on your phone's hotspot and connect this computer to it.</li>
+          <li><strong>Same network?</strong> The phone must be on the same Wi&#8209;Fi, not mobile data or a guest network.</li>
+          <li><strong>College or office Wi&#8209;Fi</strong> often blocks devices from reaching each other. Turn on your phone's hotspot and connect this computer to it.</li>
           <li><strong>VPN?</strong> Allow local network access in the VPN app, or pause it.</li>
           <li><strong>Battery saving.</strong> On the phone, add PhoneLink to Settings → Battery → Background usage limits → Never sleeping apps.</li>
           <li><strong>Firewall.</strong> If ufw is on, allow UDP port 47100 from your local network.</li>
@@ -744,13 +806,16 @@
 
   function settingsBody() {
     const s = state.settings || { apps: [] };
-    const d = state.device;
-    const deviceRow = d
-      ? `<div class="row" data-device-row>
+    const deviceRow = state.devices.length
+      ? state.devices
+          .map(
+            (d) => `<div class="row" data-device-id="${esc(d.id)}">
           <span class="dot ${d.connected ? 'ok' : 'warn'}"></span>
           <div class="grow"><div>${esc(d.name)}</div><div class="row-desc mono">${esc(d.id)}</div></div>
-          <span data-unpair-slot><button type="button" class="btn btn-danger btn-sm" data-action="unpair-ask">Unpair</button></span>
-        </div>`
+          <span data-unpair-slot><button type="button" class="btn btn-danger btn-sm" data-action="unpair-ask" aria-label="Unpair ${esc(d.name)}">Unpair</button></span>
+        </div>`,
+          )
+          .join('')
       : '<div class="row faint">No devices paired.</div>';
     return `
       <div class="sheet-section"><p class="section-label">This computer</p>
@@ -759,12 +824,12 @@
           <button type="button" class="btn btn-sm" data-action="copy-id">Copy id</button></div>
       </div>
       <div class="sheet-section"><p class="section-label">Paired devices</p>${deviceRow}</div>
-      <div class="sheet-section"><p class="section-label">Show notifications from</p>
+      ${caps.appFilters && s.apps.length ? `<div class="sheet-section"><p class="section-label">Show notifications from</p>
         ${s.apps.map((a) => switchRow(a.name, '', 'toggle-app', a.enabled, `data-name="${esc(a.name)}"`)).join('')}
-      </div>
+      </div>` : ''}
       <div class="sheet-section"><p class="section-label">General</p>
-        ${switchRow('Desktop notifications', 'Show phone notifications as system notifications.', 'toggle-setting', !!s.desktopNotifications, 'data-key="desktopNotifications"')}
-        ${switchRow('Find my phone on this network', 'Anonymous: nothing that identifies you is broadcast.', 'toggle-setting', !!s.discovery, 'data-key="discovery"')}
+        ${switchRow('Desktop notifications', 'Show messages from your phone as system notifications.', 'toggle-setting', !!s.desktopNotifications, 'data-key="desktopNotifications"')}
+        ${caps.discoveryToggle ? switchRow('Find my phone on this network', 'Anonymous: nothing that identifies you is broadcast.', 'toggle-setting', !!s.discovery, 'data-key="discovery"') : ''}
       </div>`;
   }
 
@@ -782,19 +847,96 @@
 
   // ------------------------------------------------------------------ pairing
 
-  function startPairing(cancellable) {
+  let pairingSeq = 0;
+  async function startPairing(cancellable) {
+    const seq = ++pairingSeq;
     state.showPairing = true;
-    state.pairing = { expiresAt: Date.now() + 120 * 1000, cancellable };
+    state.pairing = { loading: true, cancellable, expiresAt: 0 };
     state.replyOpen = null;
     renderChrome();
+    renderPairing();
+    try {
+      const code = await api.startPairing();
+      if (seq !== pairingSeq || !state.showPairing) return;
+      state.pairing = { cancellable: state.pairing.cancellable, qr: code.qr, id: code.id, expiresAt: Date.now() + code.expiresIn * 1000 };
+    } catch (err) {
+      if (seq !== pairingSeq || !state.showPairing) return;
+      if (err && err.code === 'daemon-down') {
+        state.serviceDown = true;
+        renderChrome();
+        renderService();
+        return;
+      }
+      state.pairing = { cancellable: state.pairing.cancellable, error: `Couldn't create a code: ${err.message || err}`, expiresAt: 0 };
+    }
     renderPairing();
   }
 
   function stopPairing() {
+    pairingSeq++;
     state.showPairing = false;
     state.pairing = null;
+    api.cancelPairing().catch(() => {});
     renderChrome();
   }
+
+  api.onPairing((ev) => {
+    if (!state.showPairing) return;
+    if (ev.kind === 'paired') {
+      pairingSeq++;
+      state.showPairing = false;
+      state.pairing = null;
+      toast(`Paired with ${ev.name}`);
+      run(load)();
+    } else if (ev.kind === 'expired' && state.pairing && !state.pairing.loading) {
+      state.pairing.expiresAt = Date.now();
+      renderPairing();
+    } else if (ev.kind === 'failed' && state.pairing) {
+      state.pairing = { cancellable: state.pairing.cancellable, error: ev.message, expiresAt: 0 };
+      renderPairing();
+    }
+  });
+
+  // ------------------------------------------------------------------ service not running
+
+  function renderService() {
+    el.service.innerHTML = `<div class="service-card">
+      ${icon('alert')}
+      <h1>The PhoneLink service isn't running</h1>
+      <p>It runs in the background and keeps your phone connected, even when this window is closed.</p>
+      <div class="service-actions">
+        <button type="button" class="btn btn-primary" data-action="start-daemon">Start the service</button>
+      </div>
+      <p class="faint">Or in a terminal: <span class="mono">systemctl --user start phonelinkd</span></p>
+    </div>`;
+  }
+
+  // Live updates from the service (inside the desktop app).
+  let reloadTimer = 0;
+  const scheduleLoad = () => {
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(run(load), 150);
+  };
+  api.onEvent((ev) => {
+    if (ev.kind === 'text') {
+      api.notifications().then((list) => {
+        state.notifications = list.sort((a, b) => b.time - a.time);
+        renderNotifications();
+        renderTabs();
+      });
+      return;
+    }
+    scheduleLoad();
+  });
+  api.onDaemon((up) => {
+    if (up) scheduleLoad();
+    else if (!state.serviceDown) {
+      state.serviceDown = true;
+      closeDialog(false);
+      renderChrome();
+      renderService();
+    }
+  });
 
   // ------------------------------------------------------------------ preview controls
 
@@ -813,8 +955,13 @@
   }
 
   function windowControl(action) {
-    // In the desktop app these call the Tauri window API.
-    toast(`${action} works in the desktop app. This is the preview.`);
+    if (!win) {
+      toast(`${action} works in the desktop app. This is the preview.`);
+      return undefined;
+    }
+    if (action === 'Minimize') return win.minimize();
+    if (action === 'Maximize') return win.toggleMaximize();
+    return win.close();
   }
 
   // ------------------------------------------------------------------ events
@@ -861,17 +1008,23 @@
       case 'cancel-pairing':
         return stopPairing();
       case 'new-code':
-        state.pairing.expiresAt = Date.now() + 120 * 1000;
-        renderPairing();
-        return $('[data-action="simulate-pair"]', el.pairing).focus();
-      case 'simulate-pair': {
+        await startPairing(state.pairing ? state.pairing.cancellable : !!state.device);
+        return el.pairing.querySelector('button') && el.pairing.querySelector('button').focus();
+      case 'simulate-pair':
         a.disabled = true;
-        const device = await api.simulatePairing();
-        state.showPairing = false;
-        state.pairing = null;
-        await load();
-        return toast(`Paired with ${device.name}`);
-      }
+        return api.simulatePairing(); // fires the same "paired" event a real scan does
+      case 'start-daemon':
+        a.disabled = true;
+        a.textContent = 'Starting…';
+        try {
+          await api.startDaemon();
+          await load();
+        } catch (err) {
+          a.disabled = false;
+          a.textContent = 'Start the service';
+          throw err;
+        }
+        return undefined;
       case 'clear-all': {
         await api.clearNotifications();
         state.notifications = [];
@@ -923,9 +1076,12 @@
         return $('[data-action="unpair-ask"]', slot).focus();
       }
       case 'unpair-confirm': {
-        const name = deviceName();
+        const row = a.closest('[data-device-id]');
+        const target = state.devices.find((x) => x.id === row.dataset.deviceId);
+        if (!target) return undefined;
+        const name = target.name;
         a.disabled = true;
-        await api.unpair(state.device.id);
+        await api.unpair(target.id);
         closeDialog(false);
         await load();
         return toast(`Unpaired ${name}. It can no longer connect.`);
@@ -946,7 +1102,14 @@
         const on = !state.settings[key];
         state.settings[key] = on;
         setSwitch(a, on);
-        return api.updateSetting(key, on);
+        try {
+          await api.updateSetting(key, on);
+        } catch (err) {
+          state.settings[key] = !on;
+          setSwitch(a, !on);
+          throw err;
+        }
+        return undefined;
       }
       default:
         return undefined;
@@ -1081,7 +1244,7 @@
   // ------------------------------------------------------------------ timers
 
   setInterval(() => {
-    if (state.showPairing && state.pairing) {
+    if (state.showPairing && state.pairing && !state.pairing.loading && !state.pairing.error) {
       const left = Math.max(0, Math.ceil((state.pairing.expiresAt - Date.now()) / 1000));
       const cd = $('[data-countdown]', el.pairing);
       if (left === 0 && !$('.qr-box.expired', el.pairing)) {
@@ -1107,6 +1270,25 @@
   for (const [action, name] of [['open-settings', 'settings'], ['win-minimize', 'minimize'], ['win-maximize', 'maximize'], ['win-close', 'close']]) {
     $(`.titlebar [data-action="${action}"]`).innerHTML = icon(name);
   }
-  if (window.__TAURI__) document.body.classList.add('in-app');
+  if (win) {
+    document.body.classList.add('in-app');
+    const titlebar = $('.titlebar');
+    titlebar.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || e.target.closest('button')) return;
+      if (e.detail === 2) win.toggleMaximize();
+      else win.startDragging();
+    });
+    for (const h of document.querySelectorAll('[data-resize]')) {
+      h.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        win.startResize(h.dataset.resize);
+      });
+    }
+    const syncMaximized = () =>
+      win.isMaximized().then((m) => document.body.classList.toggle('maximized', m)).catch(() => {});
+    win.onResized(syncMaximized);
+    syncMaximized();
+  }
   run(load)();
 })();

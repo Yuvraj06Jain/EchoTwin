@@ -1,0 +1,27 @@
+[package]
+name = "phonelink-app"
+description = "PhoneLink desktop window (Tauri). The background service is phonelinkd."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "phonelink-app"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+phonelink-desktop = { path = "../daemon" }
+tauri = { version = "2", features = [] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+qrcode = { version = "0.14", default-features = false }
+
+[features]
+# Embed the UI in the binary and serve it over Tauri's own protocol (no dev server, no
+# localhost). Always on: this project has no separate front-end dev server.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

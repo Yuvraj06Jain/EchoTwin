@@ -97,7 +97,21 @@
     return { ...phone, connected: mode === 'connected', lastSeen: mode === 'connected' ? Date.now() : lastSeen };
   }
 
+  const pairingListeners = [];
+
   const api = {
+    // The preview shows every planned feature.
+    capabilities: {
+      preview: true,
+      notificationMirroring: true,
+      sms: true,
+      files: true,
+      clipboard: true,
+      deviceDetails: true,
+      appFilters: true,
+      discoveryToggle: true,
+    },
+
     // ---- preview-only controls (not part of the real backend)
     async setPreviewMode(next) {
       mode = next;
@@ -112,17 +126,27 @@
       await wait(400);
       mode = 'connected';
       paired = true;
-      return deviceView();
+      const d = deviceView();
+      pairingListeners.forEach((cb) => cb({ kind: 'paired', name: d.name }));
+      return d;
     },
 
     // ---- the real API surface
     async status() {
       await wait(40);
-      return { computer: clone(computer), mode, device: clone(deviceView()) };
+      const device = deviceView();
+      return { computer: clone(computer), mode, device: clone(device), devices: device ? [clone(device)] : [] };
     },
-    async pairingCode() {
-      await wait(60);
-      return { id: computer.id, expiresIn: 120 };
+    async startPairing() {
+      await wait(120);
+      return { qr: window.PREVIEW_QR, id: computer.id, expiresIn: 120 };
+    },
+    async cancelPairing() {},
+    async startDaemon() {},
+    onEvent() {},
+    onDaemon() {},
+    onPairing(cb) {
+      pairingListeners.push(cb);
     },
     async notifications() {
       await wait(60);
@@ -158,7 +182,7 @@
       t.messages.push(msg);
       return clone(msg);
     },
-    async sendText(text) {
+    async sendText(text /* , deviceId */) {
       await wait(150);
       if (!text.trim()) throw new Error('empty text');
       return { queued: mode !== 'connected' };

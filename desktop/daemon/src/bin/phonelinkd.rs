@@ -23,11 +23,13 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let config = Config::load(&paths::config_file())?;
+    let config_path = paths::config_file();
+    let config = Config::load(&config_path)?;
     let opts = DaemonOptions {
         data_dir: paths::data_dir(),
         socket: paths::socket_path(),
         config,
+        config_path: Some(config_path),
     };
     let mut term = signal(SignalKind::terminate())?;
     run(opts, async move {

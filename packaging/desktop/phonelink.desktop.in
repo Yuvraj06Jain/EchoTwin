@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=PhoneLink
+GenericName=Phone connection
+Comment=See your phone's notes, messages and files on this computer
+Exec=@BINDIR@/phonelink-app
+Icon=phonelink
+Terminal=false
+Categories=Network;Utility;
+Keywords=phone;android;sms;notifications;pair;
+StartupWMClass=phonelink-app

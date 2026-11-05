@@ -39,6 +39,7 @@ async fn start_daemon() -> TestDaemon {
         data_dir: dir.path().join("data"),
         socket: socket.clone(),
         config,
+        config_path: Some(dir.path().join("config.toml")),
     };
     let (tx, rx) = oneshot::channel::<()>();
     let task = tokio::spawn(run(opts, async move {
@@ -212,6 +213,21 @@ async fn full_pairing_and_messaging_through_the_daemon() {
     let (_, text) = cli(&d.socket, &["devices"]);
     assert!(text.contains("No paired devices"), "{text}");
 
+    // --- desktop notifications can be toggled at runtime and are saved
+    let mut c = client(&d.socket).await;
+    assert_eq!(
+        c.request(&Request::SetNotifications { enabled: true })
+            .await
+            .unwrap(),
+        Reply::Done
+    );
+    let Reply::Status { notifications, .. } = c.request(&Request::Status).await.unwrap() else {
+        panic!()
+    };
+    assert!(notifications, "status reflects the new setting");
+    let saved = std::fs::read_to_string(d._dir.path().join("config.toml")).unwrap();
+    assert!(saved.contains("notifications = true"), "{saved}");
+
     // --- a second daemon on the same socket refuses to start
     let dup = DaemonOptions {
         data_dir: d._dir.path().join("data2"),
@@ -222,6 +238,7 @@ async fn full_pairing_and_messaging_through_the_daemon() {
             discovery: false,
             ..Config::default()
         },
+        config_path: None,
     };
     let err = run(dup, async {}).await.unwrap_err();
     assert!(err.to_string().contains("already running"), "{err}");

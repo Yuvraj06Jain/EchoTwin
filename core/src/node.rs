@@ -128,6 +128,10 @@ struct Inner {
     /// Bumped to make reconnect loops retry at once (network changed / peer discovered).
     /// A counter in a watch channel cannot lose a wake-up, unlike a bare Notify.
     nudge: watch::Sender<u64>,
+    /// One outgoing dial per peer at a time. Without this, two callers (e.g. pairing and
+    /// the reconnect loop) could both connect, and the second connection would replace
+    /// the first: a needless disconnect/reconnect blip.
+    dial_locks: Mutex<HashMap<Fingerprint, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 #[derive(Clone)]
@@ -181,6 +185,7 @@ impl Node {
                 shutdown: watch::channel(false).0,
                 addr_hints: Mutex::new(HashMap::new()),
                 nudge: watch::channel(0).0,
+                dial_locks: Mutex::new(HashMap::new()),
             }),
         };
         info!(fingerprint = %node.fingerprint().short(), addr = ?node.local_addr(), "node started");
@@ -425,6 +430,18 @@ impl Node {
         }
         if self.is_connected(&peer) {
             return Ok(());
+        }
+        let lock = self
+            .inner
+            .dial_locks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(peer)
+            .or_default()
+            .clone();
+        let _dialing = lock.lock().await;
+        if self.is_connected(&peer) {
+            return Ok(()); // another caller connected while we waited
         }
         if addrs.is_empty() {
             return Err(Error::Protocol("no known address for peer".into()));

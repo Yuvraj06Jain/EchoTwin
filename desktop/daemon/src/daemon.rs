@@ -34,12 +34,16 @@ pub struct DaemonOptions {
     pub data_dir: PathBuf,
     pub socket: PathBuf,
     pub config: Config,
+    /// Where settings changed at runtime are saved (`None`: don't persist).
+    pub config_path: Option<PathBuf>,
 }
 
 struct State {
     node: Node,
     port: u16,
     config: Config,
+    config_path: Option<PathBuf>,
+    notifications: std::sync::atomic::AtomicBool,
     watchers: broadcast::Sender<WatchEvent>,
     keepers: Mutex<HashMap<Fingerprint, JoinHandle<()>>>,
     advert_refresh: Arc<Notify>,
@@ -58,6 +62,8 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         node: node.clone(),
         port,
         config: opts.config.clone(),
+        config_path: opts.config_path.clone(),
+        notifications: std::sync::atomic::AtomicBool::new(opts.config.notifications),
         watchers,
         keepers: Mutex::new(HashMap::new()),
         advert_refresh: Arc::new(Notify::new()),
@@ -151,6 +157,16 @@ async fn bind_control_socket(path: &Path) -> anyhow::Result<UnixListener> {
     let listener = UnixListener::bind(path)?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     Ok(listener)
+}
+
+fn save_config(path: &Path, cfg: &Config) -> anyhow::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, toml::to_string(cfg)?)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
 }
 
 fn my_uid() -> u32 {
@@ -263,12 +279,28 @@ impl State {
     }
 }
 
+/// A phone that drops and returns within this window (network hand-over, duplicate
+/// connection being resolved) doesn't get a second "connected" popup.
+const RECONNECT_QUIET: Duration = Duration::from_secs(10);
+/// The phone always connects right after pairing; dialling it at the same moment would
+/// only create a duplicate connection that then has to be resolved.
+const DIAL_AFTER_PAIRING: Duration = Duration::from_secs(4);
+
 async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedReceiver<Event>) {
-    let notify = state.config.notifications;
+    let mut last_disconnect: HashMap<Fingerprint, std::time::Instant> = HashMap::new();
     while let Some(ev) = events.recv().await {
+        let notify = state
+            .notifications
+            .load(std::sync::atomic::Ordering::Relaxed);
         let watch = match ev {
             Event::Paired { peer, name } => {
-                state.keep_connected(peer);
+                let delayed = state.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(DIAL_AFTER_PAIRING).await;
+                    if delayed.node.peer(&peer).is_some() {
+                        delayed.keep_connected(peer);
+                    }
+                });
                 state.advert_refresh.notify_one();
                 notify_desktop(
                     notify,
@@ -281,8 +313,11 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                 }
             }
             Event::PeerConnected { peer, name, .. } => {
+                let blip = last_disconnect
+                    .get(&peer)
+                    .is_some_and(|t| t.elapsed() < RECONNECT_QUIET);
                 notify_desktop(
-                    notify,
+                    notify && !blip,
                     format!("{name} connected"),
                     "PhoneLink is active.".into(),
                 );
@@ -291,10 +326,13 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     name,
                 }
             }
-            Event::PeerDisconnected { peer } => WatchEvent::Disconnected {
-                id: peer.short(),
-                name: state.name_of(&peer),
-            },
+            Event::PeerDisconnected { peer } => {
+                last_disconnect.insert(peer, std::time::Instant::now());
+                WatchEvent::Disconnected {
+                    id: peer.short(),
+                    name: state.name_of(&peer),
+                }
+            }
             Event::Message { peer, body, .. } => match AppMessage::decode(&body) {
                 AppMessage::Text { text } => {
                     let name = state.name_of(&peer);
@@ -349,6 +387,28 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
             }
         };
         match req {
+            Request::SetNotifications { enabled } => {
+                state
+                    .notifications
+                    .store(enabled, std::sync::atomic::Ordering::Relaxed);
+                let reply = match &state.config_path {
+                    Some(path) => {
+                        let mut cfg = Config::load(path).unwrap_or_else(|_| state.config.clone());
+                        cfg.notifications = enabled;
+                        match save_config(path, &cfg) {
+                            Ok(()) => Reply::Done,
+                            Err(e) => Reply::Error {
+                                message: format!(
+                                    "saved for now, but could not write {}: {e}",
+                                    path.display()
+                                ),
+                            },
+                        }
+                    }
+                    None => Reply::Done,
+                };
+                write_reply(&mut w, &reply).await?;
+            }
             Request::Status => {
                 let node = &state.node;
                 let reply = Reply::Status {
@@ -357,6 +417,9 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                     fingerprint: node.fingerprint().to_hex(),
                     port: state.port,
                     devices: state.devices(),
+                    notifications: state
+                        .notifications
+                        .load(std::sync::atomic::Ordering::Relaxed),
                 };
                 write_reply(&mut w, &reply).await?;
             }

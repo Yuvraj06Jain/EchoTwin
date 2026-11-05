@@ -15,6 +15,7 @@ No accounts, no cloud, LAN only (v1).
 | 2b. Linux daemon `phonelinkd` + `phonelink` CLI | **done** |
 | 2c. Rust ↔ Kotlin bridge (UniFFI), tested on JVM against the real daemon | **done** |
 | 2d. Android app: QR pairing, foreground service, discovery, test messages | **built** by GitHub Actions (APK in Releases); not yet tested on a real phone |
+| 6a. Desktop app (Tauri): pairing, connection status, notes, settings; dark theme | **done**; tested against the real service with a simulated phone |
 | 3. Resumable file transfer, clipboard | |
 | 4. Notification mirroring + replies | |
 | 5. SMS | |
@@ -26,6 +27,8 @@ No accounts, no cloud, LAN only (v1).
 core/             Rust crate shared by the Linux daemon and (via UniFFI) the Android app
 core-ffi/         UniFFI bindings for Android (+ kotlin-test: JVM end-to-end test)
 desktop/daemon/   phonelinkd (systemd user service) + phonelink CLI
+desktop/app/      PhoneLink desktop app (Tauri window; UI from desktop/ui, embedded)
+desktop/ui/       the app's HTML/CSS/JS; open index.html in a browser for a sample-data preview
 android/          Kotlin/Compose app; the generated bindings live in dev/phonelink/core
 packaging/        systemd unit, install/uninstall scripts
 scripts/          Android build, bindings generation, Kotlin end-to-end test

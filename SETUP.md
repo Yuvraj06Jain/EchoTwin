@@ -3,12 +3,13 @@
 This guide covers the current version (0.1).
 
 **What works today:**
+- the **PhoneLink desktop app** (open it from your application menu)
 - pairing by QR code
 - automatic connection and reconnection over your Wi-Fi
 - text notes in both directions
 - desktop notifications on the laptop
 
-**Not built yet:** mirroring your phone's notifications, SMS, file transfer, clipboard and a desktop window. See the README roadmap.
+**Not built yet:** mirroring your phone's notifications, SMS, file transfer and clipboard. The app already has their tabs, and says "coming in the next update" until each one exists. See the README roadmap.
 
 ---
 
@@ -47,10 +48,26 @@ The script picks the prebuilt binaries automatically. On an older system it buil
    ```
    The first build takes about 3–5 minutes.
 
+### The desktop app needs WebKitGTK
+The window is drawn with WebKitGTK (KDE doesn't ship it by default). Install it once:
+
+Kubuntu/Ubuntu:
+```bash
+sudo apt install libwebkit2gtk-4.1-0
+```
+Arch:
+```bash
+sudo pacman -S webkit2gtk-4.1
+```
+If it's missing, `install.sh` still installs the service and tells you this command.
+
 ### What the installer does
-- Copies `phonelinkd` (the background service) and `phonelink` (the command) to `~/.local/bin`.
+- Copies `phonelinkd` (the background service), `phonelink` (the command) and `phonelink-app` (the window) to `~/.local/bin`.
+- Adds **PhoneLink** to your application menu, with its icon.
 - Installs and starts the systemd **user** service `phonelinkd`. It starts automatically every time you log in.
 - Nothing runs as root. Nothing is installed system-wide.
+
+The window is only a view. Closing it does **not** disconnect your phone: the service keeps running in the background.
 
 ### Where your data lives
 | Path | What | Notes |
@@ -91,14 +108,11 @@ systemctl --user restart phonelinkd
 
 Both devices must be on the **same network**: the same Wi-Fi, or the laptop connected to the phone's hotspot.
 
-1. Laptop:
-   ```bash
-   phonelink pair
-   ```
-   A QR code appears with "this computer's id", e.g. `405F-AEB0-D952-DF66`.
+1. Laptop: open **PhoneLink** from the application menu. With no phone paired, it shows a QR code and "this computer's id", e.g. `405F-AEB0-D952-DF66`.
+   (Later, use **Pair another device** in the app. From a terminal, `phonelink pair` works too.)
 2. Phone: **Pair a computer**, then scan the code.
 3. The phone shows "Pair with *laptop name*?" and an id. **Check that it matches the terminal's id exactly**, then tap **Pair**.
-4. The terminal prints `Paired with Galaxy S24 FE`, and the laptop shows a "Galaxy S24 FE connected" notification.
+4. The app switches to the main view showing the phone as *Connected*.
 
 The QR code is valid for 2 minutes and works only once. If the id doesn't match, **don't pair**: something else answered on the network. Run `phonelink pair` again.
 
@@ -110,8 +124,8 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 |---|---|---|
 | 1 | Pair (section 3) | both sides show each other; laptop notification "… connected" |
 | 2 | `phonelink devices` | `Galaxy S24 FE  connected` |
-| 3 | `phonelink send-text hello from laptop` | notification on the phone + text under *Received* in the app |
-| 4 | In the app, type a message and tap **Send to computer** | KDE notification "Message from Galaxy S24 FE" |
+| 3 | Laptop app: **Send a note**, type, **Send** (or `phonelink send-text hello`) | notification on the phone + text under *Received* in the phone app |
+| 4 | Phone app: type a message and tap **Send to computer** | it appears in the laptop app's Notifications tab, and as a KDE notification |
 | 5 | Run `phonelink watch` in a terminal, then do 3 and 4 again | live events printed |
 | 6 | Turn the phone's Wi-Fi off for 30 s and back on | it shows *connected* again within a few seconds, without you doing anything |
 | 7 | With the laptop off or asleep, send 3 messages from the phone, then wake the laptop | all 3 arrive once, in order |
@@ -136,7 +150,7 @@ When something fails, include:
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `phonelink: command not found` | `~/.local/bin` not in PATH yet | log out and back in (Kubuntu adds it at login), or run `~/.local/bin/phonelink` |
+| `phonelink: command not found` | `~/.local/bin` not in PATH yet | log out and back in (Kubuntu adds it at login), or run `~/.local/bin/phonelink`. The app in the menu works regardless |
 | `install.sh`: "Rust is not installed" | old glibc or non-x86_64, so prebuilt binaries can't be used | install Rust (Option B) and run it again |
 | `Failed to connect to bus` from `systemctl --user` | running over SSH/su without a user session | run it from a normal terminal in your desktop session |
 | Phone: "App not installed" / "package conflicts" | an APK signed with a different key is installed | uninstall PhoneLink first, then install. This resets the phone's pairing: see *re-pairing* |
@@ -152,6 +166,17 @@ When something fails, include:
 | log: `phonelinkd is already running` | it already is; use `systemctl --user restart phonelinkd` instead of starting it by hand |
 | no desktop notifications | KDE *Do Not Disturb* is on, or `notifications = false` in config. Check System Settings → Notifications. `phonelink watch` shows events regardless |
 | need more detail in logs | `systemctl --user edit phonelinkd`, add `[Service]` and `Environment=RUST_LOG=debug`, save, restart |
+
+### The desktop app
+
+| Symptom | Fix |
+|---|---|
+| PhoneLink isn't in the application menu | the installer skipped the app because WebKitGTK was missing: install it (section 1) and run `./packaging/install.sh` again |
+| "error while loading shared libraries: libwebkit2gtk-4.1.so.0" | same: install WebKitGTK (section 1) |
+| the app says *The PhoneLink service isn't running* | click **Start the service**. If that fails: `journalctl --user -u phonelinkd -n 50` |
+| window is blank / white | run it once from a terminal with `phonelink-app` and send me the output. The app already disables the WebKit renderer that most often causes this on NVIDIA drivers |
+| black corners instead of rounded ones | desktop effects (compositing) are off. KDE: System Settings → Display and Monitor → Compositor → *Enable on startup* |
+| want to see the full design with sample data | `phonelink-app --demo` |
 
 ### Pairing
 

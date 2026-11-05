@@ -19,7 +19,7 @@
     <div class="window" id="window">
       <header class="titlebar" data-tauri-drag-region>
         <div class="titlebar-left" data-tauri-drag-region>
-          <span class="app-mark" aria-hidden="true"></span>
+          <svg class="app-mark" viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="4.2" fill="#23905f"/><circle cx="6.1" cy="8" r="2.75" fill="#f2fbf6"/><circle cx="10.75" cy="8" r="1.75" fill="none" stroke="#f2fbf6" stroke-width="1.2"/></svg>
           <span class="app-name">PhoneLink</span>
           <span class="conn-pill" id="conn-pill"></span>
         </div>
@@ -46,6 +46,11 @@
           <section class="panel" id="panel-notifications" role="tabpanel" aria-labelledby="tab-notifications"></section>
 
           <section class="panel panel-messages" id="panel-messages" role="tabpanel" aria-labelledby="tab-messages" hidden>
+            <div class="empty soon">
+              <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 17h-8l-4.5 3.5V17H5a1.5 1.5 0 0 1-1.5-1.5v-9A1.5 1.5 0 0 1 5 5z"/></svg>
+              <strong>Text messages are coming in the next update</strong>
+              <span>You'll be able to read and reply to your phone's SMS conversations here.</span>
+            </div>
             <div class="threads">
               <div class="threads-search">
                 <input type="search" id="thread-search" placeholder="Search conversations" aria-label="Search conversations" autocomplete="off">
@@ -67,6 +72,17 @@
       </div>
 
       <div class="pairing" id="pairing" hidden></div>
+      <div class="pairing" id="service" hidden></div>
+
+      <!-- Invisible edges for resizing the frameless window (desktop app only). -->
+      <div class="resize-handle rh-n" data-resize="North" aria-hidden="true"></div>
+      <div class="resize-handle rh-s" data-resize="South" aria-hidden="true"></div>
+      <div class="resize-handle rh-e" data-resize="East" aria-hidden="true"></div>
+      <div class="resize-handle rh-w" data-resize="West" aria-hidden="true"></div>
+      <div class="resize-handle rh-ne" data-resize="NorthEast" aria-hidden="true"></div>
+      <div class="resize-handle rh-nw" data-resize="NorthWest" aria-hidden="true"></div>
+      <div class="resize-handle rh-se" data-resize="SouthEast" aria-hidden="true"></div>
+      <div class="resize-handle rh-sw" data-resize="SouthWest" aria-hidden="true"></div>
 
       <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
       <input type="file" id="file-input" multiple hidden>
@@ -75,6 +91,7 @@
 
   <script src="qr-sample.js"></script>
   <script src="mock-api.js"></script>
+  <script src="tauri-api.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

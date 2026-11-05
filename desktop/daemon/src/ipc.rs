@@ -23,6 +23,10 @@ pub enum Request {
     },
     /// Stream `Event` replies until the connection is closed.
     Watch,
+    /// Turn desktop notifications on or off (saved to config.toml).
+    SetNotifications {
+        enabled: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -68,6 +72,9 @@ pub enum Reply {
         fingerprint: String,
         port: u16,
         devices: Vec<DeviceInfo>,
+        /// Whether desktop notifications are on (absent from older daemons).
+        #[serde(default)]
+        notifications: bool,
     },
     Devices {
         devices: Vec<DeviceInfo>,

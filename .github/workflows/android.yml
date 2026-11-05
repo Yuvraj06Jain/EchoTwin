@@ -1,0 +1,93 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "android/**"
+      - "core/**"
+      - "core-ffi/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/**"
+      - "scripts/build-android.sh"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write # publish the release and the ci-logs branch
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build APK (Rust core + Android app)
+        run: |
+          set -o pipefail
+          ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" ./scripts/build-android.sh 2>&1 | tee build.log
+
+      - name: Check APK contents
+        run: |
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          unzip -l "$APK" | tee -a build.log
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libphonelink_ffi.so"
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libjnidispatch.so"
+          cp "$APK" "PhoneLink-${GITHUB_SHA::7}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneLink-apk
+          path: PhoneLink-*.apk
+
+      - name: Publish as the "latest-apk" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest-apk --yes --cleanup-tag || true
+          gh release create latest-apk PhoneLink-*.apk \
+            --target "$GITHUB_SHA" \
+            --title "PhoneLink for Android (latest build)" \
+            --notes "Built from ${GITHUB_SHA::7}. Open this page on your phone, download the APK and install it (allow 'Install unknown apps' for your browser when asked)."
+
+      # Lets the developer read build errors with plain git, whatever the repo visibility.
+      - name: Report result to the ci-logs branch
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+          TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/ci && cd /tmp/ci
+          git init -q -b ci-logs
+          printf 'sha: %s\nresult: %s\nrun: %s/%s/actions/runs/%s\n' \
+            "$GITHUB_SHA" "$RESULT" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > status.txt
+          if [ -f "$GITHUB_WORKSPACE/build.log" ]; then
+            tail -c 300000 "$GITHUB_WORKSPACE/build.log" > build.log
+            grep -nE "^e: |^w: .*error|error(\[E[0-9]+\])?:|What went wrong|FAILURE|AAPT|Execution failed" -A 8 \
+              "$GITHUB_WORKSPACE/build.log" | head -400 > errors.log || true
+          fi
+          git add -A
+          git -c user.name="ci" -c user.email="ci@users.noreply.github.com" commit -qm "CI $RESULT for ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-logs

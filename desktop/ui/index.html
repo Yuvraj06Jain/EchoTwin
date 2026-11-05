@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>PhoneLink</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="desktop">
+    <div class="preview-bar" role="group" aria-label="Preview state">
+      <span class="preview-label">Preview</span>
+      <button type="button" class="preview-btn" data-preview="connected" aria-pressed="true">Connected</button>
+      <button type="button" class="preview-btn" data-preview="offline" aria-pressed="false">Offline</button>
+      <button type="button" class="preview-btn" data-preview="unpaired" aria-pressed="false">Not paired</button>
+    </div>
+
+    <div class="window" id="window">
+      <header class="titlebar" data-tauri-drag-region>
+        <div class="titlebar-left" data-tauri-drag-region>
+          <span class="app-mark" aria-hidden="true"></span>
+          <span class="app-name">PhoneLink</span>
+          <span class="conn-pill" id="conn-pill"></span>
+        </div>
+        <div class="titlebar-right">
+          <button type="button" class="icon-btn" data-action="open-settings" aria-label="Settings" title="Settings"></button>
+          <span class="titlebar-sep" aria-hidden="true"></span>
+          <button type="button" class="win-btn" data-action="win-minimize" aria-label="Minimize" title="Minimize"></button>
+          <button type="button" class="win-btn" data-action="win-maximize" aria-label="Maximize" title="Maximize"></button>
+          <button type="button" class="win-btn win-close" data-action="win-close" aria-label="Close" title="Close"></button>
+        </div>
+      </header>
+
+      <div class="body" id="main-body">
+        <aside class="device-panel" id="device-panel" aria-label="Phone"></aside>
+
+        <main class="content">
+          <div class="banner" id="offline-banner" hidden></div>
+          <div class="tabs" role="tablist" aria-label="Sections">
+            <button type="button" role="tab" class="tab" id="tab-notifications" data-tab="notifications" aria-controls="panel-notifications"></button>
+            <button type="button" role="tab" class="tab" id="tab-messages" data-tab="messages" aria-controls="panel-messages"></button>
+            <button type="button" role="tab" class="tab" id="tab-files" data-tab="files" aria-controls="panel-files"></button>
+          </div>
+
+          <section class="panel" id="panel-notifications" role="tabpanel" aria-labelledby="tab-notifications"></section>
+
+          <section class="panel panel-messages" id="panel-messages" role="tabpanel" aria-labelledby="tab-messages" hidden>
+            <div class="threads">
+              <div class="threads-search">
+                <input type="search" id="thread-search" placeholder="Search conversations" aria-label="Search conversations" autocomplete="off">
+              </div>
+              <ul class="thread-list" id="thread-list" aria-label="Conversations"></ul>
+            </div>
+            <div class="conversation" id="conversation">
+              <header class="conv-header" id="conv-header"></header>
+              <div class="conv-scroll" id="conv-scroll" aria-live="polite"></div>
+              <form class="composer" id="composer" autocomplete="off">
+                <textarea id="composer-input" rows="1" placeholder="Text message" aria-label="Message"></textarea>
+                <button type="submit" class="btn btn-primary" id="composer-send" disabled>Send</button>
+              </form>
+            </div>
+          </section>
+
+          <section class="panel" id="panel-files" role="tabpanel" aria-labelledby="tab-files" hidden></section>
+        </main>
+      </div>
+
+      <div class="pairing" id="pairing" hidden></div>
+
+      <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+      <input type="file" id="file-input" multiple hidden>
+    </div>
+  </div>
+
+  <script src="qr-sample.js"></script>
+  <script src="mock-api.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

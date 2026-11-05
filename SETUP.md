@@ -1,15 +1,21 @@
 # PhoneLink: setup, test checklist and troubleshooting
 
-This guide covers the current version (0.1).
+This guide covers the current version (0.2).
 
 **What works today:**
 - the **PhoneLink desktop app** (open it from your application menu)
 - pairing by QR code
 - automatic connection and reconnection over your Wi-Fi
 - text notes in both directions
-- desktop notifications on the laptop
+- **your phone's notifications on the laptop**, both as KDE popups and in the app's Notifications tab:
+  - reply where the phone app allows it (WhatsApp, Messages…)
+  - press their buttons ("Mark as read", "Archive"…)
+  - dismiss them
+- settings in the laptop app: *Dismiss on both devices* (off by default), which apps to show, and desktop popups on/off
 
-**Not built yet:** mirroring your phone's notifications, SMS, file transfer and clipboard. The app already has their tabs, and says "coming in the next update" until each one exists. See the README roadmap.
+Mirroring is **one-way**: phone → laptop. The laptop never sends its own notifications to the phone (notes you type with *Send a note* are the only thing that appears on the phone).
+
+**Not built yet:** SMS conversations, file transfer and clipboard. The app has their tabs and says "coming in the next update" until each one exists.
 
 ---
 
@@ -101,6 +107,18 @@ systemctl --user restart phonelinkd
    - Allow **notifications** (so it can show its "Connected" status and incoming messages).
    - Tap **Allow background use**, then **Allow**.
    - Then, **important on Samsung**: Settings → Battery → Background usage limits → **Never sleeping apps** → **+** → PhoneLink.
+4. **Show your phone's notifications on the laptop** (after pairing, section 3). In the PhoneLink phone app, tap **Allow notification access** and switch PhoneLink on.
+   - **If the switch is greyed out** ("Restricted setting"): Android blocks this for apps installed from a file.
+     1. Back in PhoneLink, tap **Open App info**.
+     2. Tap **⋮** (top right), then **Allow restricted settings**, and confirm with your PIN or fingerprint.
+     3. Tap **Allow notification access** again; the switch now works.
+
+### What the phone app can and can't access
+- **Microphone:** never. The permission isn't in the app, and the build fails if anything adds it.
+- **Camera:** only while you scan the pairing QR code. Afterwards the app gives the permission back, and Android removes it as soon as the app closes. Check under Settings → Apps → PhoneLink → Permissions.
+- **Location, contacts, storage:** never.
+- **Notifications:** read only after you grant access. They're sent only to your paired laptop, encrypted.
+- **Uninstalling** removes everything: keys, pairings, queued messages and cached app icons all live in the app's private storage, which Android deletes. Nothing is kept in your files or in cloud backups.
 
 ---
 
@@ -133,6 +151,13 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 9 | Reboot the phone (don't open the app) | laptop shows *connected* again after boot |
 | 10 | Reboot the laptop | reconnects after login |
 | 11 | On college Wi-Fi, check `phonelink devices` | *connected*; if *offline*, see **client isolation** below |
+| 12 | Grant notification access (section 2, step 4), then get a WhatsApp message | a popup on the laptop with WhatsApp's icon, and it's listed in the app |
+| 13 | In the laptop app, **Reply** to that WhatsApp notification | the reply is sent from your phone, and appears in the WhatsApp chat |
+| 14 | Laptop app: press a button such as **Mark as read** | it happens on the phone |
+| 15 | With *Dismiss on both devices* **off**: clear a notification on the laptop; clear another on the phone | the laptop doesn't touch the phone. The one cleared on the phone shows *Cleared on phone* in the app |
+| 16 | Turn *Dismiss on both devices* **on** (laptop app → ⚙ Settings) and repeat 15 | clearing either side clears the other |
+| 17 | Laptop app → Settings → switch off an app under *Show notifications from* | its notifications disappear from the app and stop popping up |
+| 18 | Pair again later (or check now): after the scan, close the phone app, then look at Settings → Apps → PhoneLink → Permissions | Camera shows *Not allowed* |
 
 When something fails, include:
 - the step number
@@ -177,6 +202,18 @@ When something fails, include:
 | window is blank / white | run it once from a terminal with `phonelink-app` and send me the output. The app already disables the WebKit renderer that most often causes this on NVIDIA drivers |
 | black corners instead of rounded ones | desktop effects (compositing) are off. KDE: System Settings → Display and Monitor → Compositor → *Enable on startup* |
 | want to see the full design with sample data | `phonelink-app --demo` |
+
+### Phone notifications on the laptop
+
+| Symptom | Fix |
+|---|---|
+| no phone notifications arrive at all | phone app: is the *Allow notification access* card still there? Grant it (section 2, step 4) |
+| the notification-access switch is greyed out | *Allow restricted settings* first (section 2, step 4) |
+| they're in the app but no popup appears | laptop app → Settings: *Desktop notifications* must be on, and the app not switched off under *Show notifications from*. KDE's *Do Not Disturb* also hides popups. Notifications older than 2 minutes (arriving after the laptop wakes) go to the list only, by design |
+| one app's notifications never appear | some notifications are deliberately skipped: music players, navigation, downloads, and other ongoing ones. Android 15 also hides one-time codes (OTPs) from apps like PhoneLink |
+| **Reply** is missing for an app | that app doesn't offer a reply box in its phone notification either |
+| "Your phone couldn't do that" | the notification was already gone on the phone, or the app refused. Some apps only accept replies or buttons when the phone is unlocked |
+| notifications stop after a while | battery settings (see *Can't connect*): PhoneLink must be in *Never sleeping apps* |
 
 ### Pairing
 
@@ -236,4 +273,6 @@ On the phone: uninstall the app as usual. Its keys are deleted with it, and they
 
 - There is no server, no account and no cloud. Data goes directly between your two devices, encrypted with TLS 1.3, and only between devices that have scanned each other's code.
 - On the network, other devices only see random identifiers that change every 10 minutes: never your laptop's name or your phone's model.
+- Mirrored notifications are kept **in memory only** on the laptop (the newest 200), never written to disk. App icons are cached in `~/.local/share/phonelink/icons`.
+- See *What the phone app can and can't access* in section 2 for camera, microphone and uninstall.
 - The GitHub repository holds only source code. Keys, pairings and messages never leave your devices. The repository is currently **public**; you can make it private in GitHub → Settings without affecting anything.

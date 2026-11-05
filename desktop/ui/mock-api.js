@@ -31,7 +31,7 @@
 
   const db = {
     notifications: [
-      { id: 'n1', app: 'WhatsApp', title: 'Rahul', text: 'Are you coming to the lab today? Sir moved the viva to 3 pm.', time: ago(2), canReply: true },
+      { id: 'n1', app: 'WhatsApp', title: 'Rahul', text: 'Are you coming to the lab today? Sir moved the viva to 3 pm.', time: ago(2), canReply: true, actions: ['Mark as read'] },
       { id: 'n2', app: 'WhatsApp', title: 'CSE 3rd year', text: 'Ananya: Notes for unit 4 are in the drive folder', time: ago(9), canReply: true },
       { id: 'n3', app: 'Gmail', title: 'Placement Cell', text: 'Registration for the November drive closes tomorrow at 5 pm.', time: ago(26), canReply: false },
       { id: 'n4', app: 'Calendar', title: 'Operating Systems lab', text: 'Today, 2:00 – 5:00 pm · Lab complex, room 214', time: ago(48), canReply: false },
@@ -78,6 +78,7 @@
     ],
     settings: {
       desktopNotifications: true,
+      syncDismissals: false,
       discovery: true,
       clipboardSync: true,
       apps: [
@@ -110,6 +111,8 @@
       deviceDetails: true,
       appFilters: true,
       discoveryToggle: true,
+      syncDismissals: true,
+      notificationButtons: true,
     },
 
     // ---- preview-only controls (not part of the real backend)
@@ -165,6 +168,15 @@
       await wait(250);
       if (!text.trim()) throw new Error('empty reply');
       return { queued: mode !== 'connected' };
+    },
+    async pressAction(id, index) {
+      await wait(150);
+      const n = db.notifications.find((x) => x.id === id);
+      if (!n || !n.actions || !n.actions[index]) throw new Error('That button is no longer available');
+      return { queued: mode !== 'connected' };
+    },
+    async appIcons() {
+      return {};
     },
     async threads() {
       await wait(60);

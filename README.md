@@ -16,6 +16,7 @@ No accounts, no cloud, LAN only (v1).
 | 2c. Rust ↔ Kotlin bridge (UniFFI), tested on JVM against the real daemon | **done** |
 | 2d. Android app: QR pairing, foreground service, discovery, test messages | **built** by GitHub Actions (APK in Releases); not yet tested on a real phone |
 | 6a. Desktop app (Tauri): pairing, connection status, notes, settings; dark theme | **done**; tested against the real service with a simulated phone |
+| 4. Phone notifications on the laptop: popups, list, reply, buttons, dismiss (sync optional), per-app filter | **done**; laptop side tested end to end, phone side compiled in CI, needs your real-phone test |
 | 3. Resumable file transfer, clipboard | |
 | 4. Notification mirroring + replies | |
 | 5. SMS | |

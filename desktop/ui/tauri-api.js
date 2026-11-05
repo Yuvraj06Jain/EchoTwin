@@ -37,6 +37,8 @@
   let notes = [];
   let noteSeq = 0;
   let notificationsOn = true;
+  let syncDismissals = false;
+  let knownApps = []; // [{ package, app, muted }] from the service
 
   T.event.listen('phonelink://event', ({ payload }) => {
     if (payload.kind === 'text') {
@@ -73,18 +75,21 @@
     // What the phone and service can do today. The UI hides or explains the rest.
     capabilities: {
       preview: false,
-      notificationMirroring: false,
+      notificationMirroring: true,
+      syncDismissals: true,
+      notificationButtons: true,
       sms: false,
       files: false,
       clipboard: false,
       deviceDetails: false,
-      appFilters: false,
+      appFilters: true,
       discoveryToggle: false,
     },
 
     async status() {
       const s = await invoke('status');
       notificationsOn = s.notifications;
+      syncDismissals = !!s.sync_dismissals;
       const devices = s.devices.map(toDevice);
       const device = devices.find((d) => d.connected) || devices[0] || null;
       return {
@@ -95,16 +100,45 @@
       };
     },
 
+    // Mirrored notifications from the phone, plus notes typed in the phone app.
     async notifications() {
-      return notes.map((n) => ({ ...n }));
+      const r = await invoke('notifications');
+      knownApps = r.apps;
+      const mirrored = r.items.map((n) => ({
+        id: n.id,
+        app: n.app,
+        package: n.package,
+        title: n.title,
+        text: n.text,
+        time: n.posted_ms,
+        canReply: n.can_reply,
+        actions: n.actions,
+        removedOnPhone: n.removed_on_phone,
+      }));
+      return [...notes.map((n) => ({ ...n })), ...mirrored];
     },
     async dismiss(id) {
-      notes = notes.filter((n) => n.id !== id);
+      if (id.startsWith('note-')) {
+        notes = notes.filter((n) => n.id !== id);
+        return;
+      }
+      await invoke('dismiss_notification', { id });
     },
     async clearNotifications() {
       notes = [];
+      await invoke('clear_notifications');
     },
-    reply: notYet('Replying'),
+    async reply(id, text) {
+      const deliveredNow = await invoke('reply_notification', { id, text });
+      return { queued: !deliveredNow };
+    },
+    async pressAction(id, index) {
+      const deliveredNow = await invoke('notification_action', { id, index });
+      return { queued: !deliveredNow };
+    },
+    async appIcons() {
+      return invoke('app_icons');
+    },
 
     async threads() {
       return [];
@@ -120,15 +154,29 @@
     async transferProgress() {},
 
     async settings() {
-      return { desktopNotifications: notificationsOn, discovery: true, clipboardSync: false, apps: [] };
+      return {
+        desktopNotifications: notificationsOn,
+        syncDismissals,
+        discovery: true,
+        clipboardSync: false,
+        apps: knownApps.map((a) => ({ name: a.app, package: a.package, enabled: !a.muted })),
+      };
     },
     async updateSetting(key, value) {
       if (key === 'desktopNotifications') {
         await invoke('set_notifications', { enabled: value });
         notificationsOn = value;
+      } else if (key === 'syncDismissals') {
+        await invoke('set_sync_dismissals', { enabled: value });
+        syncDismissals = value;
       }
     },
-    async setAppMirrored() {},
+    async setAppMirrored(name, enabled) {
+      const app = knownApps.find((a) => a.app === name);
+      if (!app) throw new Error(`unknown app ${name}`);
+      await invoke('set_app_muted', { package: app.package, muted: !enabled });
+      app.muted = !enabled;
+    },
 
     async sendText(text, deviceId) {
       const deliveredNow = await invoke('send_note', { text, device: deviceId || null });

@@ -14,6 +14,8 @@
     deviceDetails: true,
     appFilters: true,
     discoveryToggle: true,
+    syncDismissals: true,
+    notificationButtons: true,
     ...(api.capabilities || {}),
   };
 
@@ -106,6 +108,7 @@
     tab: 'notifications',
     notifications: [],
     threads: [],
+    icons: {}, // package → data: URL
     transfers: [],
     settings: null,
     activeThread: null,
@@ -119,6 +122,21 @@
     pairing: null, // { expiresAt, cancellable, qr, id, loading, error }
   };
   let loadSeq = 0;
+  // Every notification-list request is numbered; an older answer never overwrites a newer
+  // one (a slow full reload must not undo a live update that finished first).
+  let notifRequested = 0;
+  let notifApplied = 0;
+  function fetchNotifications() {
+    const seq = ++notifRequested;
+    return api.notifications().then((list) => ({ seq, list }));
+  }
+  function applyNotifications({ seq, list }) {
+    if (seq < notifApplied) return false;
+    notifApplied = seq;
+    state.notifications = list.sort((a, b) => b.time - a.time);
+    if (state.replyOpen && !state.notifications.some((n) => n.id === state.replyOpen)) state.replyOpen = null;
+    return true;
+  }
   let tempSeq = 0;
 
   const el = {
@@ -195,7 +213,11 @@
     }
     state.serviceDown = false;
     const [notifications, threads, transfers, settings] = await Promise.all([
-      api.notifications(),
+      // A failing list (e.g. an older service) must not stop the rest of the app loading.
+      fetchNotifications().catch((err) => {
+        console.info('PhoneLink UI: notifications unavailable:', err && err.message);
+        return null;
+      }),
       api.threads(),
       api.transfers(),
       api.settings(),
@@ -206,10 +228,12 @@
     state.computer = st.computer;
     state.device = st.device;
     state.devices = st.devices || (st.device ? [st.device] : []);
-    state.notifications = notifications.sort((a, b) => b.time - a.time);
+    if (notifications) applyNotifications(notifications);
     state.threads = threads;
     state.transfers = transfers;
     state.settings = settings;
+    if (api.appIcons) state.icons = (await api.appIcons().catch(() => ({}))) || {};
+    if (seq !== loadSeq) return;
     if (!threads.some((t) => t.id === state.activeThread)) {
       state.activeThread = threads.length ? sortedThreads()[0].id : null;
     }
@@ -340,6 +364,11 @@
       el.panels.notifications.innerHTML = `<div class="empty">${icon('bell')}<strong>You're all caught up</strong><span>${hint}</span></div>`;
       return;
     }
+    // Keep keyboard focus on the same control across live updates.
+    const focused = document.activeElement && document.activeElement.closest('.notif [data-action]');
+    const keep = focused
+      ? { id: focused.closest('.notif').dataset.id, action: focused.dataset.action, index: focused.dataset.index }
+      : null;
     const groups = new Map();
     for (const n of list) {
       if (!groups.has(n.app)) groups.set(n.app, []);
@@ -349,8 +378,12 @@
       <div class="toolbar"><span>${esc(plural(list.length, 'notification', 'notifications'))}</span>
         <button type="button" class="btn btn-ghost btn-sm" data-action="clear-all">Clear all</button></div>`;
     for (const [app, items] of groups) {
+      const iconUrl = items[0].package && state.icons[items[0].package];
+      const badge = iconUrl && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(iconUrl)
+        ? `<img class="app-badge app-icon" src="${iconUrl}" alt="" aria-hidden="true">`
+        : `<span class="app-badge" style="--c:${colorFor(app)}" aria-hidden="true">${esc(initial(app))}</span>`;
       html += `<section class="notif-group" aria-label="${esc(app)}">
-        <div class="group-head"><span class="app-badge" style="--c:${colorFor(app)}" aria-hidden="true">${esc(initial(app))}</span>${esc(app)}</div>`;
+        <div class="group-head">${badge}${esc(app)}</div>`;
       for (const n of items) {
         const replying = state.replyOpen === n.id;
         html += `<article class="notif" data-id="${esc(n.id)}">
@@ -358,10 +391,16 @@
           <time class="notif-time tnum" data-ts="${n.time}">${esc(relTime(n.time))}</time>
           <button type="button" class="icon-btn icon-btn-sm" data-action="dismiss" aria-label="Dismiss notification: ${esc(n.title)}" title="Dismiss">${icon('close')}</button>
           <div class="notif-text">${esc(n.text)}</div>
-          ${(n.canReply && !replying) || state.replied.has(n.id) ? `<div class="notif-actions">
-            ${n.canReply && !replying ? `<button type="button" class="btn btn-sm" data-action="reply-open">${icon('reply')}Reply</button>` : ''}
-            ${state.replied.has(n.id) ? `<span class="notif-note">${icon('check')}Replied</span>` : ''}
-          </div>` : ''}
+          ${(() => {
+            const buttons = caps.notificationButtons && !n.removedOnPhone ? n.actions || [] : [];
+            const parts = [
+              n.canReply && !replying && !n.removedOnPhone ? `<button type="button" class="btn btn-sm" data-action="reply-open">${icon('reply')}Reply</button>` : '',
+              ...buttons.map((label, i) => `<button type="button" class="btn btn-ghost btn-sm" data-action="notif-button" data-index="${i}">${esc(label)}</button>`),
+              state.replied.has(n.id) ? `<span class="notif-note">${icon('check')}Replied</span>` : '',
+              n.removedOnPhone ? '<span class="notif-note faint">Cleared on phone</span>' : '',
+            ].filter(Boolean);
+            return parts.length ? `<div class="notif-actions">${parts.join('')}</div>` : '';
+          })()}
           ${replying ? `<form class="reply-form" data-form="reply">
               <input class="text-input" name="reply" maxlength="2000" placeholder="Reply to ${esc(n.title)}" aria-label="Reply to ${esc(n.title)}">
               <button type="submit" class="btn btn-primary btn-sm">Send</button>
@@ -373,6 +412,12 @@
     }
     html += '</div>';
     el.panels.notifications.innerHTML = html;
+    if (keep && !state.replyOpen) {
+      const sel = `.notif[data-id="${CSS.escape(keep.id)}"] [data-action="${CSS.escape(keep.action)}"]` +
+        (keep.index !== undefined ? `[data-index="${CSS.escape(keep.index)}"]` : '');
+      const again = $(sel, el.panels.notifications);
+      if (again) again.focus();
+    }
     if (state.replyOpen) {
       const input = $(`.notif[data-id="${CSS.escape(state.replyOpen)}"] input[name="reply"]`, el.panels.notifications);
       if (input) {
@@ -829,11 +874,18 @@
       </div>` : ''}
       <div class="sheet-section"><p class="section-label">General</p>
         ${switchRow('Desktop notifications', 'Show messages from your phone as system notifications.', 'toggle-setting', !!s.desktopNotifications, 'data-key="desktopNotifications"')}
+        ${caps.syncDismissals ? switchRow('Dismiss on both devices', 'Clearing a notification here also clears it on your phone, and the other way round.', 'toggle-setting', !!s.syncDismissals, 'data-key="syncDismissals"') : ''}
         ${caps.discoveryToggle ? switchRow('Find my phone on this network', 'Anonymous: nothing that identifies you is broadcast.', 'toggle-setting', !!s.discovery, 'data-key="discovery"') : ''}
       </div>`;
   }
 
-  function openSettings() {
+  async function openSettings() {
+    // Fresh every time: apps that started sending notifications since startup must appear.
+    try {
+      state.settings = await api.settings();
+    } catch (err) {
+      console.info('PhoneLink UI: using cached settings:', err && err.message);
+    }
     openDialog(`<section class="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <header class="sheet-head"><h2 id="settings-title">Settings</h2>
         <button type="button" class="icon-btn" data-action="close-dialog" aria-label="Close settings">${icon('close')}</button></header>
@@ -917,16 +969,35 @@
     clearTimeout(reloadTimer);
     reloadTimer = setTimeout(run(load), 150);
   };
-  api.onEvent((ev) => {
-    if (ev.kind === 'text') {
-      api.notifications().then((list) => {
-        state.notifications = list.sort((a, b) => b.time - a.time);
+  let notifTimer = 0;
+  const refreshNotifications = () => {
+    clearTimeout(notifTimer);
+    notifTimer = setTimeout(
+      run(async () => {
+        if (!applyNotifications(await fetchNotifications())) return;
         renderNotifications();
         renderTabs();
-      });
-      return;
+      }),
+      80,
+    );
+  };
+  const NOTIFICATION_EVENTS = ['text', 'notification_posted', 'notification_removed', 'notifications_changed'];
+  api.onEvent((ev) => {
+    if (NOTIFICATION_EVENTS.includes(ev.kind)) return refreshNotifications();
+    if (ev.kind === 'action_result') {
+      if (!ev.ok) toast(`Your phone couldn't do that: ${ev.message}`);
+      return undefined;
     }
-    scheduleLoad();
+    if (ev.kind === 'app_icon') {
+      if (api.appIcons) {
+        api.appIcons().then((icons) => {
+          state.icons = icons || {};
+          renderNotifications();
+        }).catch(() => {});
+      }
+      return undefined;
+    }
+    return scheduleLoad();
   });
   api.onDaemon((up) => {
     if (up) scheduleLoad();
@@ -1035,6 +1106,19 @@
       }
       case 'dismiss':
         return dismiss(id);
+      case 'notif-button': {
+        const n = state.notifications.find((x) => x.id === id);
+        const index = Number(a.dataset.index);
+        if (!n || !api.pressAction) return undefined;
+        a.disabled = true;
+        try {
+          const res = await api.pressAction(id, index);
+          toast(res.queued ? `“${n.actions[index]}” will be sent when ${deviceName()} reconnects` : `“${n.actions[index]}” sent to ${deviceName()}`);
+        } finally {
+          a.disabled = false;
+        }
+        return undefined;
+      }
       case 'reply-open':
         state.replyOpen = id;
         return renderNotifications();
@@ -1093,7 +1177,7 @@
         app.enabled = !app.enabled;
         setSwitch(a, app.enabled);
         await api.setAppMirrored(name, app.enabled);
-        state.notifications = (await api.notifications()).sort((x, y) => y.time - x.time);
+        applyNotifications(await fetchNotifications());
         renderNotifications();
         return renderTabs();
       }

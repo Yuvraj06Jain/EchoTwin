@@ -13,7 +13,7 @@ use std::{sync::Mutex, time::Duration};
 
 use phonelink_desktop::{
     client::Client,
-    ipc::{DeviceInfo, Reply, Request},
+    ipc::{AppInfo, DeviceInfo, NotificationInfo, Reply, Request},
     paths,
 };
 use serde::Serialize;
@@ -40,7 +40,14 @@ struct Computer {
 struct StatusDto {
     computer: Computer,
     notifications: bool,
+    sync_dismissals: bool,
     devices: Vec<DeviceInfo>,
+}
+
+#[derive(Serialize)]
+struct NotificationsDto {
+    items: Vec<NotificationInfo>,
+    apps: Vec<AppInfo>,
 }
 
 #[derive(Serialize)]
@@ -104,10 +111,12 @@ async fn status() -> Result<StatusDto, String> {
             id,
             devices,
             notifications,
+            sync_dismissals,
             ..
         } => Ok(StatusDto {
             computer: Computer { name, id },
             notifications,
+            sync_dismissals,
             devices,
         }),
         r => Err(unexpected(r)),
@@ -136,6 +145,66 @@ async fn set_notifications(enabled: bool) -> Result<(), String> {
         Reply::Done => Ok(()),
         r => Err(unexpected(r)),
     }
+}
+
+#[tauri::command]
+async fn notifications() -> Result<NotificationsDto, String> {
+    match request(Request::Notifications).await? {
+        Reply::Notifications { items, apps } => Ok(NotificationsDto { items, apps }),
+        r => Err(unexpected(r)),
+    }
+}
+
+#[tauri::command]
+async fn app_icons() -> Result<std::collections::BTreeMap<String, String>, String> {
+    match request(Request::AppIcons).await? {
+        Reply::AppIcons { icons } => Ok(icons),
+        r => Err(unexpected(r)),
+    }
+}
+
+async fn expect_done(req: Request) -> Result<(), String> {
+    match request(req).await? {
+        Reply::Done => Ok(()),
+        r => Err(unexpected(r)),
+    }
+}
+
+async fn expect_sent(req: Request) -> Result<bool, String> {
+    match request(req).await? {
+        Reply::Sent { delivered_now, .. } => Ok(delivered_now),
+        r => Err(unexpected(r)),
+    }
+}
+
+#[tauri::command]
+async fn dismiss_notification(id: String) -> Result<(), String> {
+    expect_done(Request::DismissNotification { id }).await
+}
+
+#[tauri::command]
+async fn clear_notifications() -> Result<(), String> {
+    expect_done(Request::ClearNotifications).await
+}
+
+#[tauri::command]
+async fn reply_notification(id: String, text: String) -> Result<bool, String> {
+    expect_sent(Request::ReplyNotification { id, text }).await
+}
+
+#[tauri::command]
+async fn notification_action(id: String, index: u32) -> Result<bool, String> {
+    expect_sent(Request::NotificationAction { id, index }).await
+}
+
+#[tauri::command]
+async fn set_sync_dismissals(enabled: bool) -> Result<(), String> {
+    expect_done(Request::SetSyncDismissals { enabled }).await
+}
+
+#[tauri::command]
+async fn set_app_muted(package: String, muted: bool) -> Result<(), String> {
+    expect_done(Request::SetAppMuted { package, muted }).await
 }
 
 #[tauri::command]
@@ -266,6 +335,14 @@ fn main() {
             send_note,
             unpair,
             set_notifications,
+            notifications,
+            app_icons,
+            dismiss_notification,
+            clear_notifications,
+            reply_notification,
+            notification_action,
+            set_sync_dismissals,
+            set_app_muted,
             start_pairing,
             cancel_pairing,
             start_daemon

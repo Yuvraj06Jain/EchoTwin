@@ -4,6 +4,8 @@ A private, Phone Link–style bridge between a Linux laptop and an Android phone
 Only devices you pair by scanning a QR code on your own screen can ever connect.
 No accounts, no cloud, LAN only (v1).
 
+**→ New here? Read [SETUP.md](SETUP.md): step-by-step setup for laptop and phone, a test checklist, and troubleshooting.**
+
 ## Status
 
 | Milestone | State |

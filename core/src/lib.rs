@@ -12,6 +12,7 @@ pub mod error;
 pub mod identity;
 pub mod lan;
 pub mod limiter;
+pub mod message;
 pub mod node;
 pub mod outbox;
 pub mod pairing;
@@ -22,6 +23,7 @@ pub mod wire;
 
 pub use error::{Error, Result};
 pub use identity::{Fingerprint, Identity};
+pub use message::AppMessage;
 pub use node::{Event, Node, NodeConfig};
 pub use pairing::PairingOffer;
 pub use trust::PeerRecord;

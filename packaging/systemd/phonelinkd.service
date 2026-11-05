@@ -1,0 +1,13 @@
+[Unit]
+Description=PhoneLink daemon (private link to your phone)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/phonelinkd
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

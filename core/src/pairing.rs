@@ -49,7 +49,7 @@ impl PairingOffer {
         let addrs: Vec<String> = self.addrs.iter().map(|a| a.to_string()).collect();
         format!(
             "{URI_PREFIX}v=1&fp={}&s={}&a={}&n={}",
-            self.fingerprint.to_hex(),
+            B64.encode(self.fingerprint.0),
             B64.encode(self.secret),
             addrs.join(","),
             B64.encode(self.name.as_bytes()),
@@ -77,8 +77,12 @@ impl PairingOffer {
         if v != Some("1") {
             return Err(bad("unsupported pairing code version"));
         }
-        let fingerprint = Fingerprint::from_hex(fp.ok_or_else(|| bad("missing fingerprint"))?)
-            .map_err(|_| bad("bad fingerprint"))?;
+        let fingerprint = Fingerprint(
+            B64.decode(fp.ok_or_else(|| bad("missing fingerprint"))?)
+                .map_err(|_| bad("bad fingerprint"))?
+                .try_into()
+                .map_err(|_| bad("fingerprint must be 32 bytes"))?,
+        );
         let secret: [u8; 32] = B64
             .decode(s.ok_or_else(|| bad("missing secret"))?)
             .map_err(|_| bad("bad secret"))?

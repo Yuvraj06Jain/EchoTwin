@@ -38,6 +38,13 @@ impl Outbox {
             std::fs::create_dir_all(dir)?;
         }
         let db = Connection::open(path)?;
+        #[cfg(unix)]
+        {
+            // Message bodies (notifications, SMS later) are private; SQLite gives its
+            // -wal/-shm side files the same mode as the main file.
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        }
         db.pragma_update(None, "journal_mode", "WAL")?;
         db.pragma_update(None, "synchronous", "FULL")?;
         Self::init(db)
@@ -164,5 +171,12 @@ mod tests {
             o.first_seen(&Fingerprint([2; 32]), &a).unwrap(),
             "dedup is per peer"
         );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "message store must be owner-only");
+        }
     }
 }

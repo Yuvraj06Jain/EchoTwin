@@ -12,7 +12,7 @@ No accounts, no cloud, LAN only (v1).
 | 2a. Private LAN discovery (mDNS), parallel dialing, instant reconnect | **done** |
 | 2b. Linux daemon `phonelinkd` + `phonelink` CLI | **done** |
 | 2c. Rust ↔ Kotlin bridge (UniFFI), tested on JVM against the real daemon | **done** |
-| 2d. Android app: QR pairing, foreground service, discovery, test messages | built by GitHub Actions (first build being verified) |
+| 2d. Android app: QR pairing, foreground service, discovery, test messages | **built** by GitHub Actions (APK in Releases); not yet tested on a real phone |
 | 3. Resumable file transfer, clipboard | |
 | 4. Notification mirroring + replies | |
 | 5. SMS | |

@@ -18,7 +18,25 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
 
+    // Stable signing key (CI secret). Same key on every build => updates install over the
+    // old app and keep your pairing. Without it, Gradle's per-machine debug key is used.
+    val keystore = System.getenv("PHONELINK_KEYSTORE")?.let { file(it) }?.takeIf { it.exists() }
+    signingConfigs {
+        if (keystore != null) {
+            create("stable") {
+                storeFile = keystore
+                storeType = "pkcs12"
+                storePassword = System.getenv("PHONELINK_KEYSTORE_PASSWORD")
+                keyAlias = "phonelink"
+                keyPassword = System.getenv("PHONELINK_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            if (keystore != null) signingConfig = signingConfigs.getByName("stable")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

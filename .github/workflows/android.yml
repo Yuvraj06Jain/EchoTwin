@@ -44,7 +44,21 @@ jobs:
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --locked
 
+      - name: Prepare signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/signing.p12"
+            echo "PHONELINK_KEYSTORE=$RUNNER_TEMP/signing.p12" >> "$GITHUB_ENV"
+            echo "Signing with the stable PhoneLink key."
+          else
+            echo "::warning::No ANDROID_KEYSTORE_B64 secret: using a throwaway debug key. Updates will need an uninstall."
+          fi
+
       - name: Build APK (Rust core + Android app)
+        env:
+          PHONELINK_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           set -o pipefail
           ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" ./scripts/build-android.sh 2>&1 | tee build.log
@@ -55,6 +69,8 @@ jobs:
           unzip -l "$APK" | tee -a build.log
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libphonelink_ffi.so"
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libjnidispatch.so"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify --print-certs "$APK" | tee -a build.log | head -5
           cp "$APK" "PhoneLink-${GITHUB_SHA::7}.apk"
 
       - uses: actions/upload-artifact@v4

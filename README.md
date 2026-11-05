@@ -12,7 +12,7 @@ No accounts, no cloud, LAN only (v1).
 | 2a. Private LAN discovery (mDNS), parallel dialing, instant reconnect | **done** |
 | 2b. Linux daemon `phonelinkd` + `phonelink` CLI | **done** |
 | 2c. Rust ↔ Kotlin bridge (UniFFI), tested on JVM against the real daemon | **done** |
-| 2d. Android app: QR pairing, foreground service, discovery, test messages | written, **not yet compiled** (see below) |
+| 2d. Android app: QR pairing, foreground service, discovery, test messages | built by GitHub Actions (first build being verified) |
 | 3. Resumable file transfer, clipboard | |
 | 4. Notification mirroring + replies | |
 | 5. SMS | |
@@ -73,7 +73,24 @@ notifications = true
 discovery = true             # anonymous mDNS so the phone finds you after IP changes
 ```
 
-## Build and install the Android app
+## Get the Android app (no build needed)
+
+Every change to the app is built automatically on GitHub.
+1. On your phone, open **https://github.com/Yuvraj06Jain/Phone-Link/releases/tag/latest-apk**
+   and download `PhoneLink-xxxxxxx.apk`.
+2. Open the download. When Android asks, allow **Install unknown apps** for your browser,
+   then tap **Install**.
+3. Open PhoneLink. Then:
+   - Allow notifications.
+   - Tap **Allow background use**.
+   - Add PhoneLink under Settings → Battery → Background usage limits → **Never sleeping apps**.
+4. On the laptop run `phonelink pair`. On the phone tap **Pair a computer**, scan the code,
+   and check both screens show the same id.
+
+Updates install over the old app and keep your pairing, provided the repository has the
+signing-key secrets set (see `.github/workflows/android.yml`).
+
+## Build and install the Android app yourself
 
 1. On the laptop, install Android Studio. Then open
    Settings → Languages & Frameworks → Android SDK → SDK Tools and tick

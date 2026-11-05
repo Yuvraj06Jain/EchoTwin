@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "desktop/daemon"]
+members = ["core", "core-ffi", "desktop/daemon"]
 
 [workspace.package]
 edition = "2021"

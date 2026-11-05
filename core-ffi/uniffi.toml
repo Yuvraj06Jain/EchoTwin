@@ -1,0 +1,3 @@
+[bindings.kotlin]
+package_name = "dev.phonelink.core"
+cdylib_name = "phonelink_ffi"

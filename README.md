@@ -11,7 +11,8 @@ No accounts, no cloud, LAN only (v1).
 | 1. Core: identity, QR pairing, mutual-TLS QUIC, framing, capabilities, durable outbox | **done** |
 | 2a. Private LAN discovery (mDNS), parallel dialing, instant reconnect | **done** |
 | 2b. Linux daemon `phonelinkd` + `phonelink` CLI | **done** |
-| 2c/d. Android app (Rust core via UniFFI, QR scan, foreground service) | in progress |
+| 2c. Rust ↔ Kotlin bridge (UniFFI), tested on JVM against the real daemon | **done** |
+| 2d. Android app: QR pairing, foreground service, discovery, test messages | written, **not yet compiled** (see below) |
 | 3. Resumable file transfer, clipboard | |
 | 4. Notification mirroring + replies | |
 | 5. SMS | |
@@ -21,8 +22,11 @@ No accounts, no cloud, LAN only (v1).
 
 ```
 core/             Rust crate shared by the Linux daemon and (via UniFFI) the Android app
+core-ffi/         UniFFI bindings for Android (+ kotlin-test: JVM end-to-end test)
 desktop/daemon/   phonelinkd (systemd user service) + phonelink CLI
+android/          Kotlin/Compose app; the generated bindings live in dev/phonelink/core
 packaging/        systemd unit, install/uninstall scripts
+scripts/          Android build, bindings generation, Kotlin end-to-end test
 ```
 
 ## Install on Linux (Kubuntu, Arch, Fedora, ... any systemd distro)
@@ -68,6 +72,27 @@ device_name = "My Laptop"    # default: hostname
 notifications = true
 discovery = true             # anonymous mDNS so the phone finds you after IP changes
 ```
+
+## Build and install the Android app
+
+1. On the laptop, install Android Studio. Then open
+   Settings → Languages & Frameworks → Android SDK → SDK Tools and tick
+   **NDK (Side by side)**.
+2. Build the Rust core and the APK:
+   ```bash
+   ./scripts/build-android.sh
+   ```
+3. On the phone, enable USB debugging (Settings → About phone → Software information →
+   tap *Build number* 7 times, then Developer options → USB debugging). Connect it and run:
+   ```bash
+   adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+   ```
+4. Open PhoneLink on the phone. Then:
+   - Allow notifications.
+   - Tap **Allow background use**.
+   - Add PhoneLink under Settings → Battery → Background usage limits → **Never sleeping apps**.
+5. Run `phonelink pair` on the laptop, tap **Pair a computer** on the phone, scan the code,
+   and check that both screens show the same id.
 
 ### Firewall
 
@@ -131,6 +156,8 @@ Compatibility rules for future versions are documented in `core/src/wire.rs`.
 ## Develop
 
 ```bash
-cargo test            # unit + integration + attacker tests
-RUST_LOG=debug cargo test -- --nocapture
+cargo test                           # unit, integration, attacker and daemon tests
+cargo test --test discovery -- --ignored   # live mDNS (needs multicast)
+./scripts/test-kotlin-bindings.sh    # Kotlin bindings on JVM <-> real phonelinkd
+./scripts/gen-kotlin-bindings.sh     # after changing core-ffi/src/lib.rs
 ```

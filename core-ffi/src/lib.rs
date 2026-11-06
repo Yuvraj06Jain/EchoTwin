@@ -436,8 +436,9 @@ fn via(t: Option<phonelink_core::Transport>) -> String {
 pub trait StreamSink: Send + Sync {
     /// Write to the socket (blocking). False if the socket failed.
     fn write(&self, data: Vec<u8>) -> bool;
-    /// Close the socket: the session ended, or Wi-Fi took over.
-    fn close(&self);
+    /// Close the socket: the session ended, or Wi-Fi took over. (Not `close`: that name
+    /// clashes with Kotlin's AutoCloseable in the generated bindings.)
+    fn close_link(&self);
 }
 
 /// The phone's end of a Bluetooth link: Kotlin feeds it what the socket reads.
@@ -964,7 +965,7 @@ impl PhoneLink {
                     }
                 }
             }
-            let _ = tokio::task::spawn_blocking(move || sink.close()).await;
+            let _ = tokio::task::spawn_blocking(move || sink.close_link()).await;
         });
         let node = self.node.clone();
         self.rt.spawn(async move {
@@ -1853,7 +1854,7 @@ mod tests {
             fn write(&self, data: Vec<u8>) -> bool {
                 self.0.lock().unwrap().write_all(&data).is_ok()
             }
-            fn close(&self) {
+            fn close_link(&self) {
                 self.1.store(true, std::sync::atomic::Ordering::SeqCst);
                 let _ = self.0.lock().unwrap().shutdown(std::net::Shutdown::Both);
             }

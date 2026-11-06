@@ -700,25 +700,25 @@ internal open class UniffiVTableCallbackInterfaceFileSource(
     }
 
 }
-@Structure.FieldOrder("uniffiFree", "uniffiClone", "write", "close")
+@Structure.FieldOrder("uniffiFree", "uniffiClone", "write", "closeLink")
 internal open class UniffiVTableCallbackInterfaceStreamSink(
     @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
     @JvmField internal var `uniffiClone`: UniffiCallbackInterfaceClone? = null,
     @JvmField internal var `write`: UniffiCallbackInterfaceStreamSinkMethod0? = null,
-    @JvmField internal var `close`: UniffiCallbackInterfaceStreamSinkMethod1? = null,
+    @JvmField internal var `closeLink`: UniffiCallbackInterfaceStreamSinkMethod1? = null,
 ) : Structure() {
     class UniffiByValue(
         `uniffiFree`: UniffiCallbackInterfaceFree? = null,
         `uniffiClone`: UniffiCallbackInterfaceClone? = null,
         `write`: UniffiCallbackInterfaceStreamSinkMethod0? = null,
-        `close`: UniffiCallbackInterfaceStreamSinkMethod1? = null,
-    ): UniffiVTableCallbackInterfaceStreamSink(`uniffiFree`,`uniffiClone`,`write`,`close`,), Structure.ByValue
+        `closeLink`: UniffiCallbackInterfaceStreamSinkMethod1? = null,
+    ): UniffiVTableCallbackInterfaceStreamSink(`uniffiFree`,`uniffiClone`,`write`,`closeLink`,), Structure.ByValue
 
    internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceStreamSink) {
         `uniffiFree` = other.`uniffiFree`
         `uniffiClone` = other.`uniffiClone`
         `write` = other.`write`
-        `close` = other.`close`
+        `closeLink` = other.`closeLink`
     }
 
 }
@@ -815,7 +815,7 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_streamsink_write(
     ): Int
-    external fun uniffi_phonelink_ffi_checksum_method_streamsink_close(
+    external fun uniffi_phonelink_ffi_checksum_method_streamsink_close_link(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_constructor_phonelink_start(
     ): Int
@@ -938,7 +938,7 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_streamsink_write(`ptr`: Long,`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
-    external fun uniffi_phonelink_ffi_fn_method_streamsink_close(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_phonelink_ffi_fn_method_streamsink_close_link(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun ffi_phonelink_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1161,7 +1161,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_phonelink_ffi_checksum_method_streamsink_write() and 0xFFFF) != 9989) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if ((lib.uniffi_phonelink_ffi_checksum_method_streamsink_close() and 0xFFFF) != 39168) {
+    if ((lib.uniffi_phonelink_ffi_checksum_method_streamsink_close_link() and 0xFFFF) != 53975) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_constructor_phonelink_start() and 0xFFFF) != 37858) {
@@ -3503,9 +3503,10 @@ public interface StreamSink {
     fun `write`(`data`: kotlin.ByteArray): kotlin.Boolean
     
     /**
-     * Close the socket: the session ended, or Wi-Fi took over.
+     * Close the socket: the session ended, or Wi-Fi took over. (Not `close`: that name
+     * clashes with Kotlin's AutoCloseable in the generated bindings.)
      */
-    fun `close`()
+    fun `closeLink`()
     
     companion object
 }
@@ -3633,12 +3634,13 @@ open class StreamSinkImpl: Disposable, AutoCloseable, StreamSink
 
     
     /**
-     * Close the socket: the session ended, or Wi-Fi took over.
-     */override fun `close`()
+     * Close the socket: the session ended, or Wi-Fi took over. (Not `close`: that name
+     * clashes with Kotlin's AutoCloseable in the generated bindings.)
+     */override fun `closeLink`()
         = 
     callWithHandle {
     uniffiRustCall() { _status ->
-    UniffiLib.uniffi_phonelink_ffi_fn_method_streamsink_close(
+    UniffiLib.uniffi_phonelink_ffi_fn_method_streamsink_close_link(
         it,
         _status)
 }
@@ -3676,11 +3678,11 @@ internal object uniffiCallbackInterfaceStreamSink {
             uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
         }
     }
-    internal object `close`: UniffiCallbackInterfaceStreamSinkMethod1 {
+    internal object `closeLink`: UniffiCallbackInterfaceStreamSinkMethod1 {
         override fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
             val uniffiObj = FfiConverterTypeStreamSink.handleMap.get(uniffiHandle)
             val makeCall = { ->
-                uniffiObj.`close`(
+                uniffiObj.`closeLink`(
                 )
             }
             val writeReturn = { _: Unit -> Unit }
@@ -3704,7 +3706,7 @@ internal object uniffiCallbackInterfaceStreamSink {
         uniffiFree,
         uniffiClone,
         `write`,
-        `close`,
+        `closeLink`,
     )
 
     // Registers the foreign callback with the Rust side.

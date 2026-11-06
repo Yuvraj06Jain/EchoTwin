@@ -124,7 +124,7 @@ object BluetoothBackup {
                     false
                 }
 
-                override fun close() {
+                override fun closeLink() {
                     runCatching { sock.close() }
                 }
             })

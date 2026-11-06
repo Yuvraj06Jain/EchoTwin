@@ -67,7 +67,38 @@ pub struct NodeConfig {
     pub device_name: String,
     pub bind: SocketAddr,
     pub capabilities: Vec<String>,
+    /// Finding a peer whose address changed without help from discovery.
+    pub probe: ProbeConfig,
 }
+
+/// How [`Node::maintain`] looks for a peer whose remembered addresses stopped working.
+#[derive(Clone, Debug)]
+pub struct ProbeConfig {
+    pub enabled: bool,
+    /// Subnets to search (own address, prefix). `None`: this device's LAN interfaces.
+    pub subnets: Option<Vec<(std::net::Ipv4Addr, u8)>>,
+    /// Gateways to try every round. `None`: this machine's default gateways.
+    pub gateways: Option<Vec<std::net::Ipv4Addr>>,
+}
+
+impl Default for ProbeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            subnets: None,
+            gateways: None,
+        }
+    }
+}
+
+/// Search the whole subnet after this many failed rounds…
+const PROBE_AFTER_FAILURES: u32 = 2;
+/// …and again this often while still disconnected.
+const PROBE_INTERVAL: Duration = Duration::from_secs(180);
+/// After a nudge (network change, phone unlocked, "Reconnect now") search at most this often.
+const PROBE_AFTER_NUDGE_MIN_GAP: Duration = Duration::from_secs(20);
+/// While a peer stays unreachable, say so in the log this often.
+const OFFLINE_LOG_INTERVAL: Duration = Duration::from_secs(180);
 
 impl NodeConfig {
     pub fn new(
@@ -80,6 +111,7 @@ impl NodeConfig {
             device_name: device_name.into(),
             bind,
             capabilities: vec![CAP_MESSAGES.to_string()],
+            probe: ProbeConfig::default(),
         }
     }
 }
@@ -819,6 +851,11 @@ impl Node {
         let mut nudges = self.inner.nudge.subscribe();
         tokio::spawn(async move {
             let mut backoff = BACKOFF_MIN;
+            let mut failures: u32 = 0;
+            let mut nudged = false;
+            let mut last_probe: Option<std::time::Instant> = None;
+            let mut offline_since: Option<std::time::Instant> = None;
+            let mut last_log: Option<std::time::Instant> = None;
             loop {
                 if *shutdown.borrow() {
                     return;
@@ -827,25 +864,54 @@ impl Node {
                 let existing = node.sessions().get(&peer).map(|s| s.conn.clone());
                 if let Some(conn) = existing.filter(|c| c.close_reason().is_none()) {
                     backoff = BACKOFF_MIN;
+                    failures = 0;
+                    last_probe = None;
+                    offline_since = None;
                     tokio::select! {
                         _ = conn.closed() => continue,
                         _ = shutdown.changed() => return,
                     }
                 }
+                offline_since.get_or_insert_with(std::time::Instant::now);
                 nudges.borrow_and_update();
-                let addrs = node.candidate_addrs(&rec, &extra_addrs);
+                let addrs = node.reconnect_candidates(
+                    &rec,
+                    &extra_addrs,
+                    failures,
+                    nudged,
+                    &mut last_probe,
+                );
+                nudged = false;
+                let tried = addrs.len();
                 tokio::select! {
                     res = node.connect_any(peer, addrs) => match res {
                         Ok(()) => {
+                            if failures > 0 {
+                                info!(peer = %peer.short(), "reconnected");
+                            }
                             backoff = BACKOFF_MIN;
+                            failures = 0;
                             continue;
                         }
-                        Err(e) => debug!(peer = %peer.short(), "reconnect attempt failed: {e}"),
+                        Err(e) => {
+                            failures += 1;
+                            debug!(peer = %peer.short(), "reconnect attempt failed: {e}");
+                            if last_log.is_none_or(|t| t.elapsed() >= OFFLINE_LOG_INTERVAL) {
+                                last_log = Some(std::time::Instant::now());
+                                let mins = offline_since.map(|t| t.elapsed().as_secs() / 60).unwrap_or(0);
+                                info!(
+                                    peer = %peer.short(),
+                                    name = %rec.name,
+                                    "still trying to reach it ({mins} min, {tried} addresses this round, last error: {e})"
+                                );
+                            }
+                        }
                     },
-                    // New information (address hint, network change): abandon this attempt
-                    // and start over with the fresh candidate list.
+                    // New information (address hint, network change, unlock): abandon this
+                    // attempt and start over, searching the local network too.
                     _ = nudges.changed() => {
                         backoff = BACKOFF_MIN;
+                        nudged = true;
                         continue;
                     }
                     _ = shutdown.changed() => return,
@@ -855,11 +921,65 @@ impl Node {
                     _ = tokio::time::sleep(backoff.mul_f64(jitter)) => {
                         backoff = (backoff * 2).min(BACKOFF_MAX);
                     }
-                    _ = nudges.changed() => backoff = BACKOFF_MIN,
+                    _ = nudges.changed() => {
+                        backoff = BACKOFF_MIN;
+                        nudged = true;
+                    }
                     _ = shutdown.changed() => return,
                 }
             }
         })
+    }
+
+    /// Addresses to dial this round: discovery hints and remembered addresses, plus the
+    /// default gateway on the peer's port, plus (sometimes) the whole local /24.
+    fn reconnect_candidates(
+        &self,
+        rec: &PeerRecord,
+        extra: &[SocketAddr],
+        failures: u32,
+        nudged: bool,
+        last_probe: &mut Option<std::time::Instant>,
+    ) -> Vec<SocketAddr> {
+        let mut addrs = self.candidate_addrs(rec, extra);
+        let cfg = &self.inner.config.probe;
+        // The peer listens on the port we last reached it on.
+        let Some(port) = rec.last_addrs.first().map(|a| a.port()).filter(|p| *p != 0) else {
+            return addrs;
+        };
+        if !cfg.enabled {
+            return addrs;
+        }
+        let gateways = cfg
+            .gateways
+            .clone()
+            .unwrap_or_else(crate::probe::default_gateways);
+        for gw in gateways {
+            let sa = SocketAddr::new(std::net::IpAddr::V4(gw), port);
+            if !addrs.contains(&sa) {
+                addrs.push(sa);
+            }
+        }
+        let since = last_probe.map(|t| t.elapsed());
+        let due = (failures >= PROBE_AFTER_FAILURES && since.is_none_or(|d| d >= PROBE_INTERVAL))
+            || (nudged && since.is_none_or(|d| d >= PROBE_AFTER_NUDGE_MIN_GAP));
+        if due {
+            let subnets = cfg
+                .subnets
+                .clone()
+                .unwrap_or_else(crate::probe::local_subnets);
+            let found = crate::probe::subnet_candidates(&subnets, port);
+            if !found.is_empty() {
+                debug!(peer = %rec.fingerprint.short(), count = found.len(), "searching the local network");
+                *last_probe = Some(std::time::Instant::now());
+                for sa in found {
+                    if !addrs.contains(&sa) {
+                        addrs.push(sa);
+                    }
+                }
+            }
+        }
+        addrs
     }
 
     /// Close all connections and stop listening.

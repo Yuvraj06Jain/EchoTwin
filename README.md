@@ -66,6 +66,8 @@ phonelink status              # this computer's id + paired devices
 phonelink devices
 phonelink send-text hello     # queued if the phone is offline
 phonelink watch               # live connections and messages
+phonelink reconnect           # look for the phone right now
+phonelink notifications       # phone notifications mirrored here
 phonelink unpair <device>     # id, fingerprint prefix or name
 journalctl --user -u phonelinkd -f   # daemon logs
 ```

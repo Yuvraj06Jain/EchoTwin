@@ -166,6 +166,9 @@ fn name_of(node: &Node, fp: &Fingerprint) -> String {
         .unwrap_or_else(|| "Unknown device".into())
 }
 
+/// Where the phone's listening port is remembered (inside its private data dir).
+const PORT_FILE: &str = "port.txt";
+
 #[uniffi::export]
 impl PhoneLink {
     /// Start the node. `data_dir` should be the app's private files directory.
@@ -183,16 +186,39 @@ impl PhoneLink {
             .map_err(|e| LinkError::Failed(e.to_string()))?;
         let dir = PathBuf::from(data_dir);
         let (node, mut events) = rt.block_on(async {
+            // A stable port, so the computer can always dial this phone back at its last
+            // address (after the app restarts, a reboot, …). Random on first start, then saved.
+            let saved: Option<u16> = std::fs::read_to_string(dir.join(PORT_FILE))
+                .ok()
+                .and_then(|s| s.trim().parse().ok())
+                .filter(|p| *p >= 1024);
+            let mut ports: Vec<u16> = saved.into_iter().collect();
+            ports.extend(
+                (0..4).map(|_| rand::Rng::gen_range(&mut rand::thread_rng(), 40000..60000)),
+            );
+            ports.push(0); // last resort: any free port
             let mut last = None;
-            for bind in [
-                SocketAddr::from(([0u16; 8], 0)),
-                SocketAddr::from(([0u8; 4], 0)),
-            ] {
-                let mut cfg = NodeConfig::new(device_name.clone(), Some(dir.clone()), bind);
-                cfg.capabilities.push(CAP_NOTIFICATIONS.to_string());
-                match Node::start(cfg).await {
-                    Ok(x) => return Ok(x),
-                    Err(e) => last = Some(e),
+            for port in ports {
+                for bind in [
+                    SocketAddr::from(([0u16; 8], port)),
+                    SocketAddr::from(([0u8; 4], port)),
+                ] {
+                    let mut cfg = NodeConfig::new(device_name.clone(), Some(dir.clone()), bind);
+                    cfg.capabilities.push(CAP_NOTIFICATIONS.to_string());
+                    match Node::start(cfg).await {
+                        Ok((node, events)) => {
+                            if let Ok(addr) = node.local_addr() {
+                                if Some(addr.port()) != saved {
+                                    let _ = std::fs::write(
+                                        dir.join(PORT_FILE),
+                                        addr.port().to_string(),
+                                    );
+                                }
+                            }
+                            return Ok((node, events));
+                        }
+                        Err(e) => last = Some(e),
+                    }
                 }
             }
             Err(last.expect("at least one bind attempted"))
@@ -271,6 +297,11 @@ impl PhoneLink {
             lan: Mutex::new(None),
             keepers,
         }))
+    }
+
+    /// The UDP port this phone listens on (stable across restarts).
+    pub fn local_port(&self) -> u16 {
+        self.node.local_addr().map(|a| a.port()).unwrap_or(0)
     }
 
     /// This phone's short id (to compare with what the laptop shows).
@@ -681,6 +712,52 @@ mod tests {
         ));
 
         phone.shutdown();
+        rt.block_on(laptop.shutdown());
+    }
+
+    /// After the app restarts, the phone listens where the laptop remembers it.
+    #[test]
+    fn phone_port_is_stable_across_restarts() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let (laptop, mut lrx) = rt
+            .block_on(Node::start(NodeConfig::new(
+                "Kubuntu",
+                None,
+                "127.0.0.1:0".parse().unwrap(),
+            )))
+            .unwrap();
+        let uri = laptop
+            .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
+            .to_uri();
+        let dir = tempfile::tempdir().unwrap();
+        let start = || {
+            let (tx, _rx) = mpsc::channel();
+            PhoneLink::start(
+                dir.path().to_string_lossy().into(),
+                "S24".into(),
+                Arc::new(Collect(Mutex::new(tx))),
+            )
+            .unwrap()
+        };
+        let phone = start();
+        let first_port = phone.local_port();
+        assert!((40000..60000).contains(&first_port), "port {first_port}");
+        phone.pair(uri).unwrap();
+        rt.block_on(async {
+            while !matches!(lrx.recv().await, Some(Event::PeerConnected { .. })) {}
+        });
+        phone.shutdown();
+        drop(phone);
+
+        let again = start();
+        assert_eq!(again.local_port(), first_port, "same port after a restart");
+        let remembered = laptop.peers()[0].last_addrs[0];
+        assert_eq!(
+            remembered.port(),
+            again.local_port(),
+            "the laptop can dial the phone back"
+        );
+        again.shutdown();
         rt.block_on(laptop.shutdown());
     }
 }

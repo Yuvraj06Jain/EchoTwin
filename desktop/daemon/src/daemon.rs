@@ -119,6 +119,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
     };
 
     tokio::spawn(event_pump(state.clone(), events));
+    tokio::spawn(network_watch(state.clone()));
     let server = tokio::spawn(serve(state.clone(), listener));
 
     shutdown.await;
@@ -526,6 +527,22 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
     }
 }
 
+/// Retry at once when this computer's addresses change (new Wi-Fi, the phone's hotspot
+/// restarted) or it wakes from suspend.
+async fn network_watch(state: Arc<State>) {
+    let now = || (std::time::SystemTime::now(), std::time::Instant::now());
+    let (wall, mono) = now();
+    let mut watch = netaddrs::NetWatch::new(netaddrs::lan_addrs(state.port), wall, mono);
+    loop {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let (wall, mono) = now();
+        if watch.check(netaddrs::lan_addrs(state.port), wall, mono) {
+            info!("network changed or woke from sleep; looking for paired devices now");
+            state.node.nudge();
+        }
+    }
+}
+
 async fn write_reply(w: &mut (impl AsyncWriteExt + Unpin), reply: &Reply) -> anyhow::Result<()> {
     let mut line = serde_json::to_vec(reply)?;
     line.push(b'\n');
@@ -591,6 +608,11 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                     state.persist(|c| c.muted_apps = list)
                 };
                 write_reply(&mut w, &reply).await?;
+            }
+            Request::Reconnect => {
+                info!("reconnect requested");
+                state.node.nudge();
+                write_reply(&mut w, &Reply::Done).await?;
             }
             Request::Notifications => {
                 let (items, apps) = state.visible_notifications();

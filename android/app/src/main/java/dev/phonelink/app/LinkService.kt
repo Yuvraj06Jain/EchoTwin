@@ -1,12 +1,16 @@
 package dev.phonelink.app
 
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
 import android.net.wifi.WifiManager
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import dev.phonelink.core.Device
@@ -23,8 +27,21 @@ class LinkService : LifecycleService() {
     private var multicastLock: WifiManager.MulticastLock? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
+    /** Unlocking the phone is a good moment to reconnect at once (no permission needed). */
+    private val unlockReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_USER_PRESENT) LinkManager.nudge()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
+        ContextCompat.registerReceiver(
+            this,
+            unlockReceiver,
+            IntentFilter(Intent.ACTION_USER_PRESENT),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         ServiceCompat.startForeground(
             this,
             Notifications.STATUS_ID,
@@ -82,6 +99,7 @@ class LinkService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(unlockReceiver) }
         networkCallback?.let { cb ->
             runCatching { getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) }
         }

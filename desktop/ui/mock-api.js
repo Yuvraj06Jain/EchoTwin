@@ -146,6 +146,9 @@
     },
     async cancelPairing() {},
     async startDaemon() {},
+    async reconnect() {
+      await wait(100);
+    },
     onEvent() {},
     onDaemon() {},
     onPairing(cb) {

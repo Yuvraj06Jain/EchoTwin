@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity() {
                         onPair = ::startScan,
                         onSend = ::sendText,
                         onUnpair = ::unpair,
+                        onReconnect = { LinkManager.nudge(); notice = "Looking for your computer on this network…" },
                         onFixBattery = ::fixBattery,
                     )
                     pendingPair?.let { (uri, code) ->
@@ -124,6 +125,7 @@ class MainActivity : ComponentActivity() {
         batteryOk = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
         mirrorOn = LinkManager.mirrorEnabled(this)
         lifecycleScope.launch(Dispatchers.IO) { runCatching { LinkManager.link() }; LinkManager.refresh() }
+        LinkManager.nudge() // opening the app = "connect now", no waiting for the next retry
     }
 
     private fun startScan() {
@@ -233,6 +235,7 @@ private fun HomeScreen(
     onPair: () -> Unit,
     onSend: (String) -> Unit,
     onUnpair: (Device) -> Unit,
+    onReconnect: () -> Unit,
     onFixBattery: () -> Unit,
 ) {
     var draft by remember { mutableStateOf("") }
@@ -298,6 +301,7 @@ private fun HomeScreen(
                         val queued = if (d.pending > 0uL) " · ${d.pending} queued" else ""
                         Text(state + queued, color = if (d.connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
                     }
+                    if (!d.connected) TextButton(onClick = onReconnect) { Text("Reconnect") }
                     TextButton(onClick = { confirmUnpair = d }) { Text("Unpair") }
                 }
             }

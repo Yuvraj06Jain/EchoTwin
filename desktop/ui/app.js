@@ -287,7 +287,7 @@
     const offline = view === 'main' && d && !d.connected;
     el.banner.hidden = !offline;
     if (offline) {
-      el.banner.innerHTML = `${icon('alert')}<span class="grow"><strong>${esc(d.name)} is offline.</strong> Messages and files will be sent when it reconnects.</span><button type="button" class="link-btn" data-action="troubleshoot">Troubleshoot</button>`;
+      el.banner.innerHTML = `${icon('alert')}<span class="grow"><strong>${esc(d.name)} is offline.</strong> Messages and files will be sent when it reconnects.</span>${api.reconnect ? '<button type="button" class="btn btn-sm" data-action="reconnect">Reconnect now</button>' : ''}<button type="button" class="link-btn" data-action="troubleshoot">Troubleshoot</button>`;
     }
   }
 
@@ -1062,6 +1062,18 @@
         return windowControl('Close');
       case 'troubleshoot':
         return openTroubleshoot();
+      case 'reconnect':
+        a.disabled = true;
+        try {
+          await api.reconnect();
+          toast(`Looking for ${deviceName()} on this network…`);
+        } finally {
+          // The banner disappears by itself when the phone reconnects.
+          setTimeout(() => {
+            a.disabled = false;
+          }, 3000);
+        }
+        return undefined;
       case 'send-note':
         return openNoteDialog();
       case 'send-file':

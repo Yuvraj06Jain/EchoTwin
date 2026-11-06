@@ -55,6 +55,8 @@ pub enum Request {
         package: String,
         muted: bool,
     },
+    /// Try to reach every paired device right now (skip the back-off, search the network).
+    Reconnect,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

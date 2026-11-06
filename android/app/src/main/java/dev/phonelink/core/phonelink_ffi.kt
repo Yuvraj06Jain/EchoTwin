@@ -703,6 +703,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_id(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_local_port(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_on_network_changed(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_pair(
@@ -770,6 +772,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_phonelink_id(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_local_port(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
     external fun uniffi_phonelink_ffi_fn_method_phonelink_on_network_changed(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_pair(`ptr`: Long,`uri`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -922,6 +926,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_id() and 0xFFFF) != 64126) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_local_port() and 0xFFFF) != 63701) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_on_network_changed() and 0xFFFF) != 22654) {
@@ -1152,6 +1159,33 @@ private class JavaLangRefCleanable(
     val cleanable: java.lang.ref.Cleaner.Cleanable
 ) : UniffiCleaner.Cleanable {
     override fun clean() = cleanable.clean()
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterUShort: FfiConverter<UShort, Short> {
+    override fun lift(value: Short): UShort {
+        return value.toUShort()
+    }
+
+    fun lift(value: Int): UShort {
+        return value.toUShort()
+    }
+
+    override fun read(buf: ByteBuffer): UShort {
+        return lift(buf.getShort())
+    }
+
+    override fun lower(value: UShort): Short {
+        return value.toShort()
+    }
+
+    override fun allocationSize(value: UShort) = 2UL
+
+    override fun write(value: UShort, buf: ByteBuffer) {
+        buf.putShort(value.toShort())
+    }
 }
 
 /**
@@ -1722,6 +1756,11 @@ public interface PhoneLinkInterface {
     fun `id`(): kotlin.String
     
     /**
+     * The UDP port this phone listens on (stable across restarts).
+     */
+    fun `localPort`(): kotlin.UShort
+    
+    /**
      * Call from `ConnectivityManager.NetworkCallback`: retry immediately instead of
      * waiting out the reconnect backoff.
      */
@@ -1905,6 +1944,22 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
     callWithHandle {
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_id(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The UDP port this phone listens on (stable across restarts).
+     */override fun `localPort`(): kotlin.UShort {
+            return FfiConverterUShort.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_local_port(
         it,
         _status)
 }

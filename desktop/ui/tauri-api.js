@@ -196,6 +196,9 @@
     async startDaemon() {
       await invoke('start_daemon');
     },
+    async reconnect() {
+      await invoke('reconnect');
+    },
 
     onEvent(cb) {
       listeners.event.push(cb);

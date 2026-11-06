@@ -547,6 +547,9 @@ async fn notifications_flow_from_phone_to_laptop() {
         !r.dir.path().join("evil.png").exists() && !r.dir.path().join("data/evil.png").exists()
     );
 
+    // --- "Reconnect now" is accepted (it nudges the reconnect loops)
+    assert_eq!(r.request(Request::Reconnect).await, Reply::Done);
+
     // --- clear all (sync on): the phone is asked to dismiss what it still shows
     assert_eq!(r.request(Request::ClearNotifications).await, Reply::Done);
     assert!(r.list().await.is_empty());

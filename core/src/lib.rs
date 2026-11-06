@@ -16,6 +16,7 @@ pub mod message;
 pub mod node;
 pub mod outbox;
 pub mod pairing;
+pub mod probe;
 pub mod tls;
 pub mod trust;
 mod util;

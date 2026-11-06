@@ -208,6 +208,11 @@ async fn set_app_muted(package: String, muted: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn reconnect() -> Result<(), String> {
+    expect_done(Request::Reconnect).await
+}
+
+#[tauri::command]
 async fn start_pairing(app: AppHandle, state: State<'_, AppState>) -> Result<PairingDto, String> {
     cancel(&state);
     let mut c = connect().await?;
@@ -343,6 +348,7 @@ fn main() {
             notification_action,
             set_sync_dismissals,
             set_app_muted,
+            reconnect,
             start_pairing,
             cancel_pairing,
             start_daemon

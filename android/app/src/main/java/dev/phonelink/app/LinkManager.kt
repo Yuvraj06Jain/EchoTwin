@@ -76,6 +76,9 @@ object LinkManager {
         }
     }
 
+    /** Try to reach the computer right now (skip the back-off, search the network). */
+    fun nudge() = onIo { it.onNetworkChanged() }
+
     /** Has the user granted "Notification access" to PhoneLink? */
     fun mirrorEnabled(context: Context): Boolean =
         NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)

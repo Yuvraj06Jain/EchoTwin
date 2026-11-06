@@ -87,3 +87,70 @@ async fn live_mdns_discovery_finds_the_moved_laptop() {
     .await;
     lan.shutdown();
 }
+
+/// The laptop comes back on a different address (what a phone hotspot does after every
+/// restart) and discovery can't help. Returns whether the phone found it again.
+async fn laptop_moves(search: bool) -> bool {
+    use phonelink_core::{node::ProbeConfig, Node, NodeConfig};
+    let ldir = tempfile::tempdir().unwrap();
+    let (laptop, mut lrx) = node_at("Laptop", Some(ldir.path().into()), "127.0.0.1:0").await;
+    let port = laptop.local_addr().unwrap().port();
+    let lfp = laptop.fingerprint();
+
+    let mut cfg = NodeConfig::new("Phone", None, "127.0.0.1:0".parse().unwrap());
+    cfg.probe = ProbeConfig {
+        enabled: search,
+        subnets: Some(vec![("127.0.0.1".parse().unwrap(), 24)]),
+        gateways: Some(vec![]),
+    };
+    let (phone, mut prx) = Node::start(cfg).await.unwrap();
+    phone
+        .pair_with(
+            &laptop.start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()]),
+        )
+        .await
+        .unwrap();
+    wait_for(&mut lrx, "connected", |e| {
+        matches!(e, Event::PeerConnected { .. })
+    })
+    .await;
+    let _keeper = phone.maintain(lfp, vec![]);
+
+    laptop.shutdown().await;
+    drop(laptop);
+    drop(lrx);
+    wait_for(&mut prx, "drop noticed", |e| {
+        matches!(e, Event::PeerDisconnected { .. })
+    })
+    .await;
+
+    // Same laptop (same keys), same port, new address. The phone only remembers the old one.
+    let (_laptop2, mut l2rx) = node_at(
+        "Laptop",
+        Some(ldir.path().into()),
+        &format!("127.0.0.77:{port}"),
+    )
+    .await;
+    phone.nudge(); // e.g. the phone was unlocked or its network changed
+    tokio::time::timeout(Duration::from_secs(6), async {
+        while !matches!(l2rx.recv().await, Some(Event::PeerConnected { .. })) {}
+    })
+    .await
+    .is_ok()
+}
+
+#[tokio::test]
+async fn subnet_search_finds_a_laptop_on_a_new_address() {
+    assert!(
+        laptop_moves(true).await,
+        "the phone should find the laptop at 127.0.0.77 by searching the /24"
+    );
+}
+
+#[tokio::test]
+async fn without_the_search_a_moved_laptop_is_not_found() {
+    assert!(
+        !laptop_moves(false).await,
+        "control: remembered addresses alone can't find it"
+    );
+}

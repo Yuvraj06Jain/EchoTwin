@@ -51,6 +51,8 @@ enum Cmd {
     Watch,
     /// List notifications mirrored from the phone.
     Notifications,
+    /// Try to reach the phone right now (also searches the local network).
+    Reconnect,
 }
 
 fn print_devices(devices: &[DeviceInfo]) {
@@ -188,6 +190,14 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                         "Phone is offline; queued until it reconnects."
                     }
                 );
+            }
+        }
+        Cmd::Reconnect => {
+            let r = c.request(&Request::Reconnect).await?;
+            fail_on_error(&r)?;
+            show(&r);
+            if !cli.json {
+                println!("Looking for your phone now. Check with: phonelink devices");
             }
         }
         Cmd::Notifications => {

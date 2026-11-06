@@ -244,7 +244,14 @@ Work through these in order:
    ```
    Use your network's range, e.g. `10.0.0.0/8` on some networks.
 5. **Battery restrictions on the phone.** The connection drops when the screen is off, or after some minutes. Do the *Never sleeping apps* step again, and check that Settings → Apps → PhoneLink → Battery is **Unrestricted**. If you haven't opened the app since installing, Samsung may have put it to "deep sleep".
-6. **Laptop asleep.** A suspended laptop can't be reached. Messages from the phone wait and arrive after it wakes (checklist #7). That's expected.
+6. **Phone shows *Offline* after a reboot, or after the hotspot restarted.** Both devices usually get new IP addresses then (a phone hotspot gives new ones every time it starts). PhoneLink now finds the other side by itself:
+   - On a phone hotspot, the laptop tries the hotspot's gateway, which *is* the phone. That's usually instant.
+   - Otherwise each side searches its local network (the /24 around it) after about a minute, and again every 3 minutes.
+   - Unlocking the phone, opening either app, or a network change retries immediately.
+   - To force it: **Reconnect now** in the laptop app's offline banner, **Reconnect** in the phone app, or run `phonelink reconnect`.
+   - Still offline after a minute? Check `journalctl --user -u phonelinkd -n 50`. While a device stays unreachable, it logs every 3 minutes how many addresses it tried and the last error.
+   - On a home router you can also give the laptop a fixed IP (a "DHCP reservation" in the router's settings).
+7. **Laptop asleep.** A suspended laptop can't be reached. Messages from the phone wait and arrive after it wakes (checklist #7). That's expected.
 
 ### Re-pairing situations
 

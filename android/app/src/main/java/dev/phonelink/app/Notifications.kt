@@ -15,7 +15,9 @@ import androidx.core.content.ContextCompat
 object Notifications {
     private const val CHANNEL_STATUS = "status"
     private const val CHANNEL_MESSAGES = "messages"
+    private const val CHANNEL_FILES = "files"
     const val STATUS_ID = 1
+    private const val TRANSFERS_ID = 2
     private var nextMessageId = 100
 
     fun createChannels(context: Context) {
@@ -28,6 +30,12 @@ object Notifications {
         )
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_MESSAGES, "Messages from your computer", NotificationManager.IMPORTANCE_DEFAULT)
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_FILES, "Files", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "Files sent to and from your computer"
+                setShowBadge(false)
+            }
         )
     }
 
@@ -75,6 +83,54 @@ object Notifications {
     fun updateStatus(context: Context, text: String, actions: Actions = Actions()) {
         if (!allowed(context)) return
         NotificationManagerCompat.from(context).notify(STATUS_ID, status(context, text, actions))
+    }
+
+    /** One ongoing notification for all running transfers (or none). */
+    fun transfers(context: Context, running: List<dev.phonelink.core.FileTransfer>) {
+        if (!allowed(context)) return
+        val nm = NotificationManagerCompat.from(context)
+        if (running.isEmpty()) {
+            nm.cancel(TRANSFERS_ID)
+            return
+        }
+        val size = running.sumOf { it.size.toLong() }.coerceAtLeast(1)
+        val done = running.sumOf { it.done.toLong() }
+        val pct = (done * 100 / size).toInt()
+        val active = running.any { it.state == "active" }
+        val title = when {
+            running.size == 1 -> (if (running[0].outgoing) "Sending " else "Receiving ") + running[0].name
+            running.all { it.outgoing } -> "Sending ${running.size} files"
+            running.none { it.outgoing } -> "Receiving ${running.size} files"
+            else -> "${running.size} file transfers"
+        }
+        val text = if (active) "$pct%" else running.first().message.ifBlank { "Waiting" }
+        val n = NotificationCompat.Builder(context, CHANNEL_FILES)
+            .setSmallIcon(R.drawable.ic_link)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setProgress(100, pct, !active && pct == 0)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setContentIntent(openApp(context))
+            .build()
+        nm.notify(TRANSFERS_ID, n)
+    }
+
+    /** A file arrived (tap opens it) or could not be sent. */
+    fun fileResult(context: Context, id: String, title: String, text: String, open: Intent?) {
+        if (!allowed(context)) return
+        val tap = open?.let {
+            PendingIntent.getActivity(context, id.hashCode(), it, PendingIntent.FLAG_IMMUTABLE)
+        } ?: openApp(context)
+        val n = NotificationCompat.Builder(context, CHANNEL_FILES)
+            .setSmallIcon(R.drawable.ic_link)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setAutoCancel(true)
+            .setContentIntent(tap)
+            .build()
+        NotificationManagerCompat.from(context).notify(1000 + (id.hashCode() and 0x3fffffff) % 100000, n)
     }
 
     fun message(context: Context, from: String, text: String) {

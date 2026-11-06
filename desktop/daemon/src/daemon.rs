@@ -15,6 +15,7 @@ use anyhow::{bail, Context};
 use base64::Engine;
 use phonelink_core::{
     lan::Lan,
+    transfer::{Direction, PathOpener, TransferConfig, TransferInfo, TransferState, Transfers, CAP_FILES},
     message::{
         is_fresh, CLIPBOARD_MAX_AGE_MS, LOCK_MAX_AGE_MS, LOCK_RESULT_KEY, MAX_CLIPBOARD_TEXT,
         MAX_NOTIFICATION_TEXT,
@@ -35,7 +36,7 @@ use crate::{
     config::Config,
     lock::Buses,
     media::MediaStore,
-    ipc::{DeviceInfo, Reply, Request, WatchEvent},
+    ipc::{DeviceInfo, Reply, Request, TransferView, WatchEvent},
     netaddrs,
     notifications::{self, Effect, NotificationInfo, PopupCmd, Popups, Store},
 };
@@ -54,6 +55,8 @@ pub struct DaemonOptions {
     /// D-Bus addresses for locking and the clipboard; default = the real buses. Tests
     /// point these at private buses with stand-in services.
     pub buses: Buses,
+    /// Where received files are saved.
+    pub download_dir: PathBuf,
 }
 
 /// Settings that can change while running (mirrored to config.toml).
@@ -82,6 +85,7 @@ struct State {
     clipboard: ClipboardSync,
     buses: Buses,
     media: Mutex<MediaStore>,
+    transfers: Transfers,
 }
 
 /// Run until `shutdown` resolves.
@@ -94,6 +98,15 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
     let port = node.local_addr()?.port();
     let (watchers, _) = broadcast::channel(256);
     let (copies_tx, copies) = tokio::sync::mpsc::unbounded_channel();
+    let (transfers, transfer_events) = Transfers::start(
+        node.clone(),
+        TransferConfig {
+            db_path: Some(opts.data_dir.join("transfers.sqlite3")),
+            incoming_dir: opts.download_dir.clone(),
+            reserve_bytes: 512 * 1024 * 1024,
+        },
+        Arc::new(PathOpener),
+    )?;
     let state = Arc::new(State {
         node: node.clone(),
         port,
@@ -116,6 +129,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         clipboard: ClipboardSync::start(opts.buses.session.clone(), copies_tx),
         buses: opts.buses.clone(),
         media: Mutex::new(MediaStore::default()),
+        transfers,
     });
     info!(
         name = %opts.config.device_name(),
@@ -146,6 +160,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
     tokio::spawn(event_pump(state.clone(), events));
     tokio::spawn(network_watch(state.clone()));
     tokio::spawn(share_copies(state.clone(), copies));
+    tokio::spawn(transfer_updates(state.clone(), transfer_events));
     let server = tokio::spawn(serve(state.clone(), listener));
 
     shutdown.await;
@@ -172,7 +187,7 @@ async fn start_node(
     ] {
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
         cfg.capabilities.extend(
-            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, CAP_MEDIA].map(String::from),
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, CAP_MEDIA, CAP_FILES].map(String::from),
         );
         match Node::start(cfg).await {
             Ok(x) => return Ok(x),
@@ -309,6 +324,10 @@ impl State {
 
     /// PhoneLink's own popups (paired, connected, a note). Same click-to-open behaviour.
     fn status_popup(&self, enabled: bool, id: String, title: String, body: String) {
+        self.popup_to(enabled, id, title, body, crate::popups::Tab::Notifications)
+    }
+
+    fn popup_to(&self, enabled: bool, id: String, title: String, body: String, tab: crate::popups::Tab) {
         if !enabled {
             return;
         }
@@ -318,6 +337,7 @@ impl State {
             title: notifications::escape_markup(&title),
             body: notifications::escape_markup(&body),
             icon: None,
+            tab,
         });
     }
 
@@ -332,6 +352,7 @@ impl State {
             title: notifications::escape_markup(&info.title),
             body: notifications::escape_markup(&info.text),
             icon: notifications::icon_path(&self.icons_dir, &info.package),
+            tab: crate::popups::Tab::Notifications,
         });
     }
 
@@ -451,6 +472,78 @@ impl State {
         }
     }
 
+    fn transfer_view(&self, t: &TransferInfo) -> TransferView {
+        TransferView {
+            id: t.id.clone(),
+            device: t.peer.short(),
+            device_name: self.name_of(&t.peer),
+            direction: t.direction,
+            name: t.name.clone(),
+            size: t.size,
+            done: t.done,
+            state: t.state,
+            message: t.message.clone(),
+            path: t.path.clone(),
+            updated_ms: t.updated_ms,
+        }
+    }
+
+    /// Queue files (absolute paths to regular files) for a phone.
+    fn send_files(&self, device: Option<&str>, paths: &[String], notify: bool) -> Result<Vec<String>, String> {
+        if paths.is_empty() {
+            return Err("no files given".into());
+        }
+        let peer = self.resolve(device)?;
+        let mut files = vec![];
+        for p in paths {
+            let path = PathBuf::from(p);
+            if !path.is_absolute() {
+                return Err(format!("{p}: give the full path"));
+            }
+            let meta = std::fs::metadata(&path).map_err(|e| format!("{p}: {e}"))?;
+            if meta.is_dir() {
+                return Err(format!("{p} is a folder; folders can't be sent yet (zip it first)"));
+            }
+            if !meta.is_file() {
+                return Err(format!("{p} is not a regular file"));
+            }
+            std::fs::File::open(&path).map_err(|e| format!("{p}: {e}"))?;
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "file".into());
+            files.push((path, name, meta.len()));
+        }
+        let mut ids = vec![];
+        for (path, name, size) in &files {
+            let mime = crate::open::guess_mime(name);
+            let id = self
+                .transfers
+                .send_file(peer.fingerprint, path.to_string_lossy().into_owned(), name, *size, mime)
+                .map_err(|e| e.to_string())?;
+            ids.push(id);
+        }
+        if notify {
+            let what = match files.as_slice() {
+                [(_, name, _)] => format!("“{name}”"),
+                many => format!("{} files", many.len()),
+            };
+            let when = if self.node.is_connected(&peer.fingerprint) {
+                "Sending now."
+            } else {
+                "They go as soon as it connects."
+            };
+            self.popup_to(
+                true,
+                format!("send/{}", ids[0]),
+                format!("Sending {what} to {}", peer.name),
+                when.into(),
+                crate::popups::Tab::Files,
+            );
+        }
+        Ok(ids)
+    }
+
     /// The phone to send a media button to: connected and supporting media/1.
     fn media_target(&self, query: Option<&str>) -> Result<Fingerprint, String> {
         let fp = match query {
@@ -552,6 +645,7 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                 ..
             } => {
                 lock(&state.caps).insert(peer, capabilities);
+                state.transfers.nudge(); // files waiting for this phone go now
                 let blip = last_disconnect
                     .get(&peer)
                     .is_some_and(|t| t.elapsed() < RECONNECT_QUIET);
@@ -578,6 +672,10 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                 }
             }
             Event::Message { peer, id, body } => match AppMessage::decode(&body) {
+                msg @ AppMessage::FileCancel { .. } => {
+                    state.transfers.on_message(&peer, &msg);
+                    continue;
+                }
                 AppMessage::Text { text } => {
                     let name = state.name_of(&peer);
                     state.status_popup(
@@ -702,6 +800,40 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
             },
         };
         let _ = state.watchers.send(watch);
+    }
+}
+
+/// Every change to a transfer goes to the UI; a received file (or a failed send) also
+/// gets a popup that opens the Files tab.
+async fn transfer_updates(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedReceiver<TransferInfo>) {
+    let mut announced: HashSet<String> = HashSet::new();
+    while let Some(t) = events.recv().await {
+        let view = state.transfer_view(&t);
+        if t.state.finished() && announced.insert(t.id.clone()) {
+            let notify = state.notifications_on();
+            let device = view.device_name.clone();
+            match (t.direction, t.state) {
+                (Direction::Incoming, TransferState::Done) => state.popup_to(
+                    notify,
+                    format!("file/{}", t.id),
+                    format!("Received “{}”", t.name),
+                    format!("From {device}. Saved in Downloads/PhoneLink."),
+                    crate::popups::Tab::Files,
+                ),
+                (Direction::Outgoing, TransferState::Failed) => state.popup_to(
+                    notify,
+                    format!("file/{}", t.id),
+                    format!("Couldn't send “{}”", t.name),
+                    t.message.clone(),
+                    crate::popups::Tab::Files,
+                ),
+                _ => {}
+            }
+        }
+        if announced.len() > 1000 {
+            announced.clear();
+        }
+        state.broadcast(WatchEvent::TransferChanged { item: view });
     }
 }
 
@@ -845,6 +977,75 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                             Err(message) => Reply::Error { message },
                         }
                     }
+                };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::Transfers => {
+                let items = state.transfers.list().iter().map(|t| state.transfer_view(t)).collect();
+                write_reply(&mut w, &Reply::Transfers { items }).await?;
+            }
+            Request::SendFiles {
+                device,
+                paths,
+                notify,
+            } => {
+                let reply = match state.send_files(device.as_deref(), &paths, notify) {
+                    Ok(ids) => Reply::FilesQueued { ids },
+                    Err(message) => Reply::Error { message },
+                };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::CancelTransfer { id } => {
+                let reply = match state.transfers.cancel(&id) {
+                    Ok(_) => Reply::Done,
+                    Err(e) => Reply::Error {
+                        message: e.to_string(),
+                    },
+                };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::ClearTransfers => {
+                let reply = match state.transfers.clear_finished() {
+                    Ok(_) => Reply::Done,
+                    Err(e) => Reply::Error {
+                        message: e.to_string(),
+                    },
+                };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::OpenTransfer { id, reveal } => {
+                let reply = match state.transfers.get(&id) {
+                    Some(t) if t.direction == Direction::Incoming && t.state == TransferState::Done => {
+                        match t.path.map(PathBuf::from).filter(|p| p.exists()) {
+                            Some(p) => {
+                                let ok = tokio::task::spawn_blocking(move || {
+                                    if reveal {
+                                        crate::open::reveal_file(&p)
+                                    } else {
+                                        crate::open::open_file(&p)
+                                    }
+                                })
+                                .await
+                                .unwrap_or(false);
+                                if ok {
+                                    Reply::Done
+                                } else {
+                                    Reply::Error {
+                                        message: "could not open it on this desktop".into(),
+                                    }
+                                }
+                            }
+                            None => Reply::Error {
+                                message: "the file was moved or deleted".into(),
+                            },
+                        }
+                    }
+                    Some(_) => Reply::Error {
+                        message: "only received files can be opened".into(),
+                    },
+                    None => Reply::Error {
+                        message: "no such transfer".into(),
+                    },
                 };
                 write_reply(&mut w, &reply).await?;
             }
@@ -1004,6 +1205,7 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                             state.advert_refresh.notify_one();
                             lock(&state.store).forget_device(&p.fingerprint);
                             lock(&state.media).forget(&p.fingerprint);
+                            state.transfers.forget_peer(&p.fingerprint);
                             state.broadcast(WatchEvent::NotificationsChanged);
                             Reply::Done
                         }

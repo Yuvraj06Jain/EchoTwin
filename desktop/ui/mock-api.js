@@ -72,9 +72,9 @@
       },
     ],
     transfers: [
-      { id: 'f1', name: 'Lecture-09-recording.mp4', size: 812 * 1024 * 1024, direction: 'to-phone', progress: 0.46, state: 'active' },
-      { id: 'f2', name: 'IMG_20261105_0941.jpg', size: 3.1 * 1024 * 1024, direction: 'from-phone', progress: 1, state: 'done' },
-      { id: 'f3', name: 'OS-lab-report-final.pdf', size: 2.4 * 1024 * 1024, direction: 'to-phone', progress: 1, state: 'done' },
+      { id: 'f1', name: 'Lecture-09-recording.mp4', size: 812 * 1024 * 1024, done: Math.round(0.46 * 812 * 1024 * 1024), direction: 'to-phone', state: 'active', message: '' },
+      { id: 'f2', name: 'IMG_20261105_0941.jpg', size: Math.round(3.1 * 1024 * 1024), done: Math.round(3.1 * 1024 * 1024), direction: 'from-phone', state: 'done', message: '' },
+      { id: 'f3', name: 'OS-lab-report-final.pdf', size: Math.round(2.4 * 1024 * 1024), done: Math.round(2.4 * 1024 * 1024), direction: 'to-phone', state: 'done', message: '' },
     ],
     settings: {
       desktopNotifications: true,
@@ -101,6 +101,19 @@
 
   const pairingListeners = [];
   const eventListeners = [];
+  const emit = (ev) => eventListeners.forEach((cb) => cb(ev));
+
+  // Simulated progress for running transfers, reported like the real service does.
+  const SPEED = 30 * 1024 * 1024;
+  setInterval(() => {
+    if (mode !== 'connected') return;
+    for (const t of db.transfers) {
+      if (t.state !== 'active') continue;
+      t.done = Math.min(t.size, t.done + Math.max(Math.ceil(t.size * 0.02), SPEED / 2));
+      if (t.done >= t.size) t.state = 'done';
+      emit({ kind: 'transfer_changed', item: clone(t) });
+    }
+  }, 500);
 
   // A song playing on the phone (preview only). The art is drawn here, not downloaded.
   const art = (() => {
@@ -157,8 +170,13 @@
       paired = next !== 'unpaired';
       if (next === 'offline') lastSeen = ago(4);
       for (const t of db.transfers) {
-        if (t.state === 'active' && next !== 'connected') t.state = 'paused';
-        else if (t.state === 'paused' && next === 'connected') t.state = 'active';
+        if (t.state === 'active' && next !== 'connected') {
+          t.state = 'waiting';
+          t.message = `Waiting for ${phone.name} to connect`;
+        } else if (t.state === 'waiting' && next === 'connected') {
+          t.state = 'active';
+          t.message = '';
+        }
       }
     },
     async simulatePairing() {
@@ -207,7 +225,7 @@
       else if (action === 'volume_up') music.volume = Math.min(music.max_volume, music.volume + 1);
       else if (action === 'volume_down') music.volume = Math.max(0, music.volume - 1);
       // The phone reports its new state a moment later.
-      setTimeout(() => eventListeners.forEach((cb) => cb({ kind: 'media_changed', id: phone.id })), 150);
+      setTimeout(() => emit({ kind: 'media_changed', id: phone.id }), 150);
     },
     onDaemon() {},
     onPairing(cb) {
@@ -271,23 +289,28 @@
         id: nextId('f'),
         name: f.name,
         size: f.size,
+        done: 0,
         direction: 'to-phone',
-        progress: 0,
-        state: mode === 'connected' ? 'active' : 'paused',
+        state: mode === 'connected' ? 'active' : 'waiting',
+        message: mode === 'connected' ? '' : `Waiting for ${phone.name} to connect`,
       }));
       db.transfers.unshift(...added);
-      return clone(added);
+      return added.map((t) => t.id);
     },
     async cancelTransfer(id) {
       await wait(60);
-      db.transfers = db.transfers.filter((t) => t.id !== id);
-    },
-    async transferProgress(id, progress, state) {
       const t = db.transfers.find((x) => x.id === id);
-      if (t) {
-        t.progress = progress;
-        t.state = state;
+      if (t && ['active', 'queued', 'waiting'].includes(t.state)) {
+        t.state = 'cancelled';
+        t.message = 'Cancelled';
       }
+    },
+    async clearTransfers() {
+      await wait(40);
+      db.transfers = db.transfers.filter((t) => ['active', 'queued', 'waiting'].includes(t.state));
+    },
+    async openTransfer() {
+      await wait(30); // the preview can't open files
     },
     async settings() {
       await wait(40);

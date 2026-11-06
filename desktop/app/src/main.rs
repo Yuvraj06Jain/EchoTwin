@@ -186,6 +186,63 @@ async fn media_control(action: phonelink_desktop::ipc::MediaAction) -> Result<()
     .await
 }
 
+#[tauri::command]
+async fn transfers() -> Result<Vec<phonelink_desktop::ipc::TransferView>, String> {
+    match request(Request::Transfers).await? {
+        Reply::Transfers { items } => Ok(items),
+        r => Err(unexpected(r)),
+    }
+}
+
+#[tauri::command]
+async fn send_files(paths: Vec<String>) -> Result<Vec<String>, String> {
+    match request(Request::SendFiles {
+        device: None,
+        paths,
+        notify: false,
+    })
+    .await?
+    {
+        Reply::FilesQueued { ids } => Ok(ids),
+        r => Err(unexpected(r)),
+    }
+}
+
+/// The system file picker; returns the chosen paths (empty if cancelled).
+#[tauri::command]
+async fn pick_files(app: AppHandle) -> Result<Vec<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Send files to your phone")
+        .pick_files(move |files| {
+            let _ = tx.send(files);
+        });
+    let files = rx.await.map_err(|e| e.to_string())?;
+    Ok(files
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|f| f.into_path().ok())
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect())
+}
+
+#[tauri::command]
+async fn cancel_transfer(id: String) -> Result<(), String> {
+    expect_done(Request::CancelTransfer { id }).await
+}
+
+#[tauri::command]
+async fn clear_transfers() -> Result<(), String> {
+    expect_done(Request::ClearTransfers).await
+}
+
+#[tauri::command]
+async fn open_transfer(id: String, reveal: bool) -> Result<(), String> {
+    expect_done(Request::OpenTransfer { id, reveal }).await
+}
+
 async fn expect_done(req: Request) -> Result<(), String> {
     match request(req).await? {
         Reply::Done => Ok(()),
@@ -454,6 +511,7 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             bring_forward(app, launch_request(&argv));
         }))
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             status,
@@ -472,6 +530,12 @@ fn main() {
             set_app_muted,
             media,
             media_control,
+            transfers,
+            send_files,
+            pick_files,
+            cancel_transfer,
+            clear_transfers,
+            open_transfer,
             reconnect,
             start_pairing,
             cancel_pairing,
@@ -506,10 +570,22 @@ fn main() {
             }
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                cancel(&window.state::<AppState>());
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::Destroyed => cancel(&window.state::<AppState>()),
+            // Files dragged onto the window: the page shows the drop zone and sends them.
+            tauri::WindowEvent::DragDrop(drop) => {
+                let payload = match drop {
+                    tauri::DragDropEvent::Enter { .. } => serde_json::json!({ "kind": "enter" }),
+                    tauri::DragDropEvent::Leave => serde_json::json!({ "kind": "leave" }),
+                    tauri::DragDropEvent::Drop { paths, .. } => serde_json::json!({
+                        "kind": "drop",
+                        "paths": paths.iter().map(|p| p.to_string_lossy()).collect::<Vec<_>>(),
+                    }),
+                    _ => return,
+                };
+                let _ = window.emit("phonelink://drop", payload);
             }
+            _ => {}
         })
         .run(tauri::generate_context!())
         .expect("failed to start the PhoneLink window");

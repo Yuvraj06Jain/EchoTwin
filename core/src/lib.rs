@@ -18,6 +18,7 @@ pub mod outbox;
 pub mod pairing;
 pub mod probe;
 pub mod tls;
+pub mod transfer;
 pub mod trust;
 mod util;
 pub mod wire;

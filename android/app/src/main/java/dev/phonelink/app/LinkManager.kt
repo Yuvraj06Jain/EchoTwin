@@ -50,6 +50,7 @@ object LinkManager {
 
     fun init(context: Context) {
         app = context.applicationContext
+        FileShare.init(app)
     }
 
     private fun dataDir(context: Context) = File(context.filesDir, "phonelink")
@@ -59,15 +60,37 @@ object LinkManager {
     fun link(): PhoneLink {
         link?.let { return it }
         val dir = dataDir(app).apply { mkdirs() }
-        val started = PhoneLink.start(dir.path, deviceName(), listener)
+        val started = PhoneLink.start(dir.path, deviceName(), listener, FileShare)
         link = started
         _myId.value = started.id()
         refresh()
+        io.execute { runCatching { FileShare.publishLeftovers(started.transfers()) } }
         return started
     }
 
+    /** Send files to the computer (from the Share menu, or picked in the app). */
+    fun sendFiles(uris: List<android.net.Uri>, fromShare: Boolean) {
+        io.execute {
+            val msg = try {
+                FileShare.send(link(), uris, fromShare)
+            } catch (e: Exception) {
+                e.message ?: "Couldn't send"
+            }
+            toast(msg)
+            refresh()
+        }
+    }
+
+    fun cancelTransfer(id: String) = onIo { it.cancelTransfer(id) }
+
+    private val _transfers = MutableStateFlow<List<dev.phonelink.core.FileTransfer>>(emptyList())
+    val transfers: StateFlow<List<dev.phonelink.core.FileTransfer>> = _transfers
+
     fun refresh() {
-        link?.let { _devices.value = it.devices() }
+        link?.let {
+            _devices.value = it.devices()
+            _transfers.value = it.transfers().take(20)
+        }
     }
 
     /** Cheap check usable from a BroadcastReceiver (no core start-up). */
@@ -202,6 +225,13 @@ object LinkManager {
                 is LinkEvent.ReplyRequested -> handleRequest(event.id, event.key) { it.reply(event.key, event.text) }
                 is LinkEvent.ActionRequested -> handleRequest(event.id, event.key) { it.press(event.key, event.index.toInt()) }
                 is LinkEvent.ClipboardReceived -> putOnClipboard(event.name, event.text)
+                is LinkEvent.TransferChanged -> {
+                    val all = { link?.transfers() ?: emptyList() }
+                    io.execute {
+                        FileShare.onChanged(event.transfer, all)
+                        _transfers.value = all().take(20)
+                    }
+                }
                 is LinkEvent.RequestResult -> if (event.key == "lock") {
                     toast(if (event.ok) "${event.name} is locked" else "${event.name}: ${event.message}")
                 }

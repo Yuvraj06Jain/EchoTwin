@@ -30,6 +30,9 @@ pub enum Error {
     Protocol(String),
     #[error("timed out")]
     Timeout,
+    /// The peer is only reachable over the Bluetooth backup, which carries no file data.
+    #[error("waiting for Wi-Fi")]
+    NoNetworkLink,
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

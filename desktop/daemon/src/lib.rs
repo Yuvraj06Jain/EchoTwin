@@ -13,5 +13,6 @@ pub mod lock;
 pub mod media;
 pub mod netaddrs;
 pub mod notifications;
+pub mod open;
 pub mod paths;
 pub mod popups;

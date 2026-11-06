@@ -21,7 +21,7 @@ No accounts, no cloud, LAN only (v1).
 | Click a popup to open the window | **done** |
 | Lock the laptop from the phone; shared clipboard (KDE) | **done**; laptop side tested, phone side compiled in CI |
 | Music controls for the phone (Now playing card, buttons, volume) | **done**; laptop side tested, phone side compiled in CI |
-| Resumable file transfer | planned |
+| Resumable file transfer both ways (drag and drop, Dolphin menu, Android share sheet) | **done**; laptop side tested, phone side compiled in CI |
 | SMS | planned |
 | Bluetooth backup link | core done; phone and laptop parts planned |
 | Packaging (Flatpak, .deb, AUR) | |

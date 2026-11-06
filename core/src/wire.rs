@@ -70,6 +70,24 @@ pub enum Control {
     Links {
         bluetooth: Option<String>,
     },
+    /// First frame on a file data stream (sender → receiver). Then, after `FileResume`,
+    /// the sender writes the file's bytes from `offset` to `size` raw, followed by the
+    /// 32-byte BLAKE3 hash of the whole file.
+    FileStart {
+        id: [u8; 16],
+        name: String,
+        size: u64,
+        mime: String,
+    },
+    /// Receiver → sender: "I already have the first `offset` bytes; send the rest."
+    FileResume {
+        offset: u64,
+    },
+    /// Receiver → sender, after the hash: stored (`ok`), or start over / give up.
+    FileResult {
+        ok: bool,
+        message: String,
+    },
 }
 
 #[derive(Debug, PartialEq)]

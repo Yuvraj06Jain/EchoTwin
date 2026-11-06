@@ -55,6 +55,14 @@ install -Dm755 "$SRC/phonelinkd" "$BIN/phonelinkd"
 install -Dm755 "$SRC/phonelink"  "$BIN/phonelink"
 install -Dm644 packaging/systemd/phonelinkd.service "$HOME/.config/systemd/user/phonelinkd.service"
 
+# "Send to phone" in Dolphin's right-click menu (KDE Plasma 5 and 6). Plasma 6 only
+# loads service menus that are executable.
+for dir in "$DATA/kio/servicemenus" "$DATA/kservices5/ServiceMenus"; do
+  mkdir -p "$dir"
+  sed "s|@BINDIR@|$BIN|" packaging/dolphin/phonelink-send.desktop.in > "$dir/phonelink-send.desktop"
+  chmod 755 "$dir/phonelink-send.desktop"
+done
+
 # ---------------------------------------------------------------- desktop window
 APP_OK=0
 if prebuilt_ok phonelink-app; then

@@ -7,7 +7,25 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::media::MediaInfo;
 pub use crate::notifications::{AppInfo, NotificationInfo};
+pub use phonelink_core::transfer::{Direction, TransferState};
 pub use phonelink_core::MediaAction;
+
+/// A file transfer, for the UI and CLI.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransferView {
+    pub id: String,
+    pub device: String,
+    pub device_name: String,
+    pub direction: Direction,
+    pub name: String,
+    pub size: u64,
+    pub done: u64,
+    pub state: TransferState,
+    pub message: String,
+    /// Received and saved: where.
+    pub path: Option<String>,
+    pub updated_ms: u64,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
@@ -71,6 +89,27 @@ pub enum Request {
     MediaControl {
         device: Option<String>,
         action: MediaAction,
+    },
+    /// File transfers, newest first.
+    Transfers,
+    /// Send files (absolute paths) to the phone. `notify`: show a popup (e.g. when sent
+    /// from the file manager, where nothing else shows that it worked).
+    SendFiles {
+        device: Option<String>,
+        paths: Vec<String>,
+        #[serde(default)]
+        notify: bool,
+    },
+    CancelTransfer {
+        id: String,
+    },
+    /// Remove finished transfers from the list (the files stay).
+    ClearTransfers,
+    /// Open a received file, or (`reveal`) show it in the file manager.
+    OpenTransfer {
+        id: String,
+        #[serde(default)]
+        reveal: bool,
     },
 }
 
@@ -142,6 +181,9 @@ pub enum WatchEvent {
     MediaChanged {
         id: String,
     },
+    TransferChanged {
+        item: TransferView,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -172,6 +214,12 @@ pub enum Reply {
     },
     Media {
         items: Vec<MediaInfo>,
+    },
+    Transfers {
+        items: Vec<TransferView>,
+    },
+    FilesQueued {
+        ids: Vec<String>,
     },
     Devices {
         devices: Vec<DeviceInfo>,

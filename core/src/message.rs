@@ -165,6 +165,12 @@ pub enum AppMessage {
     MediaControl {
         action: MediaAction,
     },
+
+    // ---- files/1 (both ways; the data itself goes on separate streams)
+    /// Stop transfer `id` (hex): the sender or the receiver cancelled it.
+    FileCancel {
+        id: String,
+    },
 }
 
 /// Album art must be a small JPEG or PNG.

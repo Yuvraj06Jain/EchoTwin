@@ -33,7 +33,18 @@
     }
   }
 
-  const listeners = { event: [], daemon: [], pairing: [], open: [] };
+  const listeners = { event: [], daemon: [], pairing: [], open: [], drop: [] };
+  const toTransfer = (t) => ({
+    id: t.id,
+    name: t.name,
+    size: t.size,
+    done: t.done,
+    direction: t.direction === 'outgoing' ? 'to-phone' : 'from-phone',
+    state: t.state,
+    message: t.message || '',
+    path: t.path || null,
+    deviceName: t.device_name,
+  });
   let notes = [];
   let noteSeq = 0;
   let notificationsOn = true;
@@ -42,7 +53,9 @@
   let allowLock = false;
   let knownApps = []; // [{ package, app, muted }] from the service
 
+  T.event.listen('phonelink://drop', ({ payload }) => listeners.drop.forEach((cb) => cb(payload)));
   T.event.listen('phonelink://event', ({ payload }) => {
+    if (payload.kind === 'transfer_changed' && payload.item) payload = { ...payload, item: toTransfer(payload.item) };
     if (payload.kind === 'text') {
       notes.unshift({
         id: `note-${++noteSeq}`,
@@ -85,6 +98,7 @@
       sms: false,
       files: false,
       clipboard: true,
+      files: true,
       lockFromPhone: true,
       media: true,
       deviceDetails: false,
@@ -155,11 +169,27 @@
     sendSms: notYet('SMS'),
 
     async transfers() {
-      return [];
+      return (await invoke('transfers')).map(toTransfer);
     },
-    sendFiles: notYet('File transfer'),
-    async cancelTransfer() {},
-    async transferProgress() {},
+    async sendPaths(paths) {
+      return invoke('send_files', { paths });
+    },
+    // The system file picker; returns the chosen paths (none if cancelled).
+    async chooseFiles() {
+      return invoke('pick_files');
+    },
+    async cancelTransfer(id) {
+      await invoke('cancel_transfer', { id });
+    },
+    async clearTransfers() {
+      await invoke('clear_transfers');
+    },
+    async openTransfer(id, reveal) {
+      await invoke('open_transfer', { id, reveal });
+    },
+    onDrop(cb) {
+      listeners.drop.push(cb);
+    },
 
     async settings() {
       return {

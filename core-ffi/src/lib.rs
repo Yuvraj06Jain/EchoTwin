@@ -20,6 +20,7 @@ use phonelink_core::{
         is_fresh, truncate_text, CLIPBOARD_MAX_AGE_MS, MAX_CLIPBOARD_TEXT,
         MAX_NOTIFICATION_TEXT, MAX_SNAPSHOT_ITEMS,
     },
+    transfer::{Direction, SourceOpener, TransferConfig, TransferInfo, Transfers, CAP_FILES},
     AppMessage, Event, Fingerprint, MediaAction, Node, NodeConfig, NowPlaying, PairingOffer,
     PeerRecord, PhoneNotification, CAP_CLIPBOARD, CAP_LOCK, CAP_MEDIA, CAP_NOTIFICATIONS,
 };
@@ -107,6 +108,10 @@ pub enum LinkEvent {
     MediaControlRequested {
         id: String,
         command: MediaCommand,
+    },
+    /// A file transfer started, progressed (at most a few times a second) or finished.
+    TransferChanged {
+        transfer: FileTransfer,
     },
     /// How a request this phone made went (e.g. `key` = "lock").
     RequestResult {
@@ -214,6 +219,76 @@ impl MirroredNotification {
     }
 }
 
+/// A file transfer, for the phone's notification and screen.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FileTransfer {
+    pub id: String,
+    pub device_id: String,
+    pub device_name: String,
+    /// Phone → computer.
+    pub outgoing: bool,
+    pub name: String,
+    pub mime: String,
+    pub size: u64,
+    pub done: u64,
+    /// queued | waiting | active | done | failed | cancelled
+    pub state: String,
+    pub message: String,
+    /// Received and complete: the file in the app's private folder, to publish to
+    /// Downloads (then it may be deleted).
+    pub path: Option<String>,
+}
+
+fn file_transfer(node: &Node, t: &TransferInfo) -> FileTransfer {
+    use phonelink_core::transfer::TransferState as S;
+    let state = match t.state {
+        S::Queued => "queued",
+        S::Waiting => "waiting",
+        S::Active => "active",
+        S::Done => "done",
+        S::Failed => "failed",
+        S::Cancelled => "cancelled",
+    }
+    .to_string();
+    FileTransfer {
+        id: t.id.clone(),
+        device_id: t.peer.short(),
+        device_name: name_of(node, &t.peer),
+        outgoing: t.direction == Direction::Outgoing,
+        name: t.name.clone(),
+        mime: t.mime.clone(),
+        size: t.size,
+        done: t.done,
+        state,
+        message: t.message.clone(),
+        path: t.path.clone(),
+    }
+}
+
+/// Implemented in Kotlin: opens a file being sent (a content URI) and hands over its file
+/// descriptor; the core closes it. Return -1 if it can't be opened any more.
+#[uniffi::export(with_foreign)]
+pub trait FileSource: Send + Sync {
+    fn open(&self, transfer_id: String, source: String) -> i32;
+}
+
+struct KotlinFiles(Arc<dyn FileSource>);
+
+impl SourceOpener for KotlinFiles {
+    fn open(&self, id: &str, source: &str) -> std::io::Result<std::fs::File> {
+        let fd = self.0.open(id.to_string(), source.to_string());
+        if fd < 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "the phone can no longer read this file",
+            ));
+        }
+        // SAFETY: Kotlin detached this descriptor for us (ParcelFileDescriptor.detachFd), so
+        // nothing else owns or closes it.
+        Ok(unsafe { <std::fs::File as std::os::fd::FromRawFd>::from_raw_fd(fd) })
+    }
+}
+
 /// Implemented in Kotlin. Called on a background thread, one event at a time, in order.
 #[uniffi::export(with_foreign)]
 pub trait EventListener: Send + Sync {
@@ -227,6 +302,7 @@ pub struct PhoneLink {
     lan: Mutex<Option<Lan>>,
     keepers: Arc<Mutex<HashMap<Fingerprint, JoinHandle<()>>>>,
     caps: Caps,
+    files: Transfers,
 }
 
 /// What each connected computer supports (from its Hello).
@@ -287,6 +363,7 @@ impl PhoneLink {
         data_dir: String,
         device_name: String,
         listener: Arc<dyn EventListener>,
+        files: Arc<dyn FileSource>,
     ) -> Result<Arc<Self>, LinkError> {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
@@ -315,7 +392,8 @@ impl PhoneLink {
                 ] {
                     let mut cfg = NodeConfig::new(device_name.clone(), Some(dir.clone()), bind);
                     cfg.capabilities.extend(
-                        [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, CAP_MEDIA].map(String::from),
+                        [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, CAP_MEDIA, CAP_FILES]
+                            .map(String::from),
                     );
                     match Node::start(cfg).await {
                         Ok((node, events)) => {
@@ -336,6 +414,21 @@ impl PhoneLink {
             Err(last.expect("at least one bind attempted"))
         })?;
 
+        // Files: received ones go to a private folder first; the app publishes them to
+        // Downloads/PhoneLink once complete.
+        let (transfers, mut transfer_events) = {
+            let _guard = rt.enter();
+            Transfers::start(
+                node.clone(),
+                TransferConfig {
+                    db_path: Some(dir.join("transfers.sqlite3")),
+                    incoming_dir: dir.join("incoming"),
+                    reserve_bytes: 256 * 1024 * 1024,
+                },
+                Arc::new(KotlinFiles(files)),
+            )?
+        };
+
         let keepers = Arc::new(Mutex::new(HashMap::new()));
         for p in node.peers() {
             let _guard = rt.enter();
@@ -354,6 +447,20 @@ impl PhoneLink {
             .map_err(|e| LinkError::Failed(e.to_string()))?;
         let caps: Caps = Arc::new(Mutex::new(HashMap::new()));
         let (pump_node, pump_keepers, pump_caps) = (node.clone(), keepers.clone(), caps.clone());
+        let pump_files = transfers.clone();
+        let (file_tx, file_node) = (tx.clone(), node.clone());
+        rt.spawn(async move {
+            while let Some(t) = transfer_events.recv().await {
+                if file_tx
+                    .send(LinkEvent::TransferChanged {
+                        transfer: file_transfer(&file_node, &t),
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        });
         rt.spawn(async move {
             while let Some(ev) = events.recv().await {
                 let out = match ev {
@@ -374,6 +481,7 @@ impl PhoneLink {
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
                             .insert(peer, capabilities);
+                        pump_files.nudge(); // files waiting for this computer go now
                         LinkEvent::Connected {
                             id: peer.short(),
                             name,
@@ -390,6 +498,10 @@ impl PhoneLink {
                         }
                     }
                     Event::Message { peer, body, .. } => match AppMessage::decode(&body) {
+                        msg @ AppMessage::FileCancel { .. } => {
+                            pump_files.on_message(&peer, &msg);
+                            continue;
+                        }
                         AppMessage::Text { text } => LinkEvent::Text {
                             id: peer.short(),
                             name: name_of(&pump_node, &peer),
@@ -452,6 +564,7 @@ impl PhoneLink {
             lan: Mutex::new(None),
             keepers,
             caps,
+            files: transfers,
         }))
     }
 
@@ -541,7 +654,48 @@ impl PhoneLink {
         {
             h.abort();
         }
+        self.files.forget_peer(&fp);
         self.node.unpair(&fp)?;
+        Ok(())
+    }
+
+    /// Send a file to the computer (`device_id`, or the only paired one). `source` is
+    /// given back to `FileSource::open` (a content URI). It goes when the computer is
+    /// connected over Wi-Fi, and resumes after interruptions. Returns the transfer id.
+    pub fn send_file(
+        &self,
+        device_id: Option<String>,
+        source: String,
+        name: String,
+        size: u64,
+        mime: String,
+    ) -> Result<String, LinkError> {
+        let fp = self.resolve(device_id)?;
+        let id = {
+            let _guard = self.rt.enter();
+            self.files.send_file(fp, source, &name, size, &mime)?
+        };
+        Ok(id)
+    }
+
+    /// Stop a transfer on both devices.
+    pub fn cancel_transfer(&self, id: String) -> Result<(), LinkError> {
+        self.files.cancel(&id)?;
+        Ok(())
+    }
+
+    /// File transfers, newest first.
+    pub fn transfers(&self) -> Vec<FileTransfer> {
+        self.files
+            .list()
+            .iter()
+            .map(|t| file_transfer(&self.node, t))
+            .collect()
+    }
+
+    /// Forget finished transfers (received files stay where they were saved).
+    pub fn clear_transfers(&self) -> Result<(), LinkError> {
+        self.files.clear_finished()?;
         Ok(())
     }
 
@@ -738,6 +892,15 @@ mod tests {
     use super::*;
     use std::sync::mpsc;
 
+    /// Test file source: sources are plain paths.
+    struct Paths;
+    impl FileSource for Paths {
+        fn open(&self, _id: String, source: String) -> i32 {
+            use std::os::fd::IntoRawFd;
+            std::fs::File::open(source).map(|f| f.into_raw_fd()).unwrap_or(-1)
+        }
+    }
+
     struct Collect(Mutex<mpsc::Sender<LinkEvent>>);
     impl EventListener for Collect {
         fn on_event(&self, event: LinkEvent) {
@@ -777,6 +940,7 @@ mod tests {
             dir.path().to_string_lossy().into(),
             "Galaxy S24 FE".into(),
             Arc::new(Collect(Mutex::new(tx))),
+            Arc::new(Paths),
         )
         .unwrap();
 
@@ -860,6 +1024,7 @@ mod tests {
             dir.path().to_string_lossy().into(),
             "S24".into(),
             Arc::new(Collect(Mutex::new(tx))),
+            Arc::new(Paths),
         )
         .unwrap();
         phone.pair(uri).unwrap();
@@ -1000,6 +1165,7 @@ mod tests {
                 dir.path().to_string_lossy().into(),
                 "S24".into(),
                 Arc::new(Collect(Mutex::new(tx))),
+            Arc::new(Paths),
             )
             .unwrap()
         };
@@ -1045,6 +1211,7 @@ mod tests {
             dir.path().to_string_lossy().into(),
             "Galaxy S24 FE".into(),
             Arc::new(Collect(Mutex::new(tx))),
+            Arc::new(Paths),
         )
         .unwrap();
         // Not paired yet: a clear error, nothing sent.
@@ -1126,6 +1293,7 @@ mod tests {
             dir2.path().to_string_lossy().into(),
             "Galaxy S24 FE".into(),
             Arc::new(Collect(Mutex::new(tx2))),
+            Arc::new(Paths),
         )
         .unwrap();
         phone2.pair(uri).unwrap();
@@ -1156,6 +1324,7 @@ mod tests {
             dir.path().to_string_lossy().into(),
             "Galaxy S24 FE".into(),
             Arc::new(Collect(Mutex::new(tx))),
+            Arc::new(Paths),
         )
         .unwrap();
         let media = PhoneMedia {
@@ -1216,5 +1385,90 @@ mod tests {
         assert_eq!(phone.send_now_playing(None).unwrap(), 0);
         assert_eq!(phone.devices()[0].pending, 0);
         phone.shutdown();
+    }
+
+    /// Files, as the Android app drives them: send through the FileSource callback,
+    /// receive into the private folder (path in the event), cancel, list.
+    #[test]
+    fn file_transfer_call_sequence() {
+        use phonelink_core::transfer::{PathOpener, TransferConfig, Transfers};
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut cfg = NodeConfig::new("Kubuntu", None, "127.0.0.1:0".parse().unwrap());
+        cfg.capabilities.push(CAP_FILES.into());
+        let (laptop, mut lrx) = rt.block_on(Node::start(cfg)).unwrap();
+        let ldir = tempfile::tempdir().unwrap();
+        let (lfiles, _lev) = {
+            let _g = rt.enter();
+            Transfers::start(
+                laptop.clone(),
+                TransferConfig {
+                    db_path: None,
+                    incoming_dir: ldir.path().to_path_buf(),
+                    reserve_bytes: 0,
+                },
+                Arc::new(PathOpener),
+            )
+            .unwrap()
+        };
+        let uri = laptop
+            .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
+            .to_uri();
+        let dir = tempfile::tempdir().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let phone = PhoneLink::start(
+            dir.path().to_string_lossy().into(),
+            "Galaxy S24 FE".into(),
+            Arc::new(Collect(Mutex::new(tx))),
+            Arc::new(Paths),
+        )
+        .unwrap();
+        phone.pair(uri).unwrap();
+        wait(&rx, |e| matches!(e, LinkEvent::Connected { .. }));
+        rt.block_on(async {
+            while !matches!(lrx.recv().await, Some(Event::PeerConnected { .. })) {}
+        });
+
+        // Phone → laptop: the "content URI" here is a path the test FileSource opens.
+        let src = tempfile::tempdir().unwrap();
+        let photo = src.path().join("IMG_1.jpg");
+        std::fs::write(&photo, vec![9u8; 300_000]).unwrap();
+        let id = phone
+            .send_file(None, photo.to_string_lossy().into(), "IMG_1.jpg".into(), 300_000, "image/jpeg".into())
+            .unwrap();
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::TransferChanged { transfer } if transfer.id == id && transfer.state == "done"));
+        let LinkEvent::TransferChanged { transfer } = ev else { unreachable!() };
+        assert!(transfer.outgoing && transfer.device_name == "Kubuntu");
+        assert_eq!(std::fs::read(ldir.path().join("IMG_1.jpg")).unwrap(), vec![9u8; 300_000]);
+
+        // A source the app can no longer open fails with a clear message.
+        let gone = phone
+            .send_file(None, "/no/longer/there.mp4".into(), "there.mp4".into(), 10, "video/mp4".into())
+            .unwrap();
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::TransferChanged { transfer } if transfer.id == gone && transfer.state == "failed"));
+        let LinkEvent::TransferChanged { transfer } = ev else { unreachable!() };
+        assert!(transfer.message.contains("Share it again"), "{}", transfer.message);
+
+        // Laptop → phone: lands in the private folder, path in the event.
+        let doc = src.path().join("notes.pdf");
+        std::fs::write(&doc, b"%PDF-1.7 hello").unwrap();
+        let phone_fp = laptop.peers()[0].fingerprint;
+        let lid = lfiles
+            .send_file(phone_fp, doc.to_string_lossy().into(), "notes.pdf", 14, "application/pdf")
+            .unwrap();
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::TransferChanged { transfer } if transfer.id == lid && transfer.state == "done"));
+        let LinkEvent::TransferChanged { transfer } = ev else { unreachable!() };
+        assert!(!transfer.outgoing);
+        let path = PathBuf::from(transfer.path.unwrap());
+        assert!(path.starts_with(dir.path().join("incoming")), "{path:?}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"%PDF-1.7 hello");
+        assert_eq!(transfer.mime, "application/pdf");
+
+        let list = phone.transfers();
+        assert_eq!(list.len(), 3);
+        phone.clear_transfers().unwrap();
+        assert!(phone.transfers().is_empty());
+        assert!(path.exists(), "clearing the list keeps the file");
+        phone.shutdown();
+        rt.block_on(laptop.shutdown());
     }
 }

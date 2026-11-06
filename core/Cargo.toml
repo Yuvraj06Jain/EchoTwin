@@ -28,6 +28,9 @@ hex = "0.4"
 base64 = "0.22"
 mdns-sd = "0.21"
 if-addrs = "0.15"
+# File transfers: whole-file integrity check, and free-space checks.
+blake3 = "1"
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"

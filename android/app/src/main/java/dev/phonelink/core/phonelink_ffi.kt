@@ -653,6 +653,9 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 internal interface UniffiCallbackInterfaceEventListenerMethod0 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`event`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
 }
+internal interface UniffiCallbackInterfaceFileSourceMethod0 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`transferId`: RustBuffer.ByValue,`source`: RustBuffer.ByValue,`uniffiOutReturn`: IntByReference,uniffiCallStatus: UniffiRustCallStatus,)
+}
 @Structure.FieldOrder("uniffiFree", "uniffiClone", "onEvent")
 internal open class UniffiVTableCallbackInterfaceEventListener(
     @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
@@ -669,6 +672,25 @@ internal open class UniffiVTableCallbackInterfaceEventListener(
         `uniffiFree` = other.`uniffiFree`
         `uniffiClone` = other.`uniffiClone`
         `onEvent` = other.`onEvent`
+    }
+
+}
+@Structure.FieldOrder("uniffiFree", "uniffiClone", "open")
+internal open class UniffiVTableCallbackInterfaceFileSource(
+    @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+    @JvmField internal var `uniffiClone`: UniffiCallbackInterfaceClone? = null,
+    @JvmField internal var `open`: UniffiCallbackInterfaceFileSourceMethod0? = null,
+) : Structure() {
+    class UniffiByValue(
+        `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+        `uniffiClone`: UniffiCallbackInterfaceClone? = null,
+        `open`: UniffiCallbackInterfaceFileSourceMethod0? = null,
+    ): UniffiVTableCallbackInterfaceFileSource(`uniffiFree`,`uniffiClone`,`open`,), Structure.ByValue
+
+   internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceFileSource) {
+        `uniffiFree` = other.`uniffiFree`
+        `uniffiClone` = other.`uniffiClone`
+        `open` = other.`open`
     }
 
 }
@@ -699,6 +721,12 @@ internal object IntegrityCheckingUniffiLib {
     internal fun ensureInitialized() = Unit
     external fun uniffi_phonelink_ffi_checksum_method_eventlistener_on_event(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_filesource_open(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_cancel_transfer(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_clear_transfers(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_devices(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_id(
@@ -723,6 +751,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_clipboard(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_file(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_media_art(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_now_playing(
@@ -736,6 +766,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_start_discovery(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_stop_discovery(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_transfers(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_unpair(
     ): Int
@@ -758,6 +790,7 @@ internal object UniffiLib {
     init {
         Native.register(UniffiLib::class.java, findLibraryName(componentName = "phonelink_ffi"))
         uniffiCallbackInterfaceEventListener.register(this)
+        uniffiCallbackInterfaceFileSource.register(this)
         
     }
 
@@ -770,12 +803,24 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_eventlistener_on_event(`ptr`: Long,`event`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_phonelink_ffi_fn_clone_filesource(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_phonelink_ffi_fn_free_filesource(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_init_callback_vtable_filesource(`vtable`: UniffiVTableCallbackInterfaceFileSource,
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_filesource_open(`ptr`: Long,`transferId`: RustBuffer.ByValue,`source`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
     external fun uniffi_phonelink_ffi_fn_clone_phonelink(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_phonelink_ffi_fn_free_phonelink(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
-    external fun uniffi_phonelink_ffi_fn_constructor_phonelink_start(`dataDir`: RustBuffer.ByValue,`deviceName`: RustBuffer.ByValue,`listener`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_phonelink_ffi_fn_constructor_phonelink_start(`dataDir`: RustBuffer.ByValue,`deviceName`: RustBuffer.ByValue,`listener`: Long,`files`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_cancel_transfer(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_clear_transfers(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_devices(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_phonelink_id(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -800,6 +845,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_clipboard(`ptr`: Long,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Int
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_send_file(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`source`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`size`: Long,`mime`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_media_art(`ptr`: Long,`key`: RustBuffer.ByValue,`image`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Int
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_now_playing(`ptr`: Long,`media`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -814,6 +861,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_stop_discovery(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_transfers(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_phonelink_unpair(`ptr`: Long,`deviceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun ffi_phonelink_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -938,6 +987,15 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_phonelink_ffi_checksum_method_eventlistener_on_event() and 0xFFFF) != 10404) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_filesource_open() and 0xFFFF) != 34556) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_cancel_transfer() and 0xFFFF) != 19790) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_clear_transfers() and 0xFFFF) != 54796) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_devices() and 0xFFFF) != 25210) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -974,6 +1032,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_clipboard() and 0xFFFF) != 31547) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_file() and 0xFFFF) != 58038) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_media_art() and 0xFFFF) != 21606) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -995,10 +1056,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_stop_discovery() and 0xFFFF) != 45521) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_transfers() and 0xFFFF) != 29082) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_unpair() and 0xFFFF) != 53161) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if ((lib.uniffi_phonelink_ffi_checksum_constructor_phonelink_start() and 0xFFFF) != 51096) {
+    if ((lib.uniffi_phonelink_ffi_checksum_constructor_phonelink_start() and 0xFFFF) != 37858) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1236,6 +1300,29 @@ public object FfiConverterUInt: FfiConverter<UInt, Int> {
 
     override fun write(value: UInt, buf: ByteBuffer) {
         buf.putInt(value.toInt())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterInt: FfiConverter<Int, Int> {
+    override fun lift(value: Int): Int {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Int {
+        return buf.getInt()
+    }
+
+    override fun lower(value: Int): Int {
+        return value
+    }
+
+    override fun allocationSize(value: Int) = 4UL
+
+    override fun write(value: Int, buf: ByteBuffer) {
+        buf.putInt(value)
     }
 }
 
@@ -1774,7 +1861,339 @@ public object FfiConverterTypeEventListener: FfiConverter<EventListener, Long> {
 //
 
 
+/**
+ * Implemented in Kotlin: opens a file being sent (a content URI) and hands over its file
+ * descriptor; the core closes it. Return -1 if it can't be opened any more.
+ */
+public interface FileSource {
+    
+    fun `open`(`transferId`: kotlin.String, `source`: kotlin.String): kotlin.Int
+    
+    companion object
+}
+
+/**
+ * Implemented in Kotlin: opens a file being sent (a content URI) and hands over its file
+ * descriptor; the core closes it. Return -1 if it can't be opened any more.
+ */
+open class FileSourceImpl: Disposable, AutoCloseable, FileSource
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_phonelink_ffi_fn_free_filesource(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_phonelink_ffi_fn_clone_filesource(handle, status)
+        }
+    }
+
+    override fun `open`(`transferId`: kotlin.String, `source`: kotlin.String): kotlin.Int {
+            return FfiConverterInt.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_filesource_open(
+        it,
+        
+        FfiConverterString.lower(`transferId`),
+        FfiConverterString.lower(`source`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+
+// Put the implementation in an object so we don't pollute the top-level namespace
+internal object uniffiCallbackInterfaceFileSource {
+    internal object `open`: UniffiCallbackInterfaceFileSourceMethod0 {
+        override fun callback(`uniffiHandle`: Long,`transferId`: RustBuffer.ByValue,`source`: RustBuffer.ByValue,`uniffiOutReturn`: IntByReference,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeFileSource.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`open`(
+                    FfiConverterString.lift(`transferId`),
+                    FfiConverterString.lift(`source`),
+                )
+            }
+            val writeReturn = { value: kotlin.Int -> uniffiOutReturn.setValue(FfiConverterInt.lower(value)) }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+
+    internal object uniffiFree: UniffiCallbackInterfaceFree {
+        override fun callback(handle: Long) {
+            FfiConverterTypeFileSource.handleMap.remove(handle)
+        }
+    }
+
+    internal object uniffiClone: UniffiCallbackInterfaceClone {
+        override fun callback(handle: Long): Long {
+            return FfiConverterTypeFileSource.handleMap.clone(handle)
+        }
+    }
+
+    internal var vtable = UniffiVTableCallbackInterfaceFileSource.UniffiByValue(
+        uniffiFree,
+        uniffiClone,
+        `open`,
+    )
+
+    // Registers the foreign callback with the Rust side.
+    // This method is generated for each callback interface.
+    internal fun register(lib: UniffiLib) {
+        lib.uniffi_phonelink_ffi_fn_init_callback_vtable_filesource(vtable)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFileSource: FfiConverter<FileSource, Long> {
+    internal val handleMap = UniffiHandleMap<FileSource>()
+
+    override fun lower(value: FileSource): Long {
+        if (value is FileSourceImpl) {
+             // Rust-implemented object.  Clone the handle and return it
+            return value.uniffiCloneHandle()
+         } else {
+            // Kotlin object, generate a new vtable handle and return that.
+            return handleMap.insert(value)
+         }
+    }
+
+    override fun lift(value: Long): FileSource {
+        if ((value and 1.toLong()) == 0.toLong()) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return FileSourceImpl(UniffiWithHandle, value)
+        } else {
+            // Kotlin-generated handle, get the object from the handle map
+            return handleMap.remove(value)
+        }
+    }
+
+    override fun read(buf: ByteBuffer): FileSource {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: FileSource) = 8UL
+
+    override fun write(value: FileSource, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
 public interface PhoneLinkInterface {
+    
+    /**
+     * Stop a transfer on both devices.
+     */
+    fun `cancelTransfer`(`id`: kotlin.String)
+    
+    /**
+     * Forget finished transfers (received files stay where they were saved).
+     */
+    fun `clearTransfers`()
     
     fun `devices`(): List<Device>
     
@@ -1838,6 +2257,13 @@ public interface PhoneLinkInterface {
     fun `sendClipboard`(`text`: kotlin.String): kotlin.UInt
     
     /**
+     * Send a file to the computer (`device_id`, or the only paired one). `source` is
+     * given back to `FileSource::open` (a content URI). It goes when the computer is
+     * connected over Wi-Fi, and resumes after interruptions. Returns the transfer id.
+     */
+    fun `sendFile`(`deviceId`: kotlin.String?, `source`: kotlin.String, `name`: kotlin.String, `size`: kotlin.ULong, `mime`: kotlin.String): kotlin.String
+    
+    /**
      * Album art for `PhoneMedia::art_key`: a JPEG or PNG of at most 64 KB.
      */
     fun `sendMediaArt`(`key`: kotlin.String, `image`: kotlin.ByteArray): kotlin.UInt
@@ -1869,6 +2295,11 @@ public interface PhoneLinkInterface {
     fun `startDiscovery`()
     
     fun `stopDiscovery`()
+    
+    /**
+     * File transfers, newest first.
+     */
+    fun `transfers`(): List<FileTransfer>
     
     fun `unpair`(`deviceId`: kotlin.String)
     
@@ -1975,6 +2406,39 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
             UniffiLib.uniffi_phonelink_ffi_fn_clone_phonelink(handle, status)
         }
     }
+
+    
+    /**
+     * Stop a transfer on both devices.
+     */
+    @Throws(LinkException::class)override fun `cancelTransfer`(`id`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_cancel_transfer(
+        it,
+        
+        FfiConverterString.lower(`id`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Forget finished transfers (received files stay where they were saved).
+     */
+    @Throws(LinkException::class)override fun `clearTransfers`()
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_clear_transfers(
+        it,
+        _status)
+}
+    }
+    
+    
 
     override fun `devices`(): List<Device> {
             return FfiConverterSequenceTypeDevice.lift(
@@ -2186,6 +2650,30 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
 
     
     /**
+     * Send a file to the computer (`device_id`, or the only paired one). `source` is
+     * given back to `FileSource::open` (a content URI). It goes when the computer is
+     * connected over Wi-Fi, and resumes after interruptions. Returns the transfer id.
+     */
+    @Throws(LinkException::class)override fun `sendFile`(`deviceId`: kotlin.String?, `source`: kotlin.String, `name`: kotlin.String, `size`: kotlin.ULong, `mime`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_send_file(
+        it,
+        
+        FfiConverterOptionalString.lower(`deviceId`),
+        FfiConverterString.lower(`source`),
+        FfiConverterString.lower(`name`),
+        FfiConverterULong.lower(`size`),
+        FfiConverterString.lower(`mime`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Album art for `PhoneMedia::art_key`: a JPEG or PNG of at most 64 KB.
      */
     @Throws(LinkException::class)override fun `sendMediaArt`(`key`: kotlin.String, `image`: kotlin.ByteArray): kotlin.UInt {
@@ -2302,6 +2790,22 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
     
 
     
+    /**
+     * File transfers, newest first.
+     */override fun `transfers`(): List<FileTransfer> {
+            return FfiConverterSequenceTypeFileTransfer.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_transfers(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(LinkException::class)override fun `unpair`(`deviceId`: kotlin.String)
         = 
     callWithHandle {
@@ -2326,7 +2830,7 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
     /**
      * Start the node. `data_dir` should be the app's private files directory.
      */
-    @Throws(LinkException::class) fun `start`(`dataDir`: kotlin.String, `deviceName`: kotlin.String, `listener`: EventListener): PhoneLink {
+    @Throws(LinkException::class) fun `start`(`dataDir`: kotlin.String, `deviceName`: kotlin.String, `listener`: EventListener, `files`: FileSource): PhoneLink {
             return FfiConverterTypePhoneLink.lift(
     uniffiRustCallWithError(LinkException) { _status ->
     UniffiLib.uniffi_phonelink_ffi_fn_constructor_phonelink_start(
@@ -2334,7 +2838,8 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
         
         FfiConverterString.lower(`dataDir`),
         FfiConverterString.lower(`deviceName`),
-        FfiConverterTypeEventListener.lower(`listener`),_status)
+        FfiConverterTypeEventListener.lower(`listener`),
+        FfiConverterTypeFileSource.lower(`files`),_status)
 }
     )
     }
@@ -2436,6 +2941,102 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterULong.write(value.`pending`, buf)
             FfiConverterBoolean.write(value.`canLock`, buf)
             FfiConverterBoolean.write(value.`canClipboard`, buf)
+    }
+}
+
+
+
+/**
+ * A file transfer, for the phone's notification and screen.
+ */
+data class FileTransfer (
+    var `id`: kotlin.String
+    , 
+    var `deviceId`: kotlin.String
+    , 
+    var `deviceName`: kotlin.String
+    , 
+    /**
+     * Phone → computer.
+     */
+    var `outgoing`: kotlin.Boolean
+    , 
+    var `name`: kotlin.String
+    , 
+    var `mime`: kotlin.String
+    , 
+    var `size`: kotlin.ULong
+    , 
+    var `done`: kotlin.ULong
+    , 
+    /**
+     * queued | waiting | active | done | failed | cancelled
+     */
+    var `state`: kotlin.String
+    , 
+    var `message`: kotlin.String
+    , 
+    /**
+     * Received and complete: the file in the app's private folder, to publish to
+     * Downloads (then it may be deleted).
+     */
+    var `path`: kotlin.String?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFileTransfer: FfiConverterRustBuffer<FileTransfer> {
+    override fun read(buf: ByteBuffer): FileTransfer {
+        return FileTransfer(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FileTransfer) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`deviceId`) +
+            FfiConverterString.allocationSize(value.`deviceName`) +
+            FfiConverterBoolean.allocationSize(value.`outgoing`) +
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`mime`) +
+            FfiConverterULong.allocationSize(value.`size`) +
+            FfiConverterULong.allocationSize(value.`done`) +
+            FfiConverterString.allocationSize(value.`state`) +
+            FfiConverterString.allocationSize(value.`message`) +
+            FfiConverterOptionalString.allocationSize(value.`path`)
+    )
+
+    override fun write(value: FileTransfer, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`deviceId`, buf)
+            FfiConverterString.write(value.`deviceName`, buf)
+            FfiConverterBoolean.write(value.`outgoing`, buf)
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterString.write(value.`mime`, buf)
+            FfiConverterULong.write(value.`size`, buf)
+            FfiConverterULong.write(value.`done`, buf)
+            FfiConverterString.write(value.`state`, buf)
+            FfiConverterString.write(value.`message`, buf)
+            FfiConverterOptionalString.write(value.`path`, buf)
     }
 }
 
@@ -2806,6 +3407,18 @@ sealed class LinkEvent {
     }
     
     /**
+     * A file transfer started, progressed (at most a few times a second) or finished.
+     */
+    data class TransferChanged(
+        val `transfer`: dev.phonelink.core.FileTransfer) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
      * How a request this phone made went (e.g. `key` = "lock").
      */
     data class RequestResult(
@@ -2877,7 +3490,10 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.read(buf),
                 FfiConverterTypeMediaCommand.read(buf),
                 )
-            10 -> LinkEvent.RequestResult(
+            10 -> LinkEvent.TransferChanged(
+                FfiConverterTypeFileTransfer.read(buf),
+                )
+            11 -> LinkEvent.RequestResult(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
@@ -2965,6 +3581,13 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 + FfiConverterTypeMediaCommand.allocationSize(value.`command`)
             )
         }
+        is LinkEvent.TransferChanged -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeFileTransfer.allocationSize(value.`transfer`)
+            )
+        }
         is LinkEvent.RequestResult -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
@@ -3038,8 +3661,13 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterTypeMediaCommand.write(value.`command`, buf)
                 Unit
             }
-            is LinkEvent.RequestResult -> {
+            is LinkEvent.TransferChanged -> {
                 buf.putInt(10)
+                FfiConverterTypeFileTransfer.write(value.`transfer`, buf)
+                Unit
+            }
+            is LinkEvent.RequestResult -> {
+                buf.putInt(11)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`key`, buf)
@@ -3301,6 +3929,34 @@ public object FfiConverterSequenceTypeDevice: FfiConverterRustBuffer<List<Device
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeDevice.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeFileTransfer: FfiConverterRustBuffer<List<FileTransfer>> {
+    override fun read(buf: ByteBuffer): List<FileTransfer> {
+        val len = buf.getInt()
+        return List<FileTransfer>(len) {
+            FfiConverterTypeFileTransfer.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FileTransfer>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFileTransfer.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FileTransfer>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFileTransfer.write(it, buf)
         }
     }
 }

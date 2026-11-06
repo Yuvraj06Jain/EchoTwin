@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Service
+MimeType=all/allfiles;
+X-KDE-ServiceTypes=KonqPopupMenu/Plugin
+X-KDE-Priority=TopLevel
+Actions=sendToPhone
+
+[Desktop Action sendToPhone]
+Name=Send to phone (PhoneLink)
+Icon=smartphone
+Exec=@BINDIR@/phonelink send-file --notify %F

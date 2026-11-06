@@ -24,7 +24,9 @@ pub async fn node_at(
     // A just-closed endpoint may hold its port for a moment; retry briefly.
     let mut last = None;
     for _ in 0..50 {
-        match Node::start(NodeConfig::new(name, dir.clone(), bind)).await {
+        let mut cfg = NodeConfig::new(name, dir.clone(), bind);
+        cfg.capabilities.push(phonelink_core::transfer::CAP_FILES.into());
+        match Node::start(cfg).await {
             Ok(x) => return x,
             Err(e) => last = Some(e),
         }

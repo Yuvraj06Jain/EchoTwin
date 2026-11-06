@@ -291,6 +291,11 @@ body.in-app:not(.maximized) .resize-handle { display: block; }
   .device-panel.has-media .phone-art { display: none; }
 }
 
+.files-head { display: flex; align-items: baseline; justify-content: space-between; }
+.transfer-side { display: flex; gap: 6px; align-items: center; }
+.transfer.failed .transfer-meta { color: var(--danger); }
+.transfer.cancelled .transfer-name, .transfer.cancelled .transfer-meta { color: var(--text-3); }
+
 .section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); margin: 0 0 8px; font-weight: 600; }
 
 .actions { display: grid; gap: 4px; }

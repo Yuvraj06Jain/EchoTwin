@@ -25,6 +25,8 @@ pub struct Config {
     pub clipboard_sync: bool,
     /// Let the paired phone lock this computer's screen.
     pub allow_lock: bool,
+    /// Where files from the phone are saved. Default: `~/Downloads/PhoneLink`.
+    pub download_dir: Option<String>,
 }
 
 impl Default for Config {
@@ -38,6 +40,7 @@ impl Default for Config {
             muted_apps: Vec::new(),
             clipboard_sync: true,
             allow_lock: true,
+            download_dir: None,
         }
     }
 }

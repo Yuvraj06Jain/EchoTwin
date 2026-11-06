@@ -11,7 +11,7 @@ use std::{
     time::Duration,
 };
 
-use phonelink_desktop::popups::{PopupCmd, Popups};
+use phonelink_desktop::popups::{PopupCmd, Popups, Tab};
 use zbus::zvariant::OwnedValue;
 
 #[derive(Debug, Clone)]
@@ -112,6 +112,7 @@ fn show(id: &str, title: &str) -> PopupCmd {
         title: title.into(),
         body: "hi".into(),
         icon: None,
+        tab: if id == "dev/b" { Tab::Files } else { Tab::Notifications },
     }
 }
 
@@ -142,12 +143,12 @@ fn clicking_our_popup_opens_the_window_with_its_activation_token() {
         .build()
         .unwrap();
 
-    let (open_tx, opened) = mpsc::channel::<Option<String>>();
+    let (open_tx, opened) = mpsc::channel::<(Tab, Option<String>)>();
     let open_tx = Mutex::new(open_tx);
     let popups = Popups::start_with(
         Some(bus.address.clone()),
-        Arc::new(move |token| {
-            let _ = open_tx.lock().unwrap().send(token);
+        Arc::new(move |tab, token| {
+            let _ = open_tx.lock().unwrap().send((tab, token));
         }),
     );
 
@@ -191,7 +192,7 @@ fn clicking_our_popup_opens_the_window_with_its_activation_token() {
         .unwrap();
     assert_eq!(
         opened.recv_timeout(Duration::from_secs(5)).unwrap(),
-        Some("kwin-token-1".into())
+        (Tab::Notifications, Some("kwin-token-1".into()))
     );
 
     // A server without activation tokens: still opens, just without one.
@@ -200,7 +201,11 @@ fn clicking_our_popup_opens_the_window_with_its_activation_token() {
     server
         .emit_signal(to_us, path, iface, "ActionInvoked", &(2u32, "default"))
         .unwrap();
-    assert_eq!(opened.recv_timeout(Duration::from_secs(5)).unwrap(), None);
+    assert_eq!(
+        opened.recv_timeout(Duration::from_secs(5)).unwrap(),
+        (Tab::Files, None),
+        "a received-file popup opens the Files tab"
+    );
 
     // Removed on the phone: the popup is closed.
     popups.send(PopupCmd::Close { id: "dev/a".into() });

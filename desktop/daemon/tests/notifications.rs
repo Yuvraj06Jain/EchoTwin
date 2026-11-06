@@ -66,6 +66,7 @@ async fn setup() -> Rig {
         config_path: Some(dir.path().join("config.toml")),
         popups: Some(popups),
         buses: phonelink_desktop::lock::Buses::unreachable(),
+        download_dir: dir.path().join("downloads"),
     };
     let (stop, stop_rx) = tokio::sync::oneshot::channel::<()>();
     tokio::spawn(run(opts, async move {

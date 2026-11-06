@@ -18,11 +18,15 @@ This guide covers the current version (0.3).
   - from the phone, tap **Send clipboard** (phone app, PhoneLink notification, or Quick Settings tile), or *Share → Copy to computer*
   - Android only lets the app on screen read the clipboard, so the phone → laptop direction always needs that one tap
 - **music on the phone, controlled from the laptop**: a *Now playing* card on the left of the laptop app shows the song, artist, album art and progress. It has previous / play-pause / next buttons and a slider for the phone's media volume. Works with any player that shows media controls on the phone (Spotify, YouTube Music, Samsung Music, podcasts…). Keyboard media keys on the laptop stay with the laptop.
+- **file sharing, both ways**, resuming where it stopped if the connection drops:
+  - **laptop → phone:** drag files onto the PhoneLink window, *Choose files* in the Files tab, right-click → **Send to phone (PhoneLink)** in Dolphin, or `phonelink send-file <files>`. They're saved on the phone in **Download/PhoneLink**.
+  - **phone → laptop:** *Share → Send to computer* in any app, or **Send files** in the PhoneLink phone app. They're saved on the laptop in **~/Downloads/PhoneLink**; a popup offers to show them.
+  - a file only appears once all of it arrived and its checksum matched; files over the Bluetooth backup wait for Wi-Fi
 - settings in the laptop app: *Dismiss on both devices* (off by default), which apps to show, desktop popups on/off, *Share clipboard with your phone*, *Let your phone lock this computer*
 
 Mirroring is **one-way**: phone → laptop. The laptop never sends its own notifications to the phone (notes you type with *Send a note* are the only thing that appears on the phone).
 
-**Not built yet:** SMS conversations, file transfer and the Bluetooth backup link. The app has tabs for messages and files and says "coming in the next update" until each one exists.
+**Not built yet:** SMS conversations and the Bluetooth backup link. The app has tabs for messages and files and says "coming in the next update" until each one exists.
 
 ---
 
@@ -127,6 +131,7 @@ systemctl --user restart phonelinkd
 - **Location, contacts, storage:** never.
 - **Clipboard:** read only when you tap *Send clipboard* (or share text to *Copy to computer*). Text from the laptop is put on the phone's clipboard, marked as sensitive so Android's preview pop-up doesn't show it. Switch it off under *Share clipboard* in the phone app.
 - **Notifications:** read only after you grant access. They're sent only to your paired laptop, encrypted.
+- **Files:** only files you share to PhoneLink or pick in its *Send files* screen are read. Files from the laptop are written to Download/PhoneLink through Android's own download store, so the app needs no storage permission.
 - **Music:** the same notification access lets PhoneLink see what the phone's player publishes (title, artist, album art, position) and press its buttons. No audio is ever recorded or sent.
 - **Uninstalling** removes everything: keys, pairings, queued messages and cached app icons all live in the app's private storage, which Android deletes. Nothing is kept in your files or in cloud backups.
 
@@ -180,6 +185,12 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 28 | In that card: pause, play, next, previous | the phone does the same |
 | 29 | Drag the volume slider in the card; then press the phone's volume keys | the phone's media volume follows the slider; the slider follows the keys |
 | 30 | Close the music app on the phone (swipe its notification away) | the card disappears |
+| 31 | Drag a photo onto the laptop's PhoneLink window | the Files tab shows it sending; it appears on the phone in *My Files → Download → PhoneLink* |
+| 32 | In Dolphin, right-click a PDF → **Send to phone (PhoneLink)** | a "Sending…" popup, then the PDF on the phone |
+| 33 | On the phone, open Gallery → a photo → Share → **Send to computer** | a "Received …" popup on the laptop; clicking it opens the Files tab; *Show in folder* opens ~/Downloads/PhoneLink |
+| 34 | Send a big video (1 GB+) from the phone, and turn Wi-Fi (or the hotspot) off at about half way; turn it back on | it continues from where it stopped (not from 0%) and the video plays |
+| 35 | Start a big transfer and press **Cancel** on the laptop | it stops on both devices; no partial file is left anywhere |
+| 36 | Send the same file twice | the second is saved as `name (2).ext`; nothing is overwritten |
 
 When something fails, include:
 - the step number
@@ -249,6 +260,19 @@ When something fails, include:
 | laptop copies don't reach the phone | laptop app → Settings → *Share clipboard with your phone* must be on, and so must *Share clipboard* in the phone app. Copies are sent only while connected; something copied while offline isn't sent later. Clipboard sharing uses KDE Plasma's clipboard, which must be running (the clipboard icon in the system tray); other desktops aren't supported yet |
 | *Send clipboard* says "The clipboard is empty" | copy the text again; some apps (banking, password managers) block other apps from reading what they copy |
 | text over 64 KB isn't shared | by design: very long copies are skipped rather than cut off |
+
+### Files
+
+| Symptom | Fix |
+|---|---|
+| a transfer says *Waiting for Galaxy S24 FE to connect* | it continues by itself when the phone is back; *Reconnect now* speeds that up |
+| *Waiting for Wi-Fi (connected over Bluetooth)* | by design: files don't go over the slow Bluetooth backup |
+| *Update PhoneLink on …* | the other side still runs an older PhoneLink: install the new APK / zip |
+| *Can't read the file any more. Share it again.* | a file shared from another app can only be read while PhoneLink keeps running; if the phone closed it mid-way, share the file again. Files picked with *Send files* in the PhoneLink app don't have this problem |
+| *Not enough free space on …* | free some space on that device (PhoneLink keeps 512 MB free on the laptop and 256 MB on the phone) |
+| *Send to phone* is missing in Dolphin | re-run `./packaging/install.sh`, then restart Dolphin. It's installed in `~/.local/share/kio/servicemenus` |
+| dropping files on the window does nothing | drop them inside the PhoneLink window (the drop zone lights up); folders can't be sent yet, zip them first |
+| received files go somewhere else | set `download_dir = "/path"` in `~/.config/phonelink/config.toml`, then `systemctl --user restart phonelinkd` |
 
 ### Music controls
 
@@ -326,6 +350,7 @@ On the phone: uninstall the app as usual. Its keys are deleted with it, and they
 - There is no server, no account and no cloud. Data goes directly between your two devices, encrypted with TLS 1.3, and only between devices that have scanned each other's code.
 - On the network, other devices only see random identifiers that change every 10 minutes: never your laptop's name or your phone's model.
 - Mirrored notifications are kept **in memory only** on the laptop (the newest 200), never written to disk. App icons are cached in `~/.local/share/phonelink/icons`.
+- Files go directly between your two devices, encrypted, never through a server. Partial files are kept hidden (`.phonelink-….part`) until complete and checked, and removed if you cancel.
 - Shared clipboard text goes only to your paired devices, encrypted, and only while they are connected. It isn't stored by PhoneLink on either side. Passwords copied from a password manager on the laptop are skipped (KDE marks them and PhoneLink never sees them).
 - See *What the phone app can and can't access* in section 2 for camera, microphone and uninstall.
 - The GitHub repository holds only source code. Keys, pairings and messages never leave your devices. The repository is currently **public**; you can make it private in GitHub → Settings without affecting anything.

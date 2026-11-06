@@ -41,15 +41,35 @@ pub enum PopupCmd {
         title: String,
         body: String,
         icon: Option<PathBuf>,
+        /// The window tab a click opens.
+        tab: Tab,
     },
     Close {
         id: String,
     },
 }
 
-/// What a click does. Gets the activation token if the server sent one (needed on
-/// Wayland for the window to be allowed to take focus).
-pub type Opener = Arc<dyn Fn(Option<String>) + Send + Sync>;
+/// The window tab a popup leads to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tab {
+    Notifications,
+    Messages,
+    Files,
+}
+
+impl Tab {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Tab::Notifications => "notifications",
+            Tab::Messages => "messages",
+            Tab::Files => "files",
+        }
+    }
+}
+
+/// What a click does: the tab to show, and the activation token if the server sent one
+/// (needed on Wayland for the window to be allowed to take focus).
+pub type Opener = Arc<dyn Fn(Tab, Option<String>) + Send + Sync>;
 
 #[derive(Clone)]
 pub struct Popups {
@@ -88,6 +108,7 @@ struct Ours {
     order: VecDeque<u32>,
     ids: HashSet<u32>,
     tokens: HashMap<u32, String>,
+    tabs: HashMap<u32, Tab>,
 }
 
 impl Ours {
@@ -99,6 +120,7 @@ impl Ours {
             if let Some(old) = self.order.pop_front() {
                 self.ids.remove(&old);
                 self.tokens.remove(&old);
+                self.tabs.remove(&old);
             }
         }
     }
@@ -143,6 +165,7 @@ fn popup_thread(rx: mpsc::Receiver<PopupCmd>, bus: Option<String>, opener: Opene
                 title,
                 body,
                 icon,
+                tab,
             } => {
                 let icon = icon
                     .filter(|p| p.exists())
@@ -150,7 +173,11 @@ fn popup_thread(rx: mpsc::Receiver<PopupCmd>, bus: Option<String>, opener: Opene
                     .unwrap_or_else(|| "smartphone".into());
                 let replaces = open.get(&id).copied().unwrap_or(0);
                 notify(c, &app, replaces, &icon, &title, &body).map(|server_id| {
-                    lock(&ours).remember(server_id);
+                    {
+                        let mut o = lock(&ours);
+                        o.remember(server_id);
+                        o.tabs.insert(server_id, tab);
+                    }
                     if open.insert(id.clone(), server_id).is_none() {
                         order.push_back(id);
                     }
@@ -229,15 +256,15 @@ fn start_listener(conn: Connection, ours: Arc<Mutex<Ours>>, opener: Opener) -> z
                         let Ok((id, action)) = msg.body().deserialize::<(u32, String)>() else {
                             continue;
                         };
-                        let token = {
+                        let (token, tab) = {
                             let mut o = lock(&ours);
                             if action != DEFAULT_ACTION || !o.ids.contains(&id) {
                                 continue;
                             }
-                            o.tokens.remove(&id)
+                            (o.tokens.remove(&id), o.tabs.get(&id).copied().unwrap_or(Tab::Notifications))
                         };
                         info!("popup clicked; opening the PhoneLink window");
-                        opener(token);
+                        opener(tab, token);
                     }
                     _ => {}
                 }
@@ -285,7 +312,7 @@ pub fn parse_session_env(out: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-fn session_env() -> Vec<(String, String)> {
+pub fn session_env() -> Vec<(String, String)> {
     Command::new("systemctl")
         .args(["--user", "show-environment"])
         .stdin(Stdio::null())
@@ -297,9 +324,9 @@ fn session_env() -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
-/// Arguments for the desktop app: show the notifications, with the activation token.
-pub fn app_args(token: Option<&str>) -> Vec<String> {
-    let mut args = vec!["--show=notifications".to_string()];
+/// Arguments for the desktop app: the tab to show, with the activation token.
+pub fn app_args(tab: Tab, token: Option<&str>) -> Vec<String> {
+    let mut args = vec![format!("--show={}", tab.as_str())];
     if let Some(t) = token.filter(|t| valid_token(t)) {
         args.push(format!("--activation-token={t}"));
     }
@@ -312,10 +339,10 @@ fn valid_token(t: &str) -> bool {
 }
 
 /// Launch the window, or focus it if it is already open (the app is single-instance).
-pub fn open_app(token: Option<String>) {
+pub fn open_app(tab: Tab, token: Option<String>) {
     let exe = app_exe();
     let mut cmd = Command::new(&exe);
-    cmd.args(app_args(token.as_deref()));
+    cmd.args(app_args(tab, token.as_deref()));
     for (k, v) in session_env() {
         if std::env::var_os(&k).is_none() {
             cmd.env(k, v);
@@ -359,13 +386,15 @@ mod tests {
 
     #[test]
     fn app_arguments_carry_only_sane_tokens() {
-        assert_eq!(app_args(None), vec!["--show=notifications"]);
+        let n = Tab::Notifications;
+        assert_eq!(app_args(n, None), vec!["--show=notifications"]);
         assert_eq!(
-            app_args(Some("kwin-42_abc")),
+            app_args(n, Some("kwin-42_abc")),
             vec!["--show=notifications", "--activation-token=kwin-42_abc"]
         );
-        assert_eq!(app_args(Some("a b")), vec!["--show=notifications"]);
-        assert_eq!(app_args(Some("")), vec!["--show=notifications"]);
-        assert_eq!(app_args(Some("x\n--demo")), vec!["--show=notifications"]);
+        assert_eq!(app_args(n, Some("a b")), vec!["--show=notifications"]);
+        assert_eq!(app_args(n, Some("")), vec!["--show=notifications"]);
+        assert_eq!(app_args(n, Some("x\n--demo")), vec!["--show=notifications"]);
+        assert_eq!(app_args(Tab::Files, None), vec!["--show=files"]);
     }
 }

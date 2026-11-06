@@ -6,7 +6,7 @@ use anyhow::bail;
 use clap::{Parser, Subcommand};
 use phonelink_desktop::{
     client::Client,
-    ipc::{DeviceInfo, MediaAction, Reply, Request, WatchEvent},
+    ipc::{DeviceInfo, Direction, MediaAction, Reply, Request, TransferState, TransferView, WatchEvent},
     paths,
 };
 use qrcode::{render::unicode::Dense1x2, QrCode};
@@ -53,6 +53,21 @@ enum Cmd {
     Notifications,
     /// Try to reach the phone right now (also searches the local network).
     Reconnect,
+    /// Send files to the phone (they resume if the connection drops).
+    SendFile {
+        /// Device id, fingerprint prefix or name; optional if only one device is paired.
+        #[arg(long)]
+        to: Option<String>,
+        /// Show a desktop popup (used by the file manager's "Send to phone").
+        #[arg(long)]
+        notify: bool,
+        #[arg(required = true, num_args = 1..)]
+        files: Vec<std::path::PathBuf>,
+    },
+    /// File transfers in both directions.
+    Transfers,
+    /// Cancel a file transfer (on both devices).
+    CancelTransfer { id: String },
     /// Show what's playing on the phone, or control it:
     /// play-pause, next, previous, volume-up, volume-down, volume <N>.
     Media {
@@ -74,6 +89,38 @@ fn media_action(action: &str, level: Option<u32>) -> anyhow::Result<MediaAction>
             "unknown media action '{action}'; use play-pause, next, previous, volume-up, volume-down or volume <N>"
         ),
     })
+}
+
+fn fmt_size(n: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut v = n as f64;
+    let mut u = 0;
+    while v >= 1024.0 && u < UNITS.len() - 1 {
+        v /= 1024.0;
+        u += 1;
+    }
+    if u == 0 {
+        format!("{n} B")
+    } else {
+        format!("{v:.1} {}", UNITS[u])
+    }
+}
+
+fn transfer_state(t: &TransferView) -> String {
+    let pct = (t.done * 100).checked_div(t.size).unwrap_or(100);
+    let arrow = match t.direction {
+        Direction::Outgoing => "→ phone",
+        Direction::Incoming => "← phone",
+    };
+    let state = match t.state {
+        TransferState::Queued => "queued".to_string(),
+        TransferState::Waiting => format!("{pct}%, {}", t.message),
+        TransferState::Active => format!("{pct}%"),
+        TransferState::Done => "done".to_string(),
+        TransferState::Failed => format!("failed: {}", t.message),
+        TransferState::Cancelled => "cancelled".to_string(),
+    };
+    format!("{arrow}  {state}")
 }
 
 fn mmss(ms: u64) -> String {
@@ -132,6 +179,13 @@ fn print_event(e: &WatchEvent) {
         }
         WatchEvent::LockedByPhone { id, name } => println!("lock          {id}  {name} asked to lock"),
         WatchEvent::MediaChanged { id } => println!("media         {id}  playing state changed"),
+        WatchEvent::TransferChanged { item } => println!(
+            "file          {}  {} {} ({})",
+            item.device,
+            item.name,
+            transfer_state(item),
+            fmt_size(item.size)
+        ),
     }
 }
 
@@ -222,6 +276,64 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                     }
                 );
             }
+        }
+        Cmd::SendFile { to, notify, files } => {
+            let mut paths = vec![];
+            for f in files {
+                let abs = std::fs::canonicalize(&f)
+                    .map_err(|e| anyhow::anyhow!("{}: {e}", f.display()))?;
+                paths.push(abs.to_string_lossy().into_owned());
+            }
+            let r = c
+                .request(&Request::SendFiles {
+                    device: to,
+                    paths,
+                    notify,
+                })
+                .await?;
+            fail_on_error(&r)?;
+            show(&r);
+            if let (false, Reply::FilesQueued { ids }) = (cli.json, &r) {
+                println!(
+                    "Queued {} file{}. Follow along with: phonelink transfers",
+                    ids.len(),
+                    if ids.len() == 1 { "" } else { "s" }
+                );
+            }
+        }
+        Cmd::Transfers => {
+            let r = c.request(&Request::Transfers).await?;
+            fail_on_error(&r)?;
+            show(&r);
+            if let (false, Reply::Transfers { items }) = (cli.json, &r) {
+                if items.is_empty() {
+                    println!("No file transfers yet.");
+                }
+                for t in items {
+                    println!("  {}  {:<32} {:>9}  {}", &t.id[..8], t.name, fmt_size(t.size), transfer_state(t));
+                    if let Some(p) = &t.path {
+                        println!("            saved as {p}");
+                    }
+                }
+            }
+        }
+        Cmd::CancelTransfer { id } => {
+            // Accept the short id the list shows.
+            let r = c.request(&Request::Transfers).await?;
+            let full = match &r {
+                Reply::Transfers { items } => {
+                    let hits: Vec<_> = items.iter().filter(|t| t.id.starts_with(&id)).collect();
+                    match hits.as_slice() {
+                        [one] => one.id.clone(),
+                        [] => bail!("no transfer {id}"),
+                        _ => bail!("'{id}' matches several transfers"),
+                    }
+                }
+                _ => id,
+            };
+            let r = c.request(&Request::CancelTransfer { id: full }).await?;
+            fail_on_error(&r)?;
+            show(&r);
         }
         Cmd::Media { action: None, .. } => {
             let r = c.request(&Request::Media).await?;

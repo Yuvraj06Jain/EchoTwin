@@ -136,6 +136,13 @@ impl NodeConfig {
     }
 }
 
+/// An extra QUIC stream the peer opened on an established session (file data).
+pub struct DataStream {
+    pub peer: Fingerprint,
+    pub send: SendStream,
+    pub recv: quinn::RecvStream,
+}
+
 /// Which kind of link carries a session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Transport {
@@ -244,6 +251,8 @@ struct SessionHandle {
     link: Link,
     tx: mpsc::UnboundedSender<Control>,
     we_dialed: bool,
+    /// Features both sides support on this session.
+    capabilities: Vec<String>,
 }
 
 struct Inner {
@@ -269,6 +278,9 @@ struct Inner {
     dial_locks: Mutex<HashMap<Fingerprint, Arc<tokio::sync::Mutex<()>>>>,
     /// The `Links` frame sent to every peer after `Hello` (`None`: not set, send nothing).
     links: Mutex<Option<Control>>,
+    /// Extra streams opened by peers (file data), for whoever called `data_streams`.
+    data_tx: mpsc::UnboundedSender<DataStream>,
+    data_rx: Mutex<Option<mpsc::UnboundedReceiver<DataStream>>>,
 }
 
 #[derive(Clone)]
@@ -308,6 +320,7 @@ impl Node {
         let server_config = tls::server_config(&identity, gate.clone(), provider.clone())?;
         let endpoint = Endpoint::server(server_config, config.bind)?;
         let (events, rx) = mpsc::unbounded_channel();
+        let (data_tx, data_rx) = mpsc::unbounded_channel();
         let node = Node {
             inner: Arc::new(Inner {
                 identity,
@@ -325,6 +338,8 @@ impl Node {
                 nudge: watch::channel(0).0,
                 dial_locks: Mutex::new(HashMap::new()),
                 links: Mutex::new(None),
+                data_tx,
+                data_rx: Mutex::new(Some(data_rx)),
             }),
         };
         info!(fingerprint = %node.fingerprint().short(), addr = ?node.local_addr(), "node started");
@@ -354,6 +369,39 @@ impl Node {
 
     pub fn is_connected(&self, fp: &Fingerprint) -> bool {
         self.transport(fp).is_some()
+    }
+
+    /// Streams peers open for file data. Can be taken once; without a taker, such streams
+    /// are refused.
+    pub fn data_streams(&self) -> Option<mpsc::UnboundedReceiver<DataStream>> {
+        self.inner
+            .data_rx
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+    }
+
+    /// Open a stream for file data to a peer connected over QUIC. Over the Bluetooth backup
+    /// (or when offline) this fails: files wait for Wi-Fi.
+    pub async fn open_data(&self, peer: &Fingerprint) -> Result<(SendStream, quinn::RecvStream)> {
+        let link = self
+            .sessions()
+            .get(peer)
+            .filter(|s| s.link.is_open())
+            .map(|s| s.link.clone());
+        match link {
+            Some(Link::Quic(conn)) => Ok(conn.open_bi().await?),
+            Some(Link::Stream(_)) => Err(Error::NoNetworkLink),
+            None => Err(Error::Protocol("not connected".into())),
+        }
+    }
+
+    /// Whether the connected peer `fp` supports `capability` (false while offline).
+    pub fn peer_supports(&self, fp: &Fingerprint, capability: &str) -> bool {
+        self.sessions()
+            .get(fp)
+            .filter(|s| s.link.is_open())
+            .is_some_and(|s| s.capabilities.iter().any(|c| c == capability))
     }
 
     /// The link the session with `fp` currently runs on, if connected.
@@ -773,6 +821,12 @@ impl Node {
         W: AsyncWrite + Unpin + Send + 'static,
     {
         let id = self.inner.next_session.fetch_add(1, Ordering::Relaxed);
+        let capabilities: Vec<String> = hello
+            .capabilities
+            .iter()
+            .filter(|c| self.inner.config.capabilities.contains(c))
+            .cloned()
+            .collect();
         let (tx, mut rx) = mpsc::unbounded_channel::<Control>();
         let transport = link.transport();
         {
@@ -807,6 +861,7 @@ impl Node {
                     link: link.clone(),
                     tx: tx.clone(),
                     we_dialed,
+                    capabilities: capabilities.clone(),
                 },
             );
         }
@@ -817,11 +872,6 @@ impl Node {
                 debug!("could not persist peer address: {e}");
             }
         }
-        let capabilities: Vec<String> = hello
-            .capabilities
-            .into_iter()
-            .filter(|c| self.inner.config.capabilities.contains(c))
-            .collect();
         info!(peer = %peer.short(), ?addr, ?transport, version = hello.version.min(PROTOCOL_VERSION), "connected");
         self.emit(Event::PeerConnected {
             peer,
@@ -830,6 +880,18 @@ impl Node {
             addr,
             transport,
         });
+
+        // Further streams on a QUIC session carry file data.
+        if let Link::Quic(conn) = &link {
+            let (conn, data_tx) = (conn.clone(), self.inner.data_tx.clone());
+            tokio::spawn(async move {
+                while let Ok((send, recv)) = conn.accept_bi().await {
+                    if data_tx.send(DataStream { peer, send, recv }).is_err() {
+                        break; // nobody takes file data on this device
+                    }
+                }
+            });
+        }
 
         let keepalive = transport == Transport::Stream;
         let (ping_every, silence_limit) = (

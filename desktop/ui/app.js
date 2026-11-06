@@ -454,7 +454,7 @@
 
   function renderTabs() {
     const unread = state.threads.reduce((n, t) => n + (t.unread || 0), 0);
-    const active = state.transfers.filter((t) => t.state === 'active' || t.state === 'paused').length;
+    const active = state.transfers.filter((t) => ['active', 'queued', 'waiting'].includes(t.state)).length;
     const defs = {
       notifications: { icon: 'bell', label: 'Notifications', badge: state.notifications.length },
       messages: { icon: 'chat', label: 'Messages', badge: unread },
@@ -631,12 +631,52 @@
     el.composerSend.disabled = input.disabled || !input.value.trim();
   }
 
+  const pctOf = (t) => (t.size > 0 ? Math.min(100, Math.floor((100 * t.done) / t.size)) : t.state === 'done' ? 100 : 0);
+  const RUNNING = ['queued', 'waiting', 'active'];
+  const FINISHED = ['done', 'failed', 'cancelled'];
+
   function transferStatus(t) {
-    const pct = Math.floor(t.progress * 100);
+    const pct = pctOf(t);
     const toPhone = t.direction === 'to-phone';
-    if (t.state === 'done') return toPhone ? 'Sent to phone' : 'Saved to Downloads';
-    if (t.state === 'paused') return `Paused at ${pct}% · resumes when your phone reconnects`;
-    return `${toPhone ? 'Sending' : 'Receiving'} · ${pct}%`;
+    switch (t.state) {
+      case 'done':
+        return toPhone ? `Sent to ${deviceName()}` : 'Saved to Downloads/PhoneLink';
+      case 'active':
+        return `${toPhone ? 'Sending' : 'Receiving'} · ${pct}%`;
+      case 'queued':
+        return 'Queued';
+      case 'waiting':
+        return `${pct ? `${pct}% · ` : ''}${t.message || 'Waiting'}`;
+      case 'failed':
+        return `Failed: ${t.message || 'unknown error'}`;
+      case 'cancelled':
+        return t.message || 'Cancelled';
+      default:
+        return t.state;
+    }
+  }
+
+  function transferSide(t) {
+    if (RUNNING.includes(t.state)) {
+      return `<button type="button" class="btn btn-ghost btn-sm" data-action="cancel-transfer" aria-label="Cancel ${esc(t.name)}">Cancel</button>`;
+    }
+    if (t.state === 'done' && t.direction === 'from-phone') {
+      return `<button type="button" class="btn btn-ghost btn-sm" data-action="open-transfer" aria-label="Open ${esc(t.name)}">Open</button>
+        <button type="button" class="btn btn-sm" data-action="show-in-folder" aria-label="Show ${esc(t.name)} in folder">Show in folder</button>`;
+    }
+    if (t.state === 'done') return `<span class="state-ok">${icon('check')}Done</span>`;
+    return '';
+  }
+
+  function transferRow(t) {
+    const pct = pctOf(t);
+    return `<div class="transfer ${esc(t.state)}" data-id="${esc(t.id)}">
+          <div class="file-ico">${icon(t.direction === 'to-phone' ? 'upload' : 'download')}</div>
+          <div class="transfer-name" title="${esc(t.name)}">${esc(t.name)}</div>
+          <div class="transfer-side">${transferSide(t)}</div>
+          <div class="transfer-meta tnum" data-meta title="${esc(transferStatus(t))}">${esc(fmtSize(t.size))} · ${esc(transferStatus(t))}</div>
+          ${RUNNING.includes(t.state) ? `<div class="progress" role="progressbar" aria-label="${esc(t.name)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></div>` : ''}
+        </div>`;
   }
 
   function renderFiles() {
@@ -644,32 +684,53 @@
       el.panels.files.innerHTML = `<div class="empty">${icon('folder')}<strong>File transfer is coming in the next update</strong><span>You'll be able to drop files here to send them to ${esc(deviceName())}, with transfers that resume if the connection drops.</span></div>`;
       return;
     }
-    const items = state.transfers
-      .map((t) => {
-        const side =
-          t.state === 'done'
-            ? t.direction === 'from-phone'
-              ? `<button type="button" class="btn btn-sm" data-action="show-in-folder">Show in folder</button>`
-              : `<span class="state-ok">${icon('check')}Done</span>`
-            : `<button type="button" class="btn btn-ghost btn-sm" data-action="cancel-transfer" aria-label="Cancel ${esc(t.name)}">Cancel</button>`;
-        const pct = Math.floor(t.progress * 100);
-        return `<div class="transfer ${t.state}" data-id="${esc(t.id)}">
-          <div class="file-ico">${icon(t.direction === 'to-phone' ? 'upload' : 'download')}</div>
-          <div class="transfer-name" title="${esc(t.name)}">${esc(t.name)}</div>
-          <div class="transfer-side">${side}</div>
-          <div class="transfer-meta tnum" data-meta>${esc(fmtSize(t.size))} · ${esc(transferStatus(t))}</div>
-          ${t.state === 'done' ? '' : `<div class="progress" role="progressbar" aria-label="${esc(t.name)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></div>`}
-        </div>`;
-      })
-      .join('');
+    const hadFocus = document.activeElement && el.panels.files.contains(document.activeElement)
+      ? { id: document.activeElement.closest('[data-id]')?.dataset.id, action: document.activeElement.dataset.action }
+      : null;
+    const items = state.transfers.map(transferRow).join('');
+    const anyFinished = state.transfers.some((t) => FINISHED.includes(t.state));
     el.panels.files.innerHTML = `<div class="files-wrap">
       <div class="dropzone">${icon('upload')}
         <div class="grow"><strong>Drop files here to send them to ${esc(deviceName())}</strong>
           <span>Transfers pick up where they left off if the connection drops.</span></div>
         <button type="button" class="btn" data-action="send-file">Choose files</button>
       </div>
-      ${items ? `<p class="section-label">Transfers</p>${items}` : `<div class="empty">${icon('folder')}<strong>No transfers yet</strong><span>Files you send or receive appear here.</span></div>`}
+      ${items
+        ? `<div class="files-head"><p class="section-label">Transfers</p>${anyFinished ? '<button type="button" class="link-btn" data-action="clear-transfers">Clear finished</button>' : ''}</div>${items}`
+        : `<div class="empty">${icon('folder')}<strong>No transfers yet</strong><span>Files you send or receive appear here. On your phone, use Share → PhoneLink.</span></div>`}
     </div>`;
+    if (hadFocus) {
+      const row = hadFocus.id && $(`.transfer[data-id="${CSS.escape(hadFocus.id)}"]`, el.panels.files);
+      const target = (row && hadFocus.action && $(`[data-action="${hadFocus.action}"]`, row)) || (hadFocus.action && $(`[data-action="${hadFocus.action}"]`, el.panels.files));
+      if (target) target.focus();
+      else el.tabs.files.focus();
+    }
+  }
+
+  /** A transfer changed (progress or state): update its row in place when possible. */
+  function upsertTransfer(t) {
+    const i = state.transfers.findIndex((x) => x.id === t.id);
+    const before = i >= 0 ? state.transfers[i] : null;
+    if (i >= 0) state.transfers[i] = t;
+    else state.transfers.unshift(t);
+    const row = $(`.transfer[data-id="${CSS.escape(t.id)}"]`, el.panels.files);
+    if (row && before && before.state === t.state) {
+      const pct = pctOf(t);
+      const bar = $('.progress', row);
+      if (bar) {
+        bar.setAttribute('aria-valuenow', String(pct));
+        bar.firstElementChild.style.width = `${pct}%`;
+      }
+      const meta = $('[data-meta]', row);
+      meta.textContent = `${fmtSize(t.size)} · ${transferStatus(t)}`;
+      meta.title = transferStatus(t);
+    } else {
+      renderFiles();
+      renderTabs();
+      if (before && before.state !== 'done' && t.state === 'done') {
+        toast(t.direction === 'to-phone' ? `Sent “${t.name}”` : `Received “${t.name}”`);
+      }
+    }
   }
 
   function renderPairing() {
@@ -823,56 +884,44 @@
 
   // ------------------------------------------------------------------ files
 
-  async function sendFiles(files) {
-    if (!files.length) return;
+  function canSendFiles() {
     if (!caps.files) {
       toast('File transfer is coming in the next update.');
-      return;
+      return false;
     }
     if (!state.device) {
       toast('Pair your phone first.');
-      return;
+      return false;
     }
-    const added = await api.sendFiles(files.map((f) => ({ name: f.name, size: f.size })));
-    state.transfers.unshift(...added);
+    return true;
+  }
+
+  async function afterQueued(names) {
     selectTab('files');
+    if (api.transfers) {
+      state.transfers = await api.transfers();
+    }
     renderFiles();
     renderTabs();
-    const what = files.length === 1 ? `“${files[0].name}”` : plural(files.length, 'file', 'files');
+    const what = names.length === 1 ? `“${names[0]}”` : plural(names.length, 'file', 'files');
     toast(state.device.connected ? `Sending ${what} to ${deviceName()}` : `${what} queued until ${deviceName()} reconnects`);
   }
 
-  const SPEED = 30 * 1024 * 1024; // simulated bytes per second
-  function tickTransfers() {
-    if (!state.device || !state.device.connected) return;
-    let finished = false;
-    for (const t of state.transfers) {
-      if (t.state !== 'active') continue;
-      t.progress = Math.min(1, t.progress + Math.max(0.02, (SPEED * 0.5) / Math.max(1, t.size)));
-      if (t.progress >= 1) {
-        t.state = 'done';
-        finished = true;
-        toast(`${t.direction === 'to-phone' ? 'Sent' : 'Received'} “${t.name}”`);
-      }
-      api.transferProgress(t.id, t.progress, t.state).catch(() => {});
-      const row = $(`.transfer[data-id="${CSS.escape(t.id)}"]`, el.panels.files);
-      if (row && !finished) {
-        const pct = Math.floor(t.progress * 100);
-        const bar = $('.progress', row);
-        if (bar) {
-          bar.setAttribute('aria-valuenow', String(pct));
-          bar.firstElementChild.style.width = `${pct}%`;
-        }
-        $('[data-meta]', row).textContent = `${fmtSize(t.size)} · ${transferStatus(t)}`;
-      }
-    }
-    if (finished) {
-      const hadFocus = el.panels.files.contains(document.activeElement);
-      renderFiles();
-      renderTabs();
-      if (hadFocus) el.tabs.files.focus();
-    }
+  /** Files picked in the preview's file input (browser File objects). */
+  async function sendFiles(files) {
+    if (!files.length || !canSendFiles()) return;
+    await api.sendFiles(files.map((f) => ({ name: f.name, size: f.size })));
+    await afterQueued(files.map((f) => f.name));
   }
+
+  /** Paths from the desktop app (drag and drop, or the file picker). */
+  async function sendPaths(paths) {
+    if (!paths.length || !canSendFiles()) return;
+    await api.sendPaths(paths);
+    await afterQueued(paths.map((p) => p.split('/').pop()));
+  }
+
+
 
   // ------------------------------------------------------------------ dialogs
 
@@ -1111,6 +1160,7 @@
     }
     if (ev.kind === 'locked_by_phone') return undefined;
     if (ev.kind === 'media_changed') return refreshMedia();
+    if (ev.kind === 'transfer_changed') return ev.item && upsertTransfer(ev.item);
     if (ev.kind === 'app_icon') {
       if (api.appIcons) {
         api.appIcons().then((icons) => {
@@ -1211,7 +1261,8 @@
       case 'send-note':
         return openNoteDialog();
       case 'send-file':
-        if (!state.device) return toast('Pair your phone first.');
+        if (!canSendFiles()) return undefined;
+        if (api.chooseFiles) return sendPaths(await api.chooseFiles());
         return el.fileInput.click();
       case 'toggle-clipboard': {
         const on = !state.settings.clipboardSync;
@@ -1283,14 +1334,20 @@
       case 'cancel-transfer': {
         const t = state.transfers.find((x) => x.id === id);
         await api.cancelTransfer(id);
-        state.transfers = state.transfers.filter((x) => x.id !== id);
-        renderFiles();
-        renderTabs();
+        if (t && RUNNING.includes(t.state)) upsertTransfer({ ...t, state: 'cancelled', message: 'Cancelled' });
         el.tabs.files.focus();
         return t && toast(`Cancelled “${t.name}”`);
       }
+      case 'open-transfer':
+        return api.openTransfer(id, false);
       case 'show-in-folder':
-        return toast('Opens ~/Downloads/PhoneLink in the desktop app.');
+        return api.openTransfer(id, true);
+      case 'clear-transfers':
+        await api.clearTransfers();
+        state.transfers = state.transfers.filter((t) => !FINISHED.includes(t.state));
+        renderFiles();
+        renderTabs();
+        return el.tabs.files.focus();
       case 'copy-id': {
         const text = state.computer ? state.computer.id : '';
         try {
@@ -1484,6 +1541,21 @@
     dragDepth = Math.max(0, dragDepth - 1);
     if (!dragDepth) el.win.classList.remove('dragging');
   });
+  // In the desktop app the window itself receives dropped files (as paths).
+  if (api.onDrop) {
+    const sendPathsSafe = run(sendPaths);
+    api.onDrop((ev) => {
+      if (ev.kind === 'enter') {
+        el.win.classList.add('dragging');
+        if (state.device && !state.showPairing && !dialog) selectTab('files');
+      } else if (ev.kind === 'leave') {
+        el.win.classList.remove('dragging');
+      } else if (ev.kind === 'drop') {
+        el.win.classList.remove('dragging');
+        sendPathsSafe(ev.paths || []);
+      }
+    });
+  }
   const sendFilesSafe = run(sendFiles);
   el.win.addEventListener('drop', (e) => {
     if (!hasFiles(e)) return;
@@ -1518,7 +1590,6 @@
     for (const t of document.querySelectorAll('[data-ts]')) t.textContent = relTime(Number(t.dataset.ts));
   }, 30 * 1000);
 
-  setInterval(tickTransfers, 500);
   setInterval(tickMedia, 1000);
 
   // ------------------------------------------------------------------ start

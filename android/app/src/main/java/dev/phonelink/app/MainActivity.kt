@@ -76,6 +76,15 @@ class MainActivity : ComponentActivity() {
     }
     private val askNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
+    /** The system file picker; the permission to read the files is kept so sends can resume. */
+    private val pickFiles = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isEmpty()) return@registerForActivityResult
+        for (u in uris) {
+            runCatching { contentResolver.takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        }
+        LinkManager.sendFiles(uris, fromShare = false)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= 33 &&
@@ -90,6 +99,7 @@ class MainActivity : ComponentActivity() {
                 val devices by LinkManager.devices.collectAsStateWithLifecycle()
                 val messages by LinkManager.messages.collectAsStateWithLifecycle()
                 val myId by LinkManager.myId.collectAsStateWithLifecycle()
+                val transfers by LinkManager.transfers.collectAsStateWithLifecycle()
                 val snackbar = remember { SnackbarHostState() }
                 LaunchedEffect(notice) {
                     notice?.let { snackbar.showSnackbar(it); notice = null }
@@ -114,6 +124,9 @@ class MainActivity : ComponentActivity() {
                         onClipboardSharing = ::setClipboardSharing,
                         onLock = { LinkManager.lockComputer() },
                         onSendClipboard = ::sendClipboard,
+                        transfers = transfers,
+                        onSendFiles = { pickFiles.launch(arrayOf("*/*")) },
+                        onCancelTransfer = { LinkManager.cancelTransfer(it) },
                     )
                     pendingPair?.let { (uri, code) ->
                         ConfirmPairDialog(
@@ -266,6 +279,9 @@ private fun HomeScreen(
     onClipboardSharing: (Boolean) -> Unit,
     onLock: () -> Unit,
     onSendClipboard: () -> Unit,
+    transfers: List<dev.phonelink.core.FileTransfer>,
+    onSendFiles: () -> Unit,
+    onCancelTransfer: (String) -> Unit,
 ) {
     var draft by remember { mutableStateOf("") }
     var confirmUnpair by remember { mutableStateOf<Device?>(null) }
@@ -358,6 +374,11 @@ private fun HomeScreen(
                                 Text("Send clipboard")
                             }
                         }
+                        OutlinedButton(onClick = onSendFiles) { Text("Send files") }
+                        Text(
+                            "Or use Share → Send to computer in any app. Files from the computer are saved in Download/PhoneLink.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text("Share clipboard")
@@ -390,6 +411,30 @@ private fun HomeScreen(
                         singleLine = true,
                     )
                     Button(onClick = { onSend(draft.ifBlank { "Hello from my phone" }); draft = "" }) { Text("Send to computer") }
+                }
+            }
+        }
+
+        if (transfers.isNotEmpty()) {
+            item { Text("Files", style = MaterialTheme.typography.titleMedium) }
+            items(transfers.take(10), key = { "t-" + it.id }) { t ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text((if (t.outgoing) "↑ " else "↓ ") + t.name, fontWeight = FontWeight.Bold, maxLines = 1)
+                        val pct = if (t.size > 0uL) (t.done * 100uL / t.size).toInt() else 100
+                        val status = when (t.state) {
+                            "done" -> if (t.outgoing) "Sent" else "Saved in Download/PhoneLink"
+                            "active" -> "$pct%"
+                            "queued" -> "Queued"
+                            "waiting" -> (if (pct > 0) "$pct% · " else "") + t.message.ifBlank { "Waiting" }
+                            "failed" -> "Failed: " + t.message
+                            else -> t.message.ifBlank { "Cancelled" }
+                        }
+                        Text(status, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                    }
+                    if (t.state == "active" || t.state == "waiting" || t.state == "queued") {
+                        TextButton(onClick = { onCancelTransfer(t.id) }) { Text("Cancel") }
+                    }
                 }
             }
         }

@@ -25,6 +25,12 @@ async fn main() -> anyhow::Result<()> {
 
     let config_path = paths::config_file();
     let config = Config::load(&config_path)?;
+    let download_dir = config
+        .download_dir
+        .clone()
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(paths::download_dir);
     let opts = DaemonOptions {
         data_dir: paths::data_dir(),
         socket: paths::socket_path(),
@@ -32,6 +38,7 @@ async fn main() -> anyhow::Result<()> {
         config_path: Some(config_path),
         popups: None,
         buses: Default::default(),
+        download_dir,
     };
     let mut term = signal(SignalKind::terminate())?;
     run(opts, async move {

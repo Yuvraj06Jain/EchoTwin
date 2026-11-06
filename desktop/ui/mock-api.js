@@ -81,6 +81,7 @@
       syncDismissals: false,
       discovery: true,
       clipboardSync: true,
+      allowLock: true,
       apps: [
         { name: 'WhatsApp', enabled: true },
         { name: 'Messages', enabled: true },
@@ -108,6 +109,7 @@
       sms: true,
       files: true,
       clipboard: true,
+      lockFromPhone: true,
       deviceDetails: true,
       appFilters: true,
       discoveryToggle: true,

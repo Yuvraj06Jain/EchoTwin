@@ -57,6 +57,12 @@ pub enum Request {
     },
     /// Try to reach every paired device right now (skip the back-off, search the network).
     Reconnect,
+    SetClipboardSync {
+        enabled: bool,
+    },
+    SetAllowLock {
+        enabled: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -69,6 +75,9 @@ pub struct DeviceInfo {
     /// Messages waiting for this device to come back.
     pub pending: usize,
     pub last_addrs: Vec<String>,
+    /// Features the connected phone supports (empty while offline).
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -110,6 +119,16 @@ pub enum WatchEvent {
     AppIcon {
         package: String,
     },
+    /// The phone sent its clipboard; it is now on this computer's clipboard.
+    ClipboardReceived {
+        id: String,
+        name: String,
+    },
+    /// The phone locked this computer.
+    LockedByPhone {
+        id: String,
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -126,6 +145,10 @@ pub enum Reply {
         notifications: bool,
         #[serde(default)]
         sync_dismissals: bool,
+        #[serde(default)]
+        clipboard_sync: bool,
+        #[serde(default)]
+        allow_lock: bool,
     },
     Notifications {
         items: Vec<NotificationInfo>,

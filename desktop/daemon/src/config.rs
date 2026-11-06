@@ -20,6 +20,11 @@ pub struct Config {
     pub sync_dismissals: bool,
     /// Phone apps (package names) whose notifications are not shown here.
     pub muted_apps: Vec<String>,
+    /// Share the clipboard with the phone (text copied here can be pasted there, and the
+    /// phone's "Send clipboard" lands here).
+    pub clipboard_sync: bool,
+    /// Let the paired phone lock this computer's screen.
+    pub allow_lock: bool,
 }
 
 impl Default for Config {
@@ -31,6 +36,8 @@ impl Default for Config {
             discovery: true,
             sync_dismissals: false,
             muted_apps: Vec::new(),
+            clipboard_sync: true,
+            allow_lock: true,
         }
     }
 }

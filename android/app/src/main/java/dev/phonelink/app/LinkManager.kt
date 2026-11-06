@@ -1,8 +1,14 @@
 package dev.phonelink.app
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.PersistableBundle
 import android.provider.Settings
+import android.widget.Toast
 import dev.phonelink.core.Device
 import dev.phonelink.core.EventListener
 import dev.phonelink.core.LinkEvent
@@ -29,6 +35,14 @@ object LinkManager {
 
     private val _messages = MutableStateFlow<List<String>>(emptyList())
     val messages: StateFlow<List<String>> = _messages
+
+    /** Bumped when a phone-side switch changes, so the status notification updates. */
+    private val _settingsVersion = MutableStateFlow(0)
+    val settingsVersion: StateFlow<Int> = _settingsVersion
+
+    fun settingsChanged() {
+        _settingsVersion.value += 1
+    }
 
     private val _myId = MutableStateFlow("")
     val myId: StateFlow<String> = _myId
@@ -76,6 +90,64 @@ object LinkManager {
         }
     }
 
+    private val main = Handler(Looper.getMainLooper())
+
+    /** A short message on screen, from any thread (also from the background service). */
+    fun toast(text: String) {
+        main.post { Toast.makeText(app, text, Toast.LENGTH_SHORT).show() }
+    }
+
+    /**
+     * Run a "right now" request. If PhoneLink was just started (from a tile or the
+     * notification), give the connection a few seconds to come up before giving up.
+     */
+    private fun whenConnected(block: (PhoneLink) -> String) {
+        io.execute {
+            val message = try {
+                val link = link()
+                var result: Result<String> = runCatching { block(link) }
+                val deadline = System.currentTimeMillis() + 6_000
+                while (result.isFailure && System.currentTimeMillis() < deadline &&
+                    link.devices().none { it.connected }
+                ) {
+                    link.onNetworkChanged()
+                    Thread.sleep(300)
+                    if (link.devices().any { it.connected }) result = runCatching { block(link) }
+                }
+                refresh()
+                result.fold({ it }, { it.message ?: "Failed" })
+            } catch (e: Exception) {
+                e.message ?: "Failed"
+            }
+            toast(message.replaceFirstChar { it.uppercase() })
+        }
+    }
+
+    /** Lock the computer's screen (tile, notification button, app). */
+    fun lockComputer() = whenConnected { link ->
+        val name = link.lockComputer(null)
+        "Locking $name…"
+    }
+
+    /** Put `text` on the computer's clipboard. */
+    fun sendClipboard(text: String) = whenConnected { link ->
+        if (!Prefs.clipboardSharing(app)) throw IllegalStateException("Clipboard sharing is off in PhoneLink")
+        link.sendClipboard(text)
+        "Copied to your computer"
+    }
+
+    private fun putOnClipboard(from: String, text: String) {
+        if (!Prefs.clipboardSharing(app)) return
+        main.post {
+            val clip = ClipData.newPlainText("From $from", text)
+            // Keep it out of Android's clipboard preview pop-up (it may be a password).
+            clip.description.extras = PersistableBundle().apply {
+                putBoolean("android.content.extra.IS_SENSITIVE", true)
+            }
+            runCatching { app.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(clip) }
+        }
+    }
+
     /** Try to reach the computer right now (skip the back-off, search the network). */
     fun nudge() = onIo { it.onNetworkChanged() }
 
@@ -120,6 +192,10 @@ object LinkManager {
                 is LinkEvent.DismissRequested -> handleRequest(event.id, event.key) { it.dismiss(event.key) }
                 is LinkEvent.ReplyRequested -> handleRequest(event.id, event.key) { it.reply(event.key, event.text) }
                 is LinkEvent.ActionRequested -> handleRequest(event.id, event.key) { it.press(event.key, event.index.toInt()) }
+                is LinkEvent.ClipboardReceived -> putOnClipboard(event.name, event.text)
+                is LinkEvent.RequestResult -> if (event.key == "lock") {
+                    toast(if (event.ok) "${event.name} is locked" else "${event.name}: ${event.message}")
+                }
                 else -> {}
             }
         }

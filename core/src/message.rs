@@ -11,6 +11,20 @@ use crate::Result;
 /// Capability string for notification mirroring (phone → computer).
 pub const CAP_NOTIFICATIONS: &str = "notifications/1";
 
+/// Lock the computer from the phone (phone → computer).
+pub const CAP_LOCK: &str = "lock/1";
+/// Clipboard text in both directions.
+pub const CAP_CLIPBOARD: &str = "clipboard/1";
+
+/// Longest clipboard text sent (bytes). Longer copies are not sent at all: a cut-off
+/// paste would be worse than none.
+pub const MAX_CLIPBOARD_TEXT: usize = 64 * 1024;
+/// A lock request older than this (it waited in a queue) is ignored: locking long after the
+/// tap would be a surprise. Generous for clock differences between the two devices.
+pub const LOCK_MAX_AGE_MS: u64 = 2 * 60 * 1000;
+/// Clipboard text older than this is not applied (it would overwrite something newer).
+pub const CLIPBOARD_MAX_AGE_MS: u64 = 2 * 60 * 1000;
+
 /// Longest notification text sent over the wire; anything longer is cut on the phone.
 pub const MAX_NOTIFICATION_TEXT: usize = 2000;
 /// Most notifications in one snapshot.
@@ -76,12 +90,35 @@ pub enum AppMessage {
         index: u32,
     },
 
-    /// Result of a request above, phone → computer.
+    /// Result of a request above, phone → computer. Also computer → phone for
+    /// `LockComputer` (`key` = [`LOCK_RESULT_KEY`]).
     ActionResult {
         key: String,
         ok: bool,
         message: String,
     },
+
+    // ---- lock/1 (phone → computer)
+    /// Lock the computer's screen now. `sent_ms`: phone clock, to drop stale requests.
+    LockComputer {
+        sent_ms: u64,
+    },
+
+    // ---- clipboard/1 (both ways)
+    /// Text copied on the sending device. `copied_ms`: sender's clock.
+    Clipboard {
+        text: String,
+        copied_ms: u64,
+    },
+}
+
+/// `ActionResult::key` for the answer to `LockComputer`.
+pub const LOCK_RESULT_KEY: &str = "lock";
+
+/// Is a timestamp from the other device recent enough (`max_age`), allowing for clocks
+/// that differ by up to `max_age` in either direction?
+pub fn is_fresh(sent_ms: u64, now_ms: u64, max_age: u64) -> bool {
+    sent_ms.abs_diff(now_ms) <= max_age
 }
 
 impl AppMessage {
@@ -177,6 +214,42 @@ mod tests {
             AppMessage::NotificationPosted(sample()).encode().unwrap()[0],
             2
         );
+        // Appended after ActionResult (9), never moved.
+        assert_eq!(AppMessage::LockComputer { sent_ms: 1 }.encode().unwrap()[0], 10);
+        assert_eq!(
+            AppMessage::Clipboard {
+                text: String::new(),
+                copied_ms: 0
+            }
+            .encode()
+            .unwrap()[0],
+            11
+        );
+    }
+
+    #[test]
+    fn lock_and_clipboard_roundtrip() {
+        for m in [
+            AppMessage::LockComputer {
+                sent_ms: 1_762_350_000_000,
+            },
+            AppMessage::Clipboard {
+                text: "copied ✓\nline 2".into(),
+                copied_ms: 1_762_350_000_000,
+            },
+        ] {
+            assert_eq!(AppMessage::decode(&m.encode().unwrap()), m);
+        }
+    }
+
+    #[test]
+    fn freshness_allows_small_clock_differences_both_ways() {
+        let now = 1_000_000;
+        assert!(is_fresh(now, now, LOCK_MAX_AGE_MS));
+        assert!(is_fresh(now - 60_000, now, LOCK_MAX_AGE_MS));
+        assert!(is_fresh(now + 60_000, now, LOCK_MAX_AGE_MS), "phone clock slightly ahead");
+        assert!(!is_fresh(now - 10 * 60_000, now, LOCK_MAX_AGE_MS), "queued for 10 min");
+        assert!(!is_fresh(0, now, LOCK_MAX_AGE_MS));
     }
 
     #[test]

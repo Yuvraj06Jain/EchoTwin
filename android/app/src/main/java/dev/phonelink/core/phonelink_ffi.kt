@@ -705,6 +705,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_local_port(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_lock_computer(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_on_network_changed(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_pair(
@@ -718,6 +720,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_action_result(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_app_icon(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_clipboard(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_snapshot(
     ): Int
@@ -774,6 +778,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_phonelink_local_port(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Int
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_lock_computer(`ptr`: Long,`deviceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_phonelink_on_network_changed(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_pair(`ptr`: Long,`uri`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -788,6 +794,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_app_icon(`ptr`: Long,`package`: RustBuffer.ByValue,`png`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_send_clipboard(`ptr`: Long,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_snapshot(`ptr`: Long,`notifications`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_text(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -931,6 +939,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_local_port() and 0xFFFF) != 63701) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_lock_computer() and 0xFFFF) != 46725) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_on_network_changed() and 0xFFFF) != 22654) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -950,6 +961,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_app_icon() and 0xFFFF) != 29622) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_clipboard() and 0xFFFF) != 31547) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_snapshot() and 0xFFFF) != 32996) {
@@ -1761,6 +1775,13 @@ public interface PhoneLinkInterface {
     fun `localPort`(): kotlin.UShort
     
     /**
+     * Lock the computer's screen now. Only while it is connected: a lock that arrived later
+     * would be a surprise (the computer also ignores late ones). The outcome arrives as
+     * `RequestResult` with key "lock". Returns the computer's name.
+     */
+    fun `lockComputer`(`deviceId`: kotlin.String?): kotlin.String
+    
+    /**
      * Call from `ConnectivityManager.NetworkCallback`: retry immediately instead of
      * waiting out the reconnect backoff.
      */
@@ -1795,6 +1816,12 @@ public interface PhoneLinkInterface {
      * An app's icon as a small PNG (sent once per app).
      */
     fun `sendAppIcon`(`package`: kotlin.String, `png`: kotlin.ByteArray)
+    
+    /**
+     * Send text copied on the phone to every connected computer that shares the clipboard.
+     * Returns how many got it.
+     */
+    fun `sendClipboard`(`text`: kotlin.String): kotlin.UInt
     
     /**
      * Everything currently shown; call when a computer (re)connects.
@@ -1970,6 +1997,26 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
 
     
     /**
+     * Lock the computer's screen now. Only while it is connected: a lock that arrived later
+     * would be a surprise (the computer also ignores late ones). The outcome arrives as
+     * `RequestResult` with key "lock". Returns the computer's name.
+     */
+    @Throws(LinkException::class)override fun `lockComputer`(`deviceId`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_lock_computer(
+        it,
+        
+        FfiConverterOptionalString.lower(`deviceId`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Call from `ConnectivityManager.NetworkCallback`: retry immediately instead of
      * waiting out the reconnect backoff.
      */override fun `onNetworkChanged`()
@@ -2090,6 +2137,25 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
 }
     }
     
+    
+
+    
+    /**
+     * Send text copied on the phone to every connected computer that shares the clipboard.
+     * Returns how many got it.
+     */
+    @Throws(LinkException::class)override fun `sendClipboard`(`text`: kotlin.String): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_send_clipboard(
+        it,
+        
+        FfiConverterString.lower(`text`),_status)
+}
+    }
+    )
+    }
     
 
     
@@ -2254,6 +2320,16 @@ data class Device (
      * Messages waiting for this device to come back.
      */
     var `pending`: kotlin.ULong
+    , 
+    /**
+     * Connected, and its PhoneLink can be locked from here.
+     */
+    var `canLock`: kotlin.Boolean
+    , 
+    /**
+     * Connected, and shares the clipboard.
+     */
+    var `canClipboard`: kotlin.Boolean
     
 ){
     
@@ -2274,6 +2350,8 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterString.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterULong.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -2281,7 +2359,9 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterString.allocationSize(value.`id`) +
             FfiConverterString.allocationSize(value.`name`) +
             FfiConverterBoolean.allocationSize(value.`connected`) +
-            FfiConverterULong.allocationSize(value.`pending`)
+            FfiConverterULong.allocationSize(value.`pending`) +
+            FfiConverterBoolean.allocationSize(value.`canLock`) +
+            FfiConverterBoolean.allocationSize(value.`canClipboard`)
     )
 
     override fun write(value: Device, buf: ByteBuffer) {
@@ -2289,6 +2369,8 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterString.write(value.`name`, buf)
             FfiConverterBoolean.write(value.`connected`, buf)
             FfiConverterULong.write(value.`pending`, buf)
+            FfiConverterBoolean.write(value.`canLock`, buf)
+            FfiConverterBoolean.write(value.`canClipboard`, buf)
     }
 }
 
@@ -2532,6 +2614,36 @@ sealed class LinkEvent {
         companion object
     }
     
+    /**
+     * Text copied on the computer: put it on this phone's clipboard (if sharing is on).
+     */
+    data class ClipboardReceived(
+        val `id`: kotlin.String, 
+        val `name`: kotlin.String, 
+        val `text`: kotlin.String) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * How a request this phone made went (e.g. `key` = "lock").
+     */
+    data class RequestResult(
+        val `id`: kotlin.String, 
+        val `name`: kotlin.String, 
+        val `key`: kotlin.String, 
+        val `ok`: kotlin.Boolean, 
+        val `message`: kotlin.String) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
 
     
 
@@ -2578,6 +2690,18 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterUInt.read(buf),
+                )
+            8 -> LinkEvent.ClipboardReceived(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                )
+            9 -> LinkEvent.RequestResult(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterBoolean.read(buf),
+                FfiConverterString.read(buf),
                 )
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
         }
@@ -2643,6 +2767,26 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 + FfiConverterUInt.allocationSize(value.`index`)
             )
         }
+        is LinkEvent.ClipboardReceived -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterString.allocationSize(value.`name`)
+                + FfiConverterString.allocationSize(value.`text`)
+            )
+        }
+        is LinkEvent.RequestResult -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterString.allocationSize(value.`name`)
+                + FfiConverterString.allocationSize(value.`key`)
+                + FfiConverterBoolean.allocationSize(value.`ok`)
+                + FfiConverterString.allocationSize(value.`message`)
+            )
+        }
     }
 
     override fun write(value: LinkEvent, buf: ByteBuffer) {
@@ -2690,6 +2834,22 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`key`, buf)
                 FfiConverterUInt.write(value.`index`, buf)
+                Unit
+            }
+            is LinkEvent.ClipboardReceived -> {
+                buf.putInt(8)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterString.write(value.`name`, buf)
+                FfiConverterString.write(value.`text`, buf)
+                Unit
+            }
+            is LinkEvent.RequestResult -> {
+                buf.putInt(9)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterString.write(value.`name`, buf)
+                FfiConverterString.write(value.`key`, buf)
+                FfiConverterBoolean.write(value.`ok`, buf)
+                FfiConverterString.write(value.`message`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }

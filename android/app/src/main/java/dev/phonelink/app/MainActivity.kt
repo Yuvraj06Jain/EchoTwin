@@ -2,6 +2,7 @@ package dev.phonelink.app
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -35,6 +36,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
@@ -67,6 +69,7 @@ class MainActivity : ComponentActivity() {
     private var notice by mutableStateOf<String?>(null)
     private var batteryOk by mutableStateOf(true)
     private var mirrorOn by mutableStateOf(true)
+    private var clipboardOn by mutableStateOf(true)
 
     private val scan = registerForActivityResult(ScanContract()) { result ->
         result.contents?.let { onScanned(it) }
@@ -107,6 +110,10 @@ class MainActivity : ComponentActivity() {
                         onUnpair = ::unpair,
                         onReconnect = { LinkManager.nudge(); notice = "Looking for your computer on this network…" },
                         onFixBattery = ::fixBattery,
+                        clipboardOn = clipboardOn,
+                        onClipboardSharing = ::setClipboardSharing,
+                        onLock = { LinkManager.lockComputer() },
+                        onSendClipboard = ::sendClipboard,
                     )
                     pendingPair?.let { (uri, code) ->
                         ConfirmPairDialog(
@@ -124,6 +131,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         batteryOk = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
         mirrorOn = LinkManager.mirrorEnabled(this)
+        clipboardOn = Prefs.clipboardSharing(this)
         lifecycleScope.launch(Dispatchers.IO) { runCatching { LinkManager.link() }; LinkManager.refresh() }
         LinkManager.nudge() // opening the app = "connect now", no waiting for the next retry
     }
@@ -168,6 +176,23 @@ class MainActivity : ComponentActivity() {
                 onFailure = { "Could not send: ${it.message}" },
             )
             LinkManager.refresh()
+        }
+    }
+
+    private fun setClipboardSharing(on: Boolean) {
+        Prefs.setClipboardSharing(this, on)
+        clipboardOn = on
+        LinkManager.settingsChanged()
+    }
+
+    /** This screen is in front, so it may read the clipboard directly. */
+    private fun sendClipboard() {
+        val clip = getSystemService(ClipboardManager::class.java)?.primaryClip
+        val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
+        if (text.isNullOrBlank()) {
+            notice = "The clipboard is empty"
+        } else {
+            LinkManager.sendClipboard(text)
         }
     }
 
@@ -237,6 +262,10 @@ private fun HomeScreen(
     onUnpair: (Device) -> Unit,
     onReconnect: () -> Unit,
     onFixBattery: () -> Unit,
+    clipboardOn: Boolean,
+    onClipboardSharing: (Boolean) -> Unit,
+    onLock: () -> Unit,
+    onSendClipboard: () -> Unit,
 ) {
     var draft by remember { mutableStateOf("") }
     var confirmUnpair by remember { mutableStateOf<Device?>(null) }
@@ -317,6 +346,39 @@ private fun HomeScreen(
         }
 
         if (devices.isNotEmpty()) {
+            val canLock = devices.any { it.canLock }
+            val canClip = devices.any { it.canClipboard }
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Your computer", fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = onLock, enabled = canLock) { Text("Lock computer") }
+                            OutlinedButton(onClick = onSendClipboard, enabled = canClip && clipboardOn) {
+                                Text("Send clipboard")
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Share clipboard")
+                                Text(
+                                    "Text you copy on the computer can be pasted here. To send text from " +
+                                        "here, tap Send clipboard (also on the PhoneLink notification and as a " +
+                                        "Quick Settings tile).",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            Switch(checked = clipboardOn, onCheckedChange = onClipboardSharing)
+                        }
+                        if (!canLock && devices.any { it.connected }) {
+                            Text(
+                                "Update PhoneLink on the computer to lock it and share the clipboard from here.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+            }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Test message", style = MaterialTheme.typography.titleMedium)

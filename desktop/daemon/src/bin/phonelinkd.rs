@@ -31,6 +31,7 @@ async fn main() -> anyhow::Result<()> {
         config,
         config_path: Some(config_path),
         popups: None,
+        buses: Default::default(),
     };
     let mut term = signal(SignalKind::terminate())?;
     run(opts, async move {

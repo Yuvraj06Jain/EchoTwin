@@ -101,6 +101,10 @@ fn print_event(e: &WatchEvent) {
             )
         }
         WatchEvent::AppIcon { package } => println!("icon          {package}"),
+        WatchEvent::ClipboardReceived { id, name } => {
+            println!("clipboard     {id}  copied from {name}")
+        }
+        WatchEvent::LockedByPhone { id, name } => println!("lock          {id}  {name} asked to lock"),
     }
 }
 

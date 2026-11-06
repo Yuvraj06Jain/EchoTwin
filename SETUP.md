@@ -1,6 +1,6 @@
 # PhoneLink: setup, test checklist and troubleshooting
 
-This guide covers the current version (0.2).
+This guide covers the current version (0.3).
 
 **What works today:**
 - the **PhoneLink desktop app** (open it from your application menu)
@@ -12,11 +12,16 @@ This guide covers the current version (0.2).
   - press their buttons ("Mark as read", "Archive"…)
   - dismiss them
   - click a popup to open the PhoneLink window on its Notifications tab
-- settings in the laptop app: *Dismiss on both devices* (off by default), which apps to show, and desktop popups on/off
+- **lock the laptop from the phone**: a *Lock computer* button in the phone app, on the PhoneLink notification, and as a Quick Settings tile. It can only lock, never unlock.
+- **shared clipboard**:
+  - text you copy on the laptop can be pasted on the phone straight away
+  - from the phone, tap **Send clipboard** (phone app, PhoneLink notification, or Quick Settings tile), or *Share → Copy to computer*
+  - Android only lets the app on screen read the clipboard, so the phone → laptop direction always needs that one tap
+- settings in the laptop app: *Dismiss on both devices* (off by default), which apps to show, desktop popups on/off, *Share clipboard with your phone*, *Let your phone lock this computer*
 
 Mirroring is **one-way**: phone → laptop. The laptop never sends its own notifications to the phone (notes you type with *Send a note* are the only thing that appears on the phone).
 
-**Not built yet:** SMS conversations, file transfer and clipboard. The app has their tabs and says "coming in the next update" until each one exists.
+**Not built yet:** SMS conversations, file transfer, music controls and the Bluetooth backup link. The app has tabs for messages and files and says "coming in the next update" until each one exists.
 
 ---
 
@@ -113,11 +118,13 @@ systemctl --user restart phonelinkd
      1. Back in PhoneLink, tap **Open App info**.
      2. Tap **⋮** (top right), then **Allow restricted settings**, and confirm with your PIN or fingerprint.
      3. Tap **Allow notification access** again; the switch now works.
+5. **Optional: Quick Settings tiles.** Pull down the quick panel twice, tap the pencil (Edit), and drag **Lock computer** and/or **Send clipboard** into your tiles.
 
 ### What the phone app can and can't access
 - **Microphone:** never. The permission isn't in the app, and the build fails if anything adds it.
 - **Camera:** only while you scan the pairing QR code. Afterwards the app gives the permission back, and Android removes it as soon as the app closes. Check under Settings → Apps → PhoneLink → Permissions.
 - **Location, contacts, storage:** never.
+- **Clipboard:** read only when you tap *Send clipboard* (or share text to *Copy to computer*). Text from the laptop is put on the phone's clipboard, marked as sensitive so Android's preview pop-up doesn't show it. Switch it off under *Share clipboard* in the phone app.
 - **Notifications:** read only after you grant access. They're sent only to your paired laptop, encrypted.
 - **Uninstalling** removes everything: keys, pairings, queued messages and cached app icons all live in the app's private storage, which Android deletes. Nothing is kept in your files or in cloud backups.
 
@@ -161,6 +168,12 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 18 | Pair again later (or check now): after the scan, close the phone app, then look at Settings → Apps → PhoneLink → Permissions | Camera shows *Not allowed* |
 | 19 | With the PhoneLink window closed, click a popup from your phone | the window opens on the Notifications tab, in front |
 | 20 | With the window open but behind other windows (or on another tab), click another popup | the same window comes to the front on the Notifications tab; no second window |
+| 21 | Phone app → **Lock computer** | the laptop locks within a second or two; the phone shows "… is locked" |
+| 22 | Add the **Lock computer** Quick Settings tile (section 2, step 5) and tap it with the phone app closed | the laptop locks |
+| 23 | Laptop app → Settings: switch off *Let your phone lock this computer*, then tap Lock on the phone | nothing happens to the laptop; the phone says it's switched off |
+| 24 | Copy some text on the laptop, then paste on the phone (long-press a text field → Paste) | the laptop's text is pasted |
+| 25 | Copy text on the phone, then tap **Send clipboard** on the PhoneLink notification | a "Copied from …" popup on the laptop; Ctrl+V pastes it |
+| 26 | Copy a password from KeePassXC on the laptop, then paste on the phone | the password is **not** there (password-manager copies are never sent) |
 
 When something fails, include:
 - the step number
@@ -219,6 +232,17 @@ When something fails, include:
 | notifications stop after a while | battery settings (see *Can't connect*): PhoneLink must be in *Never sleeping apps* |
 | clicking a popup does nothing | the window is opened as `phonelink-app` from the folder `phonelinkd` runs from (normally `~/.local/bin`): re-run `./packaging/install.sh`. Then check `journalctl --user -u phonelinkd -n 30` for "could not open the PhoneLink window". Clicks on popups shown *before* the service restarted are not received |
 | the window opens but stays behind other windows | KDE's focus-stealing prevention: System Settings → Window Management → Window Behavior → *Focus stealing prevention* at *Low* (the default) allows it. Wayland needs Plasma 5.27 or newer |
+
+### Lock and clipboard
+
+| Symptom | Fix |
+|---|---|
+| *Lock computer* is greyed out on the phone | the laptop is offline, or still runs an older PhoneLink: re-run `./packaging/install.sh` with the new zip |
+| the phone says "could not lock its screen" | the desktop's screen locker didn't answer. On KDE, check System Settings → Screen Locking works with Meta+L. `journalctl --user -u phonelinkd -n 30` shows what was tried |
+| "The request arrived too late" | the lock request waited more than 2 minutes (the connection dropped right then), or the phone's and laptop's clocks differ by more than 2 minutes: turn on automatic time on both |
+| laptop copies don't reach the phone | laptop app → Settings → *Share clipboard with your phone* must be on, and so must *Share clipboard* in the phone app. Copies are sent only while connected; something copied while offline isn't sent later. Clipboard sharing uses KDE Plasma's clipboard, which must be running (the clipboard icon in the system tray); other desktops aren't supported yet |
+| *Send clipboard* says "The clipboard is empty" | copy the text again; some apps (banking, password managers) block other apps from reading what they copy |
+| text over 64 KB isn't shared | by design: very long copies are skipped rather than cut off |
 
 ### Pairing
 
@@ -286,5 +310,6 @@ On the phone: uninstall the app as usual. Its keys are deleted with it, and they
 - There is no server, no account and no cloud. Data goes directly between your two devices, encrypted with TLS 1.3, and only between devices that have scanned each other's code.
 - On the network, other devices only see random identifiers that change every 10 minutes: never your laptop's name or your phone's model.
 - Mirrored notifications are kept **in memory only** on the laptop (the newest 200), never written to disk. App icons are cached in `~/.local/share/phonelink/icons`.
+- Shared clipboard text goes only to your paired devices, encrypted, and only while they are connected. It isn't stored by PhoneLink on either side. Passwords copied from a password manager on the laptop are skipped (KDE marks them and PhoneLink never sees them).
 - See *What the phone app can and can't access* in section 2 for camera, microphone and uninstall.
 - The GitHub repository holds only source code. Keys, pairings and messages never leave your devices. The repository is currently **public**; you can make it private in GitHub → Settings without affecting anything.

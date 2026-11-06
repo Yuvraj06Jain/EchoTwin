@@ -5,9 +5,11 @@
 //! JSON ([`ipc`]).
 
 pub mod client;
+pub mod clipboard;
 pub mod config;
 pub mod daemon;
 pub mod ipc;
+pub mod lock;
 pub mod netaddrs;
 pub mod notifications;
 pub mod paths;

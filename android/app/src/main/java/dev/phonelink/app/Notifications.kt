@@ -37,8 +37,11 @@ object Notifications {
         PendingIntent.FLAG_IMMUTABLE,
     )
 
-    fun status(context: Context, text: String): Notification =
-        NotificationCompat.Builder(context, CHANNEL_STATUS)
+    /** What the buttons on the status notification can do right now. */
+    data class Actions(val lock: Boolean = false, val clipboard: Boolean = false)
+
+    fun status(context: Context, text: String, actions: Actions = Actions()): Notification {
+        val b = NotificationCompat.Builder(context, CHANNEL_STATUS)
             .setSmallIcon(R.drawable.ic_link)
             .setContentTitle("PhoneLink")
             .setContentText(text)
@@ -46,15 +49,32 @@ object Notifications {
             .setOnlyAlertOnce(true)
             .setContentIntent(openApp(context))
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .build()
+        if (actions.clipboard) {
+            val send = PendingIntent.getActivity(
+                context, 1,
+                Intent(context, ClipboardActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_IMMUTABLE,
+            )
+            b.addAction(R.drawable.ic_clipboard, "Send clipboard", send)
+        }
+        if (actions.lock) {
+            val lock = PendingIntent.getBroadcast(
+                context, 2,
+                Intent(context, LockReceiver::class.java),
+                PendingIntent.FLAG_IMMUTABLE,
+            )
+            b.addAction(R.drawable.ic_lock, "Lock computer", lock)
+        }
+        return b.build()
+    }
 
     private fun allowed(context: Context) =
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
 
-    fun updateStatus(context: Context, text: String) {
+    fun updateStatus(context: Context, text: String, actions: Actions = Actions()) {
         if (!allowed(context)) return
-        NotificationManagerCompat.from(context).notify(STATUS_ID, status(context, text))
+        NotificationManagerCompat.from(context).notify(STATUS_ID, status(context, text, actions))
     }
 
     fun message(context: Context, from: String, text: String) {

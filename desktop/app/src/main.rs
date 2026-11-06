@@ -41,6 +41,8 @@ struct StatusDto {
     computer: Computer,
     notifications: bool,
     sync_dismissals: bool,
+    clipboard_sync: bool,
+    allow_lock: bool,
     devices: Vec<DeviceInfo>,
 }
 
@@ -112,11 +114,15 @@ async fn status() -> Result<StatusDto, String> {
             devices,
             notifications,
             sync_dismissals,
+            clipboard_sync,
+            allow_lock,
             ..
         } => Ok(StatusDto {
             computer: Computer { name, id },
             notifications,
             sync_dismissals,
+            clipboard_sync,
+            allow_lock,
             devices,
         }),
         r => Err(unexpected(r)),
@@ -200,6 +206,16 @@ async fn notification_action(id: String, index: u32) -> Result<bool, String> {
 #[tauri::command]
 async fn set_sync_dismissals(enabled: bool) -> Result<(), String> {
     expect_done(Request::SetSyncDismissals { enabled }).await
+}
+
+#[tauri::command]
+async fn set_clipboard_sync(enabled: bool) -> Result<(), String> {
+    expect_done(Request::SetClipboardSync { enabled }).await
+}
+
+#[tauri::command]
+async fn set_allow_lock(enabled: bool) -> Result<(), String> {
+    expect_done(Request::SetAllowLock { enabled }).await
 }
 
 #[tauri::command]
@@ -434,6 +450,8 @@ fn main() {
             reply_notification,
             notification_action,
             set_sync_dismissals,
+            set_clipboard_sync,
+            set_allow_lock,
             set_app_muted,
             reconnect,
             start_pairing,

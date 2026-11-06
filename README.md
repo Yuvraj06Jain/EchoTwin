@@ -17,10 +17,14 @@ No accounts, no cloud, LAN only (v1).
 | 2d. Android app: QR pairing, foreground service, discovery, test messages | **built** by GitHub Actions (APK in Releases); not yet tested on a real phone |
 | 6a. Desktop app (Tauri): pairing, connection status, notes, settings; dark theme | **done**; tested against the real service with a simulated phone |
 | 4. Phone notifications on the laptop: popups, list, reply, buttons, dismiss (sync optional), per-app filter | **done**; laptop side tested end to end, phone side compiled in CI, needs your real-phone test |
-| 3. Resumable file transfer, clipboard | |
-| 4. Notification mirroring + replies | |
-| 5. SMS | |
-| 6. Desktop UI (Tauri), packaging (Flatpak, .deb, AUR) | |
+| Reconnect after a reboot / new IP (gateway + subnet search, stable phone port) | **done** |
+| Click a popup to open the window | **done** |
+| Lock the laptop from the phone; shared clipboard (KDE) | **done**; laptop side tested, phone side compiled in CI |
+| Music controls for the phone | next |
+| Resumable file transfer | planned |
+| SMS | planned |
+| Bluetooth backup link | core done; phone and laptop parts planned |
+| Packaging (Flatpak, .deb, AUR) | |
 
 ## Layout
 

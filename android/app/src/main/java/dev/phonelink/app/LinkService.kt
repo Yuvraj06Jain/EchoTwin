@@ -16,6 +16,7 @@ import androidx.lifecycle.lifecycleScope
 import dev.phonelink.core.Device
 import dev.phonelink.core.PhoneLink
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /**
@@ -60,7 +61,13 @@ class LinkService : LifecycleService() {
             watchNetwork(link)
         }
         lifecycleScope.launch {
-            LinkManager.devices.collect { Notifications.updateStatus(this@LinkService, statusText(it)) }
+            LinkManager.devices.combine(LinkManager.settingsVersion) { d, _ -> d }.collect { devices ->
+                val actions = Notifications.Actions(
+                    lock = devices.any { it.canLock },
+                    clipboard = devices.any { it.canClipboard } && Prefs.clipboardSharing(this@LinkService),
+                )
+                Notifications.updateStatus(this@LinkService, statusText(devices), actions)
+            }
         }
     }
 

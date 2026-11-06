@@ -71,6 +71,50 @@
             </intent-filter>
         </service>
 
+        <!-- Sends text to the computer's clipboard: Share → "Copy to computer", or the
+             "Send clipboard" button/tile. Invisible; closes at once. -->
+        <activity
+            android:name=".ClipboardActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="@string/share_to_computer"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <!-- Quick Settings tiles (no permission needed; the system binds them). -->
+        <service
+            android:name=".LockTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_lock"
+            android:label="@string/tile_lock"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <service
+            android:name=".ClipboardTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_clipboard"
+            android:label="@string/tile_clipboard"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- "Lock computer" on the PhoneLink notification; only this app can send it. -->
+        <receiver
+            android:name=".LockReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">

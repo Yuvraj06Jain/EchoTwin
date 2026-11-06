@@ -38,6 +38,8 @@
   let noteSeq = 0;
   let notificationsOn = true;
   let syncDismissals = false;
+  let clipboardSync = false;
+  let allowLock = false;
   let knownApps = []; // [{ package, app, muted }] from the service
 
   T.event.listen('phonelink://event', ({ payload }) => {
@@ -82,7 +84,8 @@
       notificationButtons: true,
       sms: false,
       files: false,
-      clipboard: false,
+      clipboard: true,
+      lockFromPhone: true,
       deviceDetails: false,
       appFilters: true,
       discoveryToggle: false,
@@ -92,6 +95,8 @@
       const s = await invoke('status');
       notificationsOn = s.notifications;
       syncDismissals = !!s.sync_dismissals;
+      clipboardSync = !!s.clipboard_sync;
+      allowLock = !!s.allow_lock;
       const devices = s.devices.map(toDevice);
       const device = devices.find((d) => d.connected) || devices[0] || null;
       return {
@@ -160,7 +165,8 @@
         desktopNotifications: notificationsOn,
         syncDismissals,
         discovery: true,
-        clipboardSync: false,
+        clipboardSync,
+        allowLock,
         apps: knownApps.map((a) => ({ name: a.app, package: a.package, enabled: !a.muted })),
       };
     },
@@ -171,6 +177,12 @@
       } else if (key === 'syncDismissals') {
         await invoke('set_sync_dismissals', { enabled: value });
         syncDismissals = value;
+      } else if (key === 'clipboardSync') {
+        await invoke('set_clipboard_sync', { enabled: value });
+        clipboardSync = value;
+      } else if (key === 'allowLock') {
+        await invoke('set_allow_lock', { enabled: value });
+        allowLock = value;
       }
     },
     async setAppMirrored(name, enabled) {

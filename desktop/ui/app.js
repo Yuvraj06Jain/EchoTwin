@@ -875,6 +875,8 @@
       <div class="sheet-section"><p class="section-label">General</p>
         ${switchRow('Desktop notifications', 'Show messages from your phone as system notifications.', 'toggle-setting', !!s.desktopNotifications, 'data-key="desktopNotifications"')}
         ${caps.syncDismissals ? switchRow('Dismiss on both devices', 'Clearing a notification here also clears it on your phone, and the other way round.', 'toggle-setting', !!s.syncDismissals, 'data-key="syncDismissals"') : ''}
+        ${caps.clipboard ? switchRow('Share clipboard with your phone', 'Text you copy here can be pasted on your phone. Passwords copied from a password manager are never sent.', 'toggle-setting', !!s.clipboardSync, 'data-key="clipboardSync"') : ''}
+        ${caps.lockFromPhone ? switchRow('Let your phone lock this computer', 'Adds a Lock computer button to your phone. It can only lock, never unlock.', 'toggle-setting', !!s.allowLock, 'data-key="allowLock"') : ''}
         ${caps.discoveryToggle ? switchRow('Find my phone on this network', 'Anonymous: nothing that identifies you is broadcast.', 'toggle-setting', !!s.discovery, 'data-key="discovery"') : ''}
       </div>`;
   }
@@ -988,6 +990,11 @@
       if (!ev.ok) toast(`Your phone couldn't do that: ${ev.message}`);
       return undefined;
     }
+    if (ev.kind === 'clipboard_received') {
+      toast(`Copied from ${ev.name}. Paste it anywhere.`);
+      return undefined;
+    }
+    if (ev.kind === 'locked_by_phone') return undefined;
     if (ev.kind === 'app_icon') {
       if (api.appIcons) {
         api.appIcons().then((icons) => {
@@ -1092,8 +1099,14 @@
         const on = !state.settings.clipboardSync;
         state.settings.clipboardSync = on;
         setSwitch(a, on);
-        await api.updateSetting('clipboardSync', on);
-        return toast(on ? 'Clipboard sync on' : 'Clipboard sync off');
+        try {
+          await api.updateSetting('clipboardSync', on);
+        } catch (err) {
+          state.settings.clipboardSync = !on;
+          setSwitch(a, !on);
+          throw err;
+        }
+        return toast(on ? 'Clipboard sharing on' : 'Clipboard sharing off');
       }
       case 'pair-new':
         return startPairing(true);
@@ -1213,6 +1226,8 @@
           state.settings[key] = !on;
           setSwitch(a, !on);
           throw err;
+        } finally {
+          if (key === 'clipboardSync') renderDevice(); // the same switch is on the phone panel
         }
         return undefined;
       }

@@ -14,8 +14,13 @@ use std::{
 use anyhow::{bail, Context};
 use base64::Engine;
 use phonelink_core::{
-    lan::Lan, message::MAX_NOTIFICATION_TEXT, AppMessage, Event, Fingerprint, Node, NodeConfig,
-    PeerRecord, CAP_NOTIFICATIONS,
+    lan::Lan,
+    message::{
+        is_fresh, CLIPBOARD_MAX_AGE_MS, LOCK_MAX_AGE_MS, LOCK_RESULT_KEY, MAX_CLIPBOARD_TEXT,
+        MAX_NOTIFICATION_TEXT,
+    },
+    AppMessage, Event, Fingerprint, Node, NodeConfig, PeerRecord, CAP_CLIPBOARD, CAP_LOCK,
+    CAP_NOTIFICATIONS,
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -26,7 +31,9 @@ use tokio::{
 use tracing::{debug, info, warn};
 
 use crate::{
+    clipboard::ClipboardSync,
     config::Config,
+    lock::Buses,
     ipc::{DeviceInfo, Reply, Request, WatchEvent},
     netaddrs,
     notifications::{self, Effect, NotificationInfo, PopupCmd, Popups, Store},
@@ -43,6 +50,9 @@ pub struct DaemonOptions {
     pub config_path: Option<PathBuf>,
     /// Desktop popups; `None` starts the real D-Bus one. Tests pass a recorder.
     pub popups: Option<Popups>,
+    /// D-Bus addresses for locking and the clipboard; default = the real buses. Tests
+    /// point these at private buses with stand-in services.
+    pub buses: Buses,
 }
 
 /// Settings that can change while running (mirrored to config.toml).
@@ -50,6 +60,8 @@ struct Settings {
     notifications: bool,
     sync_dismissals: bool,
     muted: HashSet<String>,
+    clipboard: bool,
+    allow_lock: bool,
 }
 
 struct State {
@@ -64,6 +76,10 @@ struct State {
     watchers: broadcast::Sender<WatchEvent>,
     keepers: Mutex<HashMap<Fingerprint, JoinHandle<()>>>,
     advert_refresh: Arc<Notify>,
+    /// What each connected phone supports (from its Hello).
+    caps: Mutex<HashMap<Fingerprint, Vec<String>>>,
+    clipboard: ClipboardSync,
+    buses: Buses,
 }
 
 /// Run until `shutdown` resolves.
@@ -75,6 +91,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
     let (node, events) = start_node(&opts).await?;
     let port = node.local_addr()?.port();
     let (watchers, _) = broadcast::channel(256);
+    let (copies_tx, copies) = tokio::sync::mpsc::unbounded_channel();
     let state = Arc::new(State {
         node: node.clone(),
         port,
@@ -84,6 +101,8 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
             notifications: opts.config.notifications,
             sync_dismissals: opts.config.sync_dismissals,
             muted: opts.config.muted_apps.iter().cloned().collect(),
+            clipboard: opts.config.clipboard_sync,
+            allow_lock: opts.config.allow_lock,
         }),
         store: Mutex::new(Store::default()),
         popups: opts.popups.clone().unwrap_or_else(Popups::start),
@@ -91,6 +110,9 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         watchers,
         keepers: Mutex::new(HashMap::new()),
         advert_refresh: Arc::new(Notify::new()),
+        caps: Mutex::new(HashMap::new()),
+        clipboard: ClipboardSync::start(opts.buses.session.clone(), copies_tx),
+        buses: opts.buses.clone(),
     });
     info!(
         name = %opts.config.device_name(),
@@ -120,6 +142,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
 
     tokio::spawn(event_pump(state.clone(), events));
     tokio::spawn(network_watch(state.clone()));
+    tokio::spawn(share_copies(state.clone(), copies));
     let server = tokio::spawn(serve(state.clone(), listener));
 
     shutdown.await;
@@ -145,7 +168,9 @@ async fn start_node(
         SocketAddr::from(([0u8; 4], port)),
     ] {
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
-        cfg.capabilities.push(CAP_NOTIFICATIONS.to_string());
+        cfg.capabilities.extend(
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD].map(String::from),
+        );
         match Node::start(cfg).await {
             Ok(x) => return Ok(x),
             Err(e) => {
@@ -219,7 +244,7 @@ async fn serve(state: Arc<State>, listener: UnixListener) {
     }
 }
 
-fn device_info(node: &Node, p: &PeerRecord) -> DeviceInfo {
+fn device_info(node: &Node, p: &PeerRecord, capabilities: Vec<String>) -> DeviceInfo {
     DeviceInfo {
         id: p.fingerprint.short(),
         fingerprint: p.fingerprint.to_hex(),
@@ -227,6 +252,7 @@ fn device_info(node: &Node, p: &PeerRecord) -> DeviceInfo {
         connected: node.is_connected(&p.fingerprint),
         pending: node.pending_count(&p.fingerprint).unwrap_or(0),
         last_addrs: p.last_addrs.iter().map(|a| a.to_string()).collect(),
+        capabilities,
     }
 }
 
@@ -367,11 +393,66 @@ impl State {
             .unwrap_or_else(|| "Unknown device".into())
     }
 
+    fn device_info(&self, p: &PeerRecord) -> DeviceInfo {
+        let caps = lock(&self.caps)
+            .get(&p.fingerprint)
+            .cloned()
+            .unwrap_or_default();
+        device_info(&self.node, p, caps)
+    }
+
+    fn clipboard_on(&self) -> bool {
+        lock(&self.settings).clipboard
+    }
+
+    /// Connected devices that support `cap`.
+    fn connected_with(&self, cap: &str) -> Vec<Fingerprint> {
+        lock(&self.caps)
+            .iter()
+            .filter(|(fp, caps)| caps.iter().any(|c| c == cap) && self.node.is_connected(fp))
+            .map(|(fp, _)| *fp)
+            .collect()
+    }
+
+    /// The phone asked to lock this computer.
+    async fn lock_requested(self: &Arc<Self>, peer: Fingerprint, sent_ms: u64) -> WatchEvent {
+        let name = self.name_of(&peer);
+        let (ok, message) = if !lock(&self.settings).allow_lock {
+            (false, "Locking from the phone is switched off on this computer".to_string())
+        } else if !is_fresh(sent_ms, now_ms(), LOCK_MAX_AGE_MS) {
+            // Waited in a queue (or the clocks are far apart): locking now would surprise.
+            (false, "The request arrived too late, so the computer was not locked".to_string())
+        } else {
+            let buses = self.buses.clone();
+            match tokio::task::spawn_blocking(move || crate::lock::lock_screen(&buses)).await {
+                Ok(Ok(how)) => {
+                    info!(device = %name, "locked by the phone ({how})");
+                    (true, "Computer locked".to_string())
+                }
+                Ok(Err(e)) => {
+                    warn!("could not lock the screen: {e}");
+                    (false, "This computer could not lock its screen".to_string())
+                }
+                Err(e) => (false, format!("Could not lock: {e}")),
+            }
+        };
+        let result = AppMessage::ActionResult {
+            key: LOCK_RESULT_KEY.into(),
+            ok,
+            message,
+        };
+        let _ = self.to_phone(&peer, result);
+        WatchEvent::LockedByPhone {
+            id: peer.short(),
+            name,
+        }
+    }
+
     fn devices(&self) -> Vec<DeviceInfo> {
         self.node
             .peers()
             .iter()
-            .map(|p| device_info(&self.node, p))
+            .map(|p| self.device_info(p))
             .collect()
     }
 
@@ -436,7 +517,13 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     name,
                 }
             }
-            Event::PeerConnected { peer, name, .. } => {
+            Event::PeerConnected {
+                peer,
+                name,
+                capabilities,
+                ..
+            } => {
+                lock(&state.caps).insert(peer, capabilities);
                 let blip = last_disconnect
                     .get(&peer)
                     .is_some_and(|t| t.elapsed() < RECONNECT_QUIET);
@@ -453,6 +540,7 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
             }
             Event::PeerDisconnected { peer } => {
                 last_disconnect.insert(peer, std::time::Instant::now());
+                lock(&state.caps).remove(&peer);
                 WatchEvent::Disconnected {
                     id: peer.short(),
                     name: state.name_of(&peer),
@@ -525,6 +613,40 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                 AppMessage::DismissNotification { .. }
                 | AppMessage::ReplyNotification { .. }
                 | AppMessage::NotificationAction { .. } => continue,
+                AppMessage::LockComputer { sent_ms } => {
+                    // Locking can take a moment (D-Bus); don't hold up other messages.
+                    let state = state.clone();
+                    tokio::spawn(async move {
+                        let ev = state.lock_requested(peer, sent_ms).await;
+                        state.broadcast(ev);
+                    });
+                    continue;
+                }
+                AppMessage::Clipboard { text, copied_ms } => {
+                    if !state.clipboard_on() {
+                        debug!("clipboard from the phone ignored: sharing is off");
+                        continue;
+                    }
+                    if !is_fresh(copied_ms, now_ms(), CLIPBOARD_MAX_AGE_MS) {
+                        debug!("stale clipboard from the phone ignored");
+                        continue;
+                    }
+                    if text.is_empty() || text.len() > MAX_CLIPBOARD_TEXT {
+                        continue;
+                    }
+                    let name = state.name_of(&peer);
+                    state.clipboard.set(text);
+                    state.status_popup(
+                        notify,
+                        format!("clipboard/{}", peer.short()),
+                        format!("Copied from {name}"),
+                        "Paste it anywhere on this computer.".into(),
+                    );
+                    WatchEvent::ClipboardReceived {
+                        id: peer.short(),
+                        name,
+                    }
+                }
                 AppMessage::Unsupported => {
                     debug!("message type not supported by this version; ignored");
                     continue;
@@ -532,6 +654,25 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
             },
         };
         let _ = state.watchers.send(watch);
+    }
+}
+
+/// Text copied on this computer goes to every connected phone that can take it. Only
+/// while connected: queueing copies for later would paste stale text over newer ones.
+async fn share_copies(state: Arc<State>, mut copies: tokio::sync::mpsc::UnboundedReceiver<String>) {
+    while let Some(text) = copies.recv().await {
+        if !state.clipboard_on() || text.trim().is_empty() || text.len() > MAX_CLIPBOARD_TEXT {
+            continue;
+        }
+        let msg = AppMessage::Clipboard {
+            text,
+            copied_ms: now_ms(),
+        };
+        for peer in state.connected_with(CAP_CLIPBOARD) {
+            if let Err(e) = state.to_phone(&peer, msg.clone()) {
+                debug!("could not share the clipboard: {e}");
+            }
+        }
     }
 }
 
@@ -615,6 +756,16 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                     state.broadcast(WatchEvent::NotificationsChanged);
                     state.persist(|c| c.muted_apps = list)
                 };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::SetClipboardSync { enabled } => {
+                lock(&state.settings).clipboard = enabled;
+                let reply = state.persist(|c| c.clipboard_sync = enabled);
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::SetAllowLock { enabled } => {
+                lock(&state.settings).allow_lock = enabled;
+                let reply = state.persist(|c| c.allow_lock = enabled);
                 write_reply(&mut w, &reply).await?;
             }
             Request::Reconnect => {
@@ -744,6 +895,8 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                     devices: state.devices(),
                     notifications: state.notifications_on(),
                     sync_dismissals: state.sync_on(),
+                    clipboard_sync: state.clipboard_on(),
+                    allow_lock: lock(&state.settings).allow_lock,
                 };
                 write_reply(&mut w, &reply).await?;
             }
@@ -848,7 +1001,7 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                         ev = rx.recv() => {
                             if let Ok(WatchEvent::Paired { id, .. }) = ev {
                                 if let Some(p) = state.node.peers().iter().find(|p| p.fingerprint.short() == id) {
-                                    break Reply::Paired { device: device_info(&state.node, p) };
+                                    break Reply::Paired { device: state.device_info(p) };
                                 }
                             }
                         }

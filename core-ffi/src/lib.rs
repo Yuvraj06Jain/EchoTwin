@@ -16,9 +16,12 @@ use std::{
 
 use phonelink_core::{
     lan::Lan,
-    message::{truncate_text, MAX_NOTIFICATION_TEXT, MAX_SNAPSHOT_ITEMS},
+    message::{
+        is_fresh, truncate_text, CLIPBOARD_MAX_AGE_MS, MAX_CLIPBOARD_TEXT,
+        MAX_NOTIFICATION_TEXT, MAX_SNAPSHOT_ITEMS,
+    },
     AppMessage, Event, Fingerprint, Node, NodeConfig, PairingOffer, PeerRecord, PhoneNotification,
-    CAP_NOTIFICATIONS,
+    CAP_CLIPBOARD, CAP_LOCK, CAP_NOTIFICATIONS,
 };
 use tokio::{runtime::Runtime, task::JoinHandle};
 
@@ -45,6 +48,10 @@ pub struct Device {
     pub connected: bool,
     /// Messages waiting for this device to come back.
     pub pending: u64,
+    /// Connected, and its PhoneLink can be locked from here.
+    pub can_lock: bool,
+    /// Connected, and shares the clipboard.
+    pub can_clipboard: bool,
 }
 
 /// What a scanned QR code says, shown before the user confirms pairing.
@@ -89,6 +96,20 @@ pub enum LinkEvent {
         id: String,
         key: String,
         index: u32,
+    },
+    /// Text copied on the computer: put it on this phone's clipboard (if sharing is on).
+    ClipboardReceived {
+        id: String,
+        name: String,
+        text: String,
+    },
+    /// How a request this phone made went (e.g. `key` = "lock").
+    RequestResult {
+        id: String,
+        name: String,
+        key: String,
+        ok: bool,
+        message: String,
     },
 }
 
@@ -137,6 +158,24 @@ pub struct PhoneLink {
     node: Node,
     lan: Mutex<Option<Lan>>,
     keepers: Arc<Mutex<HashMap<Fingerprint, JoinHandle<()>>>>,
+    caps: Caps,
+}
+
+/// What each connected computer supports (from its Hello).
+type Caps = Arc<Mutex<HashMap<Fingerprint, Vec<String>>>>;
+
+fn has_cap(caps: &Caps, fp: &Fingerprint, cap: &str) -> bool {
+    caps.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(fp)
+        .is_some_and(|c| c.iter().any(|x| x == cap))
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 fn keep_connected(
@@ -151,12 +190,15 @@ fn keep_connected(
     k.insert(fp, node.maintain(fp, vec![]));
 }
 
-fn device(node: &Node, p: &PeerRecord) -> Device {
+fn device(node: &Node, caps: &Caps, p: &PeerRecord) -> Device {
+    let connected = node.is_connected(&p.fingerprint);
     Device {
         id: p.fingerprint.short(),
         name: p.name.clone(),
-        connected: node.is_connected(&p.fingerprint),
+        connected,
         pending: node.pending_count(&p.fingerprint).unwrap_or(0) as u64,
+        can_lock: connected && has_cap(caps, &p.fingerprint, CAP_LOCK),
+        can_clipboard: connected && has_cap(caps, &p.fingerprint, CAP_CLIPBOARD),
     }
 }
 
@@ -204,7 +246,9 @@ impl PhoneLink {
                     SocketAddr::from(([0u8; 4], port)),
                 ] {
                     let mut cfg = NodeConfig::new(device_name.clone(), Some(dir.clone()), bind);
-                    cfg.capabilities.push(CAP_NOTIFICATIONS.to_string());
+                    cfg.capabilities.extend(
+                        [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD].map(String::from),
+                    );
                     match Node::start(cfg).await {
                         Ok((node, events)) => {
                             if let Ok(addr) = node.local_addr() {
@@ -240,7 +284,8 @@ impl PhoneLink {
                 }
             })
             .map_err(|e| LinkError::Failed(e.to_string()))?;
-        let (pump_node, pump_keepers) = (node.clone(), keepers.clone());
+        let caps: Caps = Arc::new(Mutex::new(HashMap::new()));
+        let (pump_node, pump_keepers, pump_caps) = (node.clone(), keepers.clone(), caps.clone());
         rt.spawn(async move {
             while let Some(ev) = events.recv().await {
                 let out = match ev {
@@ -251,14 +296,31 @@ impl PhoneLink {
                             name,
                         }
                     }
-                    Event::PeerConnected { peer, name, .. } => LinkEvent::Connected {
-                        id: peer.short(),
+                    Event::PeerConnected {
+                        peer,
                         name,
-                    },
-                    Event::PeerDisconnected { peer } => LinkEvent::Disconnected {
-                        id: peer.short(),
-                        name: name_of(&pump_node, &peer),
-                    },
+                        capabilities,
+                        ..
+                    } => {
+                        pump_caps
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .insert(peer, capabilities);
+                        LinkEvent::Connected {
+                            id: peer.short(),
+                            name,
+                        }
+                    }
+                    Event::PeerDisconnected { peer } => {
+                        pump_caps
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .remove(&peer);
+                        LinkEvent::Disconnected {
+                            id: peer.short(),
+                            name: name_of(&pump_node, &peer),
+                        }
+                    }
                     Event::Message { peer, body, .. } => match AppMessage::decode(&body) {
                         AppMessage::Text { text } => LinkEvent::Text {
                             id: peer.short(),
@@ -281,6 +343,27 @@ impl PhoneLink {
                                 index,
                             }
                         }
+                        AppMessage::Clipboard { text, copied_ms } => {
+                            // A copy that waited in a queue would paste over something newer.
+                            if text.is_empty()
+                                || text.len() > MAX_CLIPBOARD_TEXT
+                                || !is_fresh(copied_ms, now_ms(), CLIPBOARD_MAX_AGE_MS)
+                            {
+                                continue;
+                            }
+                            LinkEvent::ClipboardReceived {
+                                id: peer.short(),
+                                name: name_of(&pump_node, &peer),
+                                text,
+                            }
+                        }
+                        AppMessage::ActionResult { key, ok, message } => LinkEvent::RequestResult {
+                            id: peer.short(),
+                            name: name_of(&pump_node, &peer),
+                            key,
+                            ok,
+                            message,
+                        },
                         // Phone → computer messages never arrive here; unknown ones are skipped.
                         _ => continue,
                     },
@@ -296,6 +379,7 @@ impl PhoneLink {
             node,
             lan: Mutex::new(None),
             keepers,
+            caps,
         }))
     }
 
@@ -333,7 +417,7 @@ impl PhoneLink {
         self.node
             .peers()
             .iter()
-            .map(|p| device(&self.node, p))
+            .map(|p| device(&self.node, &self.caps, p))
             .collect()
     }
 
@@ -363,7 +447,7 @@ impl PhoneLink {
             let _guard = self.rt.enter();
             keep_connected(&self.node, &self.keepers, rec.fingerprint);
         }
-        Ok(device(&self.node, &rec))
+        Ok(device(&self.node, &self.caps, &rec))
     }
 
     /// Queue a text for `device_id` (or the only paired device). Returns true if the
@@ -428,6 +512,46 @@ impl PhoneLink {
         Ok(())
     }
 
+    /// Lock the computer's screen now. Only while it is connected: a lock that arrived later
+    /// would be a surprise (the computer also ignores late ones). The outcome arrives as
+    /// `RequestResult` with key "lock". Returns the computer's name.
+    pub fn lock_computer(&self, device_id: Option<String>) -> Result<String, LinkError> {
+        let fp = self.connected_one(device_id, CAP_LOCK, "locking from the phone")?;
+        let body = AppMessage::LockComputer { sent_ms: now_ms() }.encode()?;
+        self.node.send(&fp, body)?;
+        Ok(name_of(&self.node, &fp))
+    }
+
+    /// Send text copied on the phone to every connected computer that shares the clipboard.
+    /// Returns how many got it.
+    pub fn send_clipboard(&self, text: String) -> Result<u32, LinkError> {
+        if text.trim().is_empty() {
+            return Err(LinkError::Failed("the clipboard is empty".into()));
+        }
+        if text.len() > MAX_CLIPBOARD_TEXT {
+            return Err(LinkError::Failed("that is too much text to send".into()));
+        }
+        let targets: Vec<Fingerprint> = self
+            .node
+            .peers()
+            .iter()
+            .map(|p| p.fingerprint)
+            .filter(|fp| self.node.is_connected(fp) && has_cap(&self.caps, fp, CAP_CLIPBOARD))
+            .collect();
+        if targets.is_empty() {
+            return Err(LinkError::Failed("no computer is connected".into()));
+        }
+        let body = AppMessage::Clipboard {
+            text,
+            copied_ms: now_ms(),
+        }
+        .encode()?;
+        for fp in &targets {
+            self.node.send(fp, body.clone())?;
+        }
+        Ok(targets.len() as u32)
+    }
+
     /// Call from `ConnectivityManager.NetworkCallback`: retry immediately instead of
     /// waiting out the reconnect backoff.
     pub fn on_network_changed(&self) {
@@ -448,6 +572,46 @@ impl PhoneLink {
             self.node.send(&p.fingerprint, body.clone())?;
         }
         Ok(())
+    }
+
+    /// The device to send a "right now" request to: connected and supporting `cap`.
+    fn connected_one(
+        &self,
+        device_id: Option<String>,
+        cap: &str,
+        what: &str,
+    ) -> Result<Fingerprint, LinkError> {
+        let fp = match device_id {
+            Some(id) => self.resolve(Some(id))?,
+            None => {
+                let peers = self.node.peers();
+                let connected: Vec<_> = peers
+                    .iter()
+                    .filter(|p| self.node.is_connected(&p.fingerprint))
+                    .collect();
+                match connected.as_slice() {
+                    [one] => one.fingerprint,
+                    [] if peers.is_empty() => return Err(LinkError::Failed("no paired computer".into())),
+                    [] => {
+                        return Err(LinkError::Failed(format!(
+                            "{} is not connected",
+                            peers[0].name
+                        )))
+                    }
+                    _ => return Err(LinkError::Failed("several computers connected; choose one".into())),
+                }
+            }
+        };
+        if !self.node.is_connected(&fp) {
+            return Err(LinkError::Failed(format!("{} is not connected", name_of(&self.node, &fp))));
+        }
+        if !has_cap(&self.caps, &fp, cap) {
+            return Err(LinkError::Failed(format!(
+                "update PhoneLink on {} to use {what}",
+                name_of(&self.node, &fp)
+            )));
+        }
+        Ok(fp)
     }
 
     fn resolve(&self, device_id: Option<String>) -> Result<Fingerprint, LinkError> {
@@ -759,5 +923,119 @@ mod tests {
         );
         again.shutdown();
         rt.block_on(laptop.shutdown());
+    }
+
+    /// Lock and clipboard, as the Android app calls them, against a laptop node that
+    /// supports both, then against one that doesn't (an older PhoneLink on the computer).
+    #[test]
+    fn lock_and_clipboard_call_sequence() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let start_laptop = |caps: &[&str]| {
+            let mut cfg = NodeConfig::new("Kubuntu", None, "127.0.0.1:0".parse().unwrap());
+            cfg.capabilities.extend(caps.iter().map(|c| c.to_string()));
+            rt.block_on(Node::start(cfg)).unwrap()
+        };
+        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD]);
+        let uri = laptop
+            .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
+            .to_uri();
+        let dir = tempfile::tempdir().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let phone = PhoneLink::start(
+            dir.path().to_string_lossy().into(),
+            "Galaxy S24 FE".into(),
+            Arc::new(Collect(Mutex::new(tx))),
+        )
+        .unwrap();
+        // Not paired yet: a clear error, nothing sent.
+        assert!(phone.lock_computer(None).is_err());
+        assert!(phone.send_clipboard("x".into()).is_err());
+        phone.pair(uri).unwrap();
+        wait(&rx, |e| matches!(e, LinkEvent::Connected { .. }));
+        let d = &phone.devices()[0];
+        assert!(d.can_lock && d.can_clipboard, "{d:?}");
+
+        let next_from_phone = |lrx: &mut tokio::sync::mpsc::UnboundedReceiver<Event>| {
+            rt.block_on(async {
+                loop {
+                    if let Some(Event::Message { body, .. }) = lrx.recv().await {
+                        return AppMessage::decode(&body);
+                    }
+                }
+            })
+        };
+
+        assert_eq!(phone.lock_computer(None).unwrap(), "Kubuntu");
+        let got = next_from_phone(&mut lrx);
+        assert!(
+            matches!(got, AppMessage::LockComputer { sent_ms } if sent_ms.abs_diff(now_ms()) < 10_000),
+            "{got:?}"
+        );
+        let phone_fp = laptop.peers()[0].fingerprint;
+        let to_phone = |m: AppMessage| laptop.send(&phone_fp, m.encode().unwrap()).unwrap();
+        to_phone(AppMessage::ActionResult {
+            key: "lock".into(),
+            ok: true,
+            message: "Computer locked".into(),
+        });
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::RequestResult { .. }));
+        assert_eq!(
+            ev,
+            LinkEvent::RequestResult {
+                id: laptop.fingerprint().short(),
+                name: "Kubuntu".into(),
+                key: "lock".into(),
+                ok: true,
+                message: "Computer locked".into()
+            }
+        );
+
+        assert_eq!(phone.send_clipboard("from the phone".into()).unwrap(), 1);
+        assert!(matches!(
+            next_from_phone(&mut lrx),
+            AppMessage::Clipboard { text, .. } if text == "from the phone"
+        ));
+        assert!(phone.send_clipboard("  ".into()).is_err());
+        assert!(phone
+            .send_clipboard("x".repeat(MAX_CLIPBOARD_TEXT + 1))
+            .is_err());
+
+        // Laptop → phone: fresh copies arrive; a stale one (queued for ages) does not.
+        to_phone(AppMessage::Clipboard {
+            text: "old".into(),
+            copied_ms: now_ms() - 3_600_000,
+        });
+        to_phone(AppMessage::Clipboard {
+            text: "ssh lab-pc".into(),
+            copied_ms: now_ms(),
+        });
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::ClipboardReceived { .. }));
+        assert!(matches!(ev, LinkEvent::ClipboardReceived { text, .. } if text == "ssh lab-pc"));
+
+        // A computer running an older PhoneLink: the phone says so instead of sending.
+        phone.shutdown();
+        drop(phone);
+        rt.block_on(laptop.shutdown());
+        let (old_laptop, _olrx) = start_laptop(&[]);
+        let uri = old_laptop
+            .start_pairing(Duration::from_secs(60), vec![old_laptop.local_addr().unwrap()])
+            .to_uri();
+        let dir2 = tempfile::tempdir().unwrap();
+        let (tx2, rx2) = mpsc::channel();
+        let phone2 = PhoneLink::start(
+            dir2.path().to_string_lossy().into(),
+            "Galaxy S24 FE".into(),
+            Arc::new(Collect(Mutex::new(tx2))),
+        )
+        .unwrap();
+        phone2.pair(uri).unwrap();
+        wait(&rx2, |e| matches!(e, LinkEvent::Connected { .. }));
+        let d = &phone2.devices()[0];
+        assert!(d.connected && !d.can_lock && !d.can_clipboard);
+        let err = phone2.lock_computer(None).unwrap_err().to_string();
+        assert!(err.contains("update PhoneLink"), "{err}");
+        assert!(phone2.send_clipboard("x".into()).is_err());
+        phone2.shutdown();
+        rt.block_on(old_laptop.shutdown());
     }
 }

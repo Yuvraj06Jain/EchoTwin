@@ -67,6 +67,7 @@ struct Settings {
     muted: HashSet<String>,
     clipboard: bool,
     allow_lock: bool,
+    bluetooth: bool,
 }
 
 struct State {
@@ -88,6 +89,9 @@ struct State {
     media: Mutex<MediaStore>,
     transfers: Transfers,
     sms: Mutex<SmsStore>,
+    /// Why the Bluetooth backup isn't ready (empty: ready).
+    bt_status: Mutex<String>,
+    bt_wake: Arc<Notify>,
 }
 
 /// Run until `shutdown` resolves.
@@ -120,6 +124,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
             muted: opts.config.muted_apps.iter().cloned().collect(),
             clipboard: opts.config.clipboard_sync,
             allow_lock: opts.config.allow_lock,
+            bluetooth: opts.config.bluetooth_backup,
         }),
         store: Mutex::new(Store::default()),
         popups: opts.popups.clone().unwrap_or_else(Popups::start),
@@ -133,6 +138,8 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         media: Mutex::new(MediaStore::default()),
         transfers,
         sms: Mutex::new(SmsStore::default()),
+        bt_status: Mutex::new("starting".into()),
+        bt_wake: Arc::new(Notify::new()),
     });
     info!(
         name = %opts.config.device_name(),
@@ -164,6 +171,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
     tokio::spawn(network_watch(state.clone()));
     tokio::spawn(share_copies(state.clone(), copies));
     tokio::spawn(transfer_updates(state.clone(), transfer_events));
+    tokio::spawn(bluetooth_backup(state.clone()));
     let server = tokio::spawn(serve(state.clone(), listener));
 
     shutdown.await;
@@ -275,7 +283,15 @@ fn device_info(node: &Node, p: &PeerRecord, capabilities: Vec<String>) -> Device
         pending: node.pending_count(&p.fingerprint).unwrap_or(0),
         last_addrs: p.last_addrs.iter().map(|a| a.to_string()).collect(),
         capabilities,
+        via: via(node.transport(&p.fingerprint)),
     }
+}
+
+fn via(t: Option<phonelink_core::Transport>) -> Option<String> {
+    t.map(|t| match t {
+        phonelink_core::Transport::Quic => "wifi".to_string(),
+        phonelink_core::Transport::Stream => "bluetooth".to_string(),
+    })
 }
 
 fn hex_id(id: &phonelink_core::MsgId) -> String {
@@ -696,6 +712,7 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                 peer,
                 name,
                 capabilities,
+                transport,
                 ..
             } => {
                 lock(&state.caps).insert(peer, capabilities);
@@ -712,6 +729,7 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                 WatchEvent::Connected {
                     id: peer.short(),
                     name,
+                    via: via(Some(transport)).unwrap_or_default(),
                 }
             }
             Event::PeerDisconnected { peer } => {
@@ -893,6 +911,90 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
     }
 }
 
+/// Keeps the PhoneLink Bluetooth profile registered with BlueZ while the backup is on (and
+/// Bluetooth exists), tells phones where to find this computer, and serves the connections.
+async fn bluetooth_backup(state: Arc<State>) {
+    use crate::bluetooth;
+    let (tx, mut incoming) = tokio::sync::mpsc::unbounded_channel::<bluetooth::Incoming>();
+    let accept_state = state.clone();
+    tokio::spawn(async move {
+        while let Some(conn) = incoming.recv().await {
+            let state = accept_state.clone();
+            tokio::spawn(async move {
+                let std_stream = std::os::unix::net::UnixStream::from(conn.fd);
+                let stream = std_stream
+                    .set_nonblocking(true)
+                    .and_then(|_| tokio::net::UnixStream::from_std(std_stream));
+                match stream {
+                    Ok(s) => match state.node.accept_stream(s).await {
+                        Ok(peer) => info!(device = %state.name_of(&peer), "connected over Bluetooth"),
+                        Err(e) => info!(from = %conn.device, "Bluetooth connection refused: {e}"),
+                    },
+                    Err(e) => warn!("unusable Bluetooth socket: {e}"),
+                }
+            });
+        }
+    });
+    let mut registered: Option<bluetooth::Registered> = None;
+    let set_status = |s: &str| {
+        let mut cur = lock(&state.bt_status);
+        if *cur != s {
+            if s.is_empty() {
+                info!("Bluetooth backup ready");
+            } else {
+                info!("Bluetooth backup not available: {s}");
+            }
+            *cur = s.to_string();
+        }
+    };
+    loop {
+        let wanted = lock(&state.settings).bluetooth;
+        if !wanted {
+            if let Some(r) = registered.take() {
+                let _ = tokio::task::spawn_blocking(move || r.unregister()).await;
+            }
+            state.node.set_bluetooth_address(None);
+            set_status("off");
+        } else if let Some(r) = registered.take() {
+            // Still there? (Bluetooth switched off, adapter unplugged…)
+            let (r, addr) = tokio::task::spawn_blocking(move || {
+                let a = r.current_address();
+                (r, a)
+            })
+            .await
+            .expect("bluetooth check");
+            match addr {
+                Some(a) => {
+                    state.node.set_bluetooth_address(Some(a));
+                    registered = Some(r);
+                }
+                None => {
+                    state.node.set_bluetooth_address(None);
+                    set_status("no Bluetooth adapter found (is Bluetooth on?)");
+                }
+            }
+        } else {
+            let (bus, tx) = (state.buses.system.clone(), tx.clone());
+            match tokio::task::spawn_blocking(move || bluetooth::register(&bus, tx)).await {
+                Ok(Ok(r)) => {
+                    state.node.set_bluetooth_address(Some(r.address.clone()));
+                    set_status("");
+                    registered = Some(r);
+                }
+                Ok(Err(e)) => {
+                    state.node.set_bluetooth_address(None);
+                    set_status(&e);
+                }
+                Err(e) => set_status(&e.to_string()),
+            }
+        }
+        tokio::select! {
+            _ = state.bt_wake.notified() => {}
+            _ = tokio::time::sleep(Duration::from_secs(30)) => {}
+        }
+    }
+}
+
 /// Every change to a transfer goes to the UI; a received file (or a failed send) also
 /// gets a popup that opens the Files tab.
 async fn transfer_updates(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedReceiver<TransferInfo>) {
@@ -1031,6 +1133,12 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
             Request::SetClipboardSync { enabled } => {
                 lock(&state.settings).clipboard = enabled;
                 let reply = state.persist(|c| c.clipboard_sync = enabled);
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::SetBluetoothBackup { enabled } => {
+                lock(&state.settings).bluetooth = enabled;
+                state.bt_wake.notify_one();
+                let reply = state.persist(|c| c.bluetooth_backup = enabled);
                 write_reply(&mut w, &reply).await?;
             }
             Request::SetAllowLock { enabled } => {
@@ -1302,6 +1410,13 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
             }
             Request::Status => {
                 let node = &state.node;
+                // Read settings first: two `lock()` temporaries in one expression would
+                // deadlock (the first guard lives until the end of the statement).
+                let (allow_lock, bluetooth_backup) = {
+                    let s = lock(&state.settings);
+                    (s.allow_lock, s.bluetooth)
+                };
+                let bluetooth_status = lock(&state.bt_status).clone();
                 let reply = Reply::Status {
                     name: state.config.device_name(),
                     id: node.fingerprint().short(),
@@ -1311,7 +1426,9 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                     notifications: state.notifications_on(),
                     sync_dismissals: state.sync_on(),
                     clipboard_sync: state.clipboard_on(),
-                    allow_lock: lock(&state.settings).allow_lock,
+                    allow_lock,
+                    bluetooth_backup,
+                    bluetooth_status,
                 };
                 write_reply(&mut w, &reply).await?;
             }

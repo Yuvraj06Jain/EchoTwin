@@ -54,6 +54,10 @@ pub struct Device {
     pub can_lock: bool,
     /// Connected, and shares the clipboard.
     pub can_clipboard: bool,
+    /// "wifi" or "bluetooth" while connected; empty when offline.
+    pub via: String,
+    /// The computer's Bluetooth address for the backup link (it tells us), if it has one.
+    pub bluetooth: Option<String>,
 }
 
 /// What a scanned QR code says, shown before the user confirms pairing.
@@ -69,9 +73,12 @@ pub enum LinkEvent {
         id: String,
         name: String,
     },
+    /// Also sent when the link changes (Bluetooth backup → Wi-Fi). `via`: "wifi" or
+    /// "bluetooth".
     Connected {
         id: String,
         name: String,
+        via: String,
     },
     Disconnected {
         id: String,
@@ -410,6 +417,50 @@ fn device(node: &Node, caps: &Caps, p: &PeerRecord) -> Device {
         pending: node.pending_count(&p.fingerprint).unwrap_or(0) as u64,
         can_lock: connected && has_cap(caps, &p.fingerprint, CAP_LOCK),
         can_clipboard: connected && has_cap(caps, &p.fingerprint, CAP_CLIPBOARD),
+        via: via(node.transport(&p.fingerprint)),
+        bluetooth: p.bluetooth.clone(),
+    }
+}
+
+fn via(t: Option<phonelink_core::Transport>) -> String {
+    match t {
+        Some(phonelink_core::Transport::Quic) => "wifi",
+        Some(phonelink_core::Transport::Stream) => "bluetooth",
+        None => "",
+    }
+    .to_string()
+}
+
+/// Implemented in Kotlin around a connected Bluetooth socket.
+#[uniffi::export(with_foreign)]
+pub trait StreamSink: Send + Sync {
+    /// Write to the socket (blocking). False if the socket failed.
+    fn write(&self, data: Vec<u8>) -> bool;
+    /// Close the socket: the session ended, or Wi-Fi took over.
+    fn close(&self);
+}
+
+/// The phone's end of a Bluetooth link: Kotlin feeds it what the socket reads.
+#[derive(uniffi::Object)]
+pub struct StreamPipe {
+    tx: Mutex<Option<tokio::sync::mpsc::Sender<Vec<u8>>>>,
+}
+
+#[uniffi::export]
+impl StreamPipe {
+    /// Bytes read from the socket. Blocks while the core catches up. False once the link
+    /// is closed (stop reading then).
+    pub fn received(&self, data: Vec<u8>) -> bool {
+        let tx = self.tx.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        match tx {
+            Some(tx) => tx.blocking_send(data).is_ok(),
+            None => false,
+        }
+    }
+
+    /// The socket closed or failed.
+    pub fn closed(&self) {
+        self.tx.lock().unwrap_or_else(|e| e.into_inner()).take();
     }
 }
 
@@ -542,6 +593,7 @@ impl PhoneLink {
                         peer,
                         name,
                         capabilities,
+                        transport,
                         ..
                     } => {
                         pump_caps
@@ -552,6 +604,7 @@ impl PhoneLink {
                         LinkEvent::Connected {
                             id: peer.short(),
                             name,
+                            via: via(Some(transport)),
                         }
                     }
                     Event::PeerDisconnected { peer } => {
@@ -867,6 +920,61 @@ impl PhoneLink {
     /// connect (call again on `Connected`). Returns how many got it.
     pub fn send_now_playing(&self, media: Option<PhoneMedia>) -> Result<u32, LinkError> {
         self.send_connected(CAP_MEDIA, AppMessage::NowPlaying(media.map(PhoneMedia::into_wire)))
+    }
+
+    /// Run the session with the computer over a Bluetooth socket the app connected (the
+    /// backup when Wi-Fi is gone). Same encryption and pinned keys as over Wi-Fi. Feed the
+    /// socket's bytes to the returned pipe; the core writes through `sink` and closes it
+    /// when the session ends or Wi-Fi takes over. `Connected` (via "bluetooth") follows
+    /// on success.
+    pub fn open_stream(
+        &self,
+        device_id: String,
+        sink: Arc<dyn StreamSink>,
+    ) -> Result<Arc<StreamPipe>, LinkError> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let fp = self.resolve(Some(device_id))?;
+        if self.node.transport(&fp) == Some(phonelink_core::Transport::Quic) {
+            return Err(LinkError::Failed("already connected over Wi-Fi".into()));
+        }
+        let (core_end, app_end) = tokio::io::duplex(64 * 1024);
+        let (mut app_r, mut app_w) = tokio::io::split(app_end);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(16);
+        // socket → core
+        self.rt.spawn(async move {
+            while let Some(d) = rx.recv().await {
+                if app_w.write_all(&d).await.is_err() {
+                    break;
+                }
+            }
+            let _ = app_w.shutdown().await;
+        });
+        // core → socket; when the core is done, close the socket
+        self.rt.spawn(async move {
+            let mut buf = vec![0u8; 16 * 1024];
+            loop {
+                match app_r.read(&mut buf).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        let (s, d) = (sink.clone(), buf[..n].to_vec());
+                        let ok = tokio::task::spawn_blocking(move || s.write(d)).await.unwrap_or(false);
+                        if !ok {
+                            break;
+                        }
+                    }
+                }
+            }
+            let _ = tokio::task::spawn_blocking(move || sink.close()).await;
+        });
+        let node = self.node.clone();
+        self.rt.spawn(async move {
+            if let Err(e) = node.connect_stream(fp, core_end).await {
+                tracing::debug!("Bluetooth session not established: {e}");
+            }
+        });
+        Ok(Arc::new(StreamPipe {
+            tx: Mutex::new(Some(tx)),
+        }))
     }
 
     /// All conversations (most recent first), for computers that just connected. Not queued
@@ -1696,5 +1804,125 @@ mod tests {
         assert_eq!(messages.iter().map(|m| m.id).collect::<Vec<_>>(), vec![1, 2], "oldest first");
         phone.shutdown();
         rt.block_on(laptop.shutdown());
+    }
+
+    /// The Bluetooth backup as the Android app runs it, with a socket pair standing in for
+    /// the RFCOMM socket: the laptop's Bluetooth address arrives over Wi-Fi; with Wi-Fi gone,
+    /// the session runs over the "socket"; when the session ends, the app's socket is closed.
+    #[test]
+    fn bluetooth_backup_call_sequence() {
+        use std::io::{Read, Write};
+        use std::os::unix::net::UnixStream;
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let ldir = tempfile::tempdir().unwrap();
+        let start_laptop = || {
+            rt.block_on(Node::start(NodeConfig::new(
+                "Kubuntu",
+                Some(ldir.path().to_path_buf()),
+                "127.0.0.1:0".parse().unwrap(),
+            )))
+            .unwrap()
+        };
+        let (laptop, _lrx) = start_laptop();
+        laptop.set_bluetooth_address(Some("AA:BB:CC:DD:EE:FF".into()));
+        let uri = laptop
+            .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
+            .to_uri();
+        let dir = tempfile::tempdir().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let phone = PhoneLink::start(
+            dir.path().to_string_lossy().into(),
+            "Galaxy S24 FE".into(),
+            Arc::new(Collect(Mutex::new(tx))),
+            Arc::new(Paths),
+        )
+        .unwrap();
+        phone.pair(uri).unwrap();
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::Connected { .. }));
+        assert!(matches!(ev, LinkEvent::Connected { ref via, .. } if via == "wifi"));
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while phone.devices()[0].bluetooth.is_none() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(phone.devices()[0].bluetooth.as_deref(), Some("AA:BB:CC:DD:EE:FF"));
+        let id = phone.devices()[0].id.clone();
+
+        // While on Wi-Fi, no Bluetooth session is started.
+        struct Sock(Mutex<UnixStream>, Arc<std::sync::atomic::AtomicBool>);
+        impl StreamSink for Sock {
+            fn write(&self, data: Vec<u8>) -> bool {
+                self.0.lock().unwrap().write_all(&data).is_ok()
+            }
+            fn close(&self) {
+                self.1.store(true, std::sync::atomic::Ordering::SeqCst);
+                let _ = self.0.lock().unwrap().shutdown(std::net::Shutdown::Both);
+            }
+        }
+        let (a, _b) = UnixStream::pair().unwrap();
+        let closed0 = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        assert!(phone
+            .open_stream(id.clone(), Arc::new(Sock(Mutex::new(a), closed0)))
+            .is_err());
+
+        // Wi-Fi gone: the laptop comes back somewhere the phone can't reach over the network.
+        rt.block_on(laptop.shutdown());
+        drop(laptop);
+        wait(&rx, |e| matches!(e, LinkEvent::Disconnected { .. }));
+        let (laptop, mut lrx) = start_laptop();
+
+        // The app connected its Bluetooth socket (here: one end of a socket pair).
+        let (phone_sock, laptop_sock) = UnixStream::pair().unwrap();
+        let reader = phone_sock.try_clone().unwrap();
+        let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let pipe = phone
+            .open_stream(id, Arc::new(Sock(Mutex::new(phone_sock), closed.clone())))
+            .unwrap();
+        // The app's reading thread.
+        let pipe2 = pipe.clone();
+        let reading = std::thread::spawn(move || {
+            let mut reader = reader;
+            let mut buf = vec![0u8; 4096];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        if !pipe2.received(buf[..n].to_vec()) {
+                            break;
+                        }
+                    }
+                }
+            }
+            pipe2.closed();
+        });
+        // The laptop's Bluetooth server.
+        laptop_sock.set_nonblocking(true).unwrap();
+        let l2 = laptop.clone();
+        rt.spawn(async move {
+            let s = tokio::net::UnixStream::from_std(laptop_sock).unwrap();
+            let _ = l2.accept_stream(s).await;
+        });
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::Connected { .. }));
+        assert!(matches!(ev, LinkEvent::Connected { ref via, .. } if via == "bluetooth"), "{ev:?}");
+        assert_eq!(phone.devices()[0].via, "bluetooth");
+        assert!(phone.send_text(None, "over bluetooth".into()).unwrap());
+        let got = rt.block_on(async {
+            loop {
+                if let Some(Event::Message { body, .. }) = lrx.recv().await {
+                    return AppMessage::decode(&body);
+                }
+            }
+        });
+        assert_eq!(got, AppMessage::Text { text: "over bluetooth".into() });
+
+        // The laptop goes away: the core closes the app's socket, the reading thread ends.
+        rt.block_on(laptop.shutdown());
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !closed.load(std::sync::atomic::Ordering::SeqCst) && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(closed.load(std::sync::atomic::Ordering::SeqCst), "socket closed by the core");
+        reading.join().unwrap();
+        assert!(!pipe.received(vec![1, 2, 3]), "the pipe refuses data once closed");
+        phone.shutdown();
     }
 }

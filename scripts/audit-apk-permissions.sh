@@ -21,6 +21,8 @@ android.permission.CAMERA
 android.permission.READ_SMS
 android.permission.SEND_SMS
 android.permission.READ_CONTACTS
+android.permission.BLUETOOTH_CONNECT
+android.permission.BLUETOOTH
 dev.phonelink.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
 "
 

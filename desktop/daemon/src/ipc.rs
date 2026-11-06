@@ -128,6 +128,9 @@ pub enum Request {
     SmsLoadOlder {
         thread: String,
     },
+    SetBluetoothBackup {
+        enabled: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -143,6 +146,9 @@ pub struct DeviceInfo {
     /// Features the connected phone supports (empty while offline).
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// "wifi" or "bluetooth" while connected.
+    #[serde(default)]
+    pub via: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -152,9 +158,12 @@ pub enum WatchEvent {
         id: String,
         name: String,
     },
+    /// Also sent when the link changes (Bluetooth backup ↔ Wi-Fi).
     Connected {
         id: String,
         name: String,
+        #[serde(default)]
+        via: String,
     },
     Disconnected {
         id: String,
@@ -231,6 +240,11 @@ pub enum Reply {
         clipboard_sync: bool,
         #[serde(default)]
         allow_lock: bool,
+        #[serde(default)]
+        bluetooth_backup: bool,
+        /// Empty when the backup is ready; otherwise why not ("off", no adapter, …).
+        #[serde(default)]
+        bluetooth_status: String,
     },
     Notifications {
         items: Vec<NotificationInfo>,

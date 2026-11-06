@@ -52,6 +52,7 @@ object LinkManager {
         app = context.applicationContext
         FileShare.init(app)
         SmsSync.init(app)
+        BluetoothBackup.init(app)
     }
 
     private fun dataDir(context: Context) = File(context.filesDir, "phonelink")
@@ -236,7 +237,9 @@ object LinkManager {
                     _messages.value = (listOf("${event.name}: ${event.text}") + _messages.value).take(50)
                     Notifications.message(app, event.name, event.text)
                 }
+                is LinkEvent.Disconnected -> BluetoothBackup.onDisconnected()
                 is LinkEvent.Connected -> {
+                    BluetoothBackup.onConnected()
                     sendSnapshot()
                     MediaWatcher.resend()
                     sendSmsSnapshot()

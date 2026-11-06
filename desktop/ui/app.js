@@ -49,6 +49,7 @@
     prev: '<path d="M7 5.5v13M18 5.5v13L9 12z"/>',
     next: '<path d="M17 5.5v13M6 5.5v13L15 12z"/>',
     volume: '<path d="M4.5 9.5h3L12 6v12l-4.5-3.5h-3z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/>',
+    bluetooth: '<path d="M7 7.5l10 9-5 4.5V3l5 4.5-10 9"/>',
     music: '<path d="M9 17.5V6l10-2v11.5"/><circle cx="6.8" cy="17.5" r="2.2"/><circle cx="16.8" cy="15.5" r="2.2"/>',
     reply: '<path d="M9.5 7.5L5 12l4.5 4.5"/><path d="M5.5 12H14a5.5 5.5 0 0 1 5.5 5.5"/>',
     plus: '<path d="M12 5.5v13M5.5 12h13"/>',
@@ -277,7 +278,7 @@
     if (!d) {
       el.pill.innerHTML = '<span class="dot"></span>No phone paired';
     } else if (d.connected) {
-      el.pill.innerHTML = `<span class="dot ok"></span>${esc(d.name)} · Connected`;
+      el.pill.innerHTML = `<span class="dot ok"></span>${esc(d.name)} · Connected${d.via === 'bluetooth' ? ' · Bluetooth' : ''}`;
     } else {
       el.pill.innerHTML = `<span class="dot warn"></span>${esc(d.name)} · Offline`;
     }
@@ -313,7 +314,8 @@
     const hasBattery = typeof d.battery === 'number';
     const battWidth = hasBattery ? Math.round((14 * d.battery) / 100) : 0;
     const statusRows = d.connected
-      ? `<li class="stat"><span class="dot ok"></span><span>Connected</span></li>
+      ? `<li class="stat"><span class="dot ok"></span><span>${d.via === 'bluetooth' ? 'Connected over Bluetooth' : 'Connected'}</span></li>
+         ${d.via === 'bluetooth' ? `<li class="stat faint">${icon('bluetooth')}<span title="Wi-Fi is not available; files wait for it">Backup link · files wait for Wi-Fi</span></li>` : ''}
          ${d.network ? `<li class="stat">${icon('wifi')}<span>${esc(d.network)}</span></li>` : ''}
          ${hasBattery ? `<li class="stat"><span class="battery${d.battery < 20 ? ' low' : ''}" aria-hidden="true"><i style="width:${battWidth}px"></i></span><span class="tnum">${d.battery}%${d.charging ? ' · charging' : ''}</span></li>` : ''}
          ${d.pending ? `<li class="stat faint">${icon('send')}<span>${esc(plural(d.pending, 'message', 'messages'))} sending…</span></li>` : ''}`
@@ -1066,6 +1068,7 @@
         ${caps.syncDismissals ? switchRow('Dismiss on both devices', 'Clearing a notification here also clears it on your phone, and the other way round.', 'toggle-setting', !!s.syncDismissals, 'data-key="syncDismissals"') : ''}
         ${caps.clipboard ? switchRow('Share clipboard with your phone', 'Text you copy here can be pasted on your phone. Passwords copied from a password manager are never sent.', 'toggle-setting', !!s.clipboardSync, 'data-key="clipboardSync"') : ''}
         ${caps.lockFromPhone ? switchRow('Let your phone lock this computer', 'Adds a Lock computer button to your phone. It can only lock, never unlock.', 'toggle-setting', !!s.allowLock, 'data-key="allowLock"') : ''}
+        ${caps.bluetooth ? switchRow('Bluetooth backup', s.bluetoothBackup && s.bluetoothStatus ? `Not available right now: ${s.bluetoothStatus}.` : 'When Wi-Fi is gone, your phone stays connected over Bluetooth (pair the two in the system Bluetooth settings first). Same encryption as Wi-Fi.', 'toggle-setting', !!s.bluetoothBackup, 'data-key="bluetoothBackup"') : ''}
         ${caps.discoveryToggle ? switchRow('Find my phone on this network', 'Anonymous: nothing that identifies you is broadcast.', 'toggle-setting', !!s.discovery, 'data-key="discovery"') : ''}
       </div>`;
   }

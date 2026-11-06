@@ -43,6 +43,8 @@ struct StatusDto {
     sync_dismissals: bool,
     clipboard_sync: bool,
     allow_lock: bool,
+    bluetooth_backup: bool,
+    bluetooth_status: String,
     devices: Vec<DeviceInfo>,
 }
 
@@ -116,6 +118,8 @@ async fn status() -> Result<StatusDto, String> {
             sync_dismissals,
             clipboard_sync,
             allow_lock,
+            bluetooth_backup,
+            bluetooth_status,
             ..
         } => Ok(StatusDto {
             computer: Computer { name, id },
@@ -123,6 +127,8 @@ async fn status() -> Result<StatusDto, String> {
             sync_dismissals,
             clipboard_sync,
             allow_lock,
+            bluetooth_backup,
+            bluetooth_status,
             devices,
         }),
         r => Err(unexpected(r)),
@@ -311,6 +317,11 @@ async fn set_sync_dismissals(enabled: bool) -> Result<(), String> {
 #[tauri::command]
 async fn set_clipboard_sync(enabled: bool) -> Result<(), String> {
     expect_done(Request::SetClipboardSync { enabled }).await
+}
+
+#[tauri::command]
+async fn set_bluetooth_backup(enabled: bool) -> Result<(), String> {
+    expect_done(Request::SetBluetoothBackup { enabled }).await
 }
 
 #[tauri::command]
@@ -553,6 +564,7 @@ fn main() {
             set_sync_dismissals,
             set_clipboard_sync,
             set_allow_lock,
+            set_bluetooth_backup,
             set_app_muted,
             media,
             media_control,

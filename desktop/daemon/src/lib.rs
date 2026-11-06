@@ -4,6 +4,7 @@
 //! CLI, and later the tray UI, talk to it over a private Unix socket using line-delimited
 //! JSON ([`ipc`]).
 
+pub mod bluetooth;
 pub mod client;
 pub mod clipboard;
 pub mod config;

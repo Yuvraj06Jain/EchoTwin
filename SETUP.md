@@ -22,11 +22,13 @@ This guide covers the current version (0.3).
   - **laptop → phone:** drag files onto the PhoneLink window, *Choose files* in the Files tab, right-click → **Send to phone (PhoneLink)** in Dolphin, or `phonelink send-file <files>`. They're saved on the phone in **Download/PhoneLink**.
   - **phone → laptop:** *Share → Send to computer* in any app, or **Send files** in the PhoneLink phone app. They're saved on the laptop in **~/Downloads/PhoneLink**; a popup offers to show them.
   - a file only appears once all of it arrived and its checksum matched; files over the Bluetooth backup wait for Wi-Fi
+- **SMS in the Messages tab**: your phone's SMS conversations (30 most recent, with contact names), new ones as they arrive, *Load earlier messages*, and sending replies through the phone, with *Sending… → Sent* or the reason it failed. Regular SMS only: RCS "chat" messages can't be read by any other app.
+- **Bluetooth backup**: when Wi-Fi is gone for about 15 seconds, the phone reconnects to the laptop over Bluetooth with the same encryption, and switches back to Wi-Fi when it returns. Notifications, SMS, notes, clipboard, music and lock keep working; files wait for Wi-Fi.
 - settings in the laptop app: *Dismiss on both devices* (off by default), which apps to show, desktop popups on/off, *Share clipboard with your phone*, *Let your phone lock this computer*
 
 Mirroring is **one-way**: phone → laptop. The laptop never sends its own notifications to the phone (notes you type with *Send a note* are the only thing that appears on the phone).
 
-**Not built yet:** SMS conversations and the Bluetooth backup link. The app has tabs for messages and files and says "coming in the next update" until each one exists.
+**Not built yet:** starting a brand-new SMS conversation from the laptop, MMS pictures, and sending folders. The app has tabs for messages and files and says "coming in the next update" until each one exists.
 
 ---
 
@@ -123,12 +125,19 @@ systemctl --user restart phonelinkd
      1. Back in PhoneLink, tap **Open App info**.
      2. Tap **⋮** (top right), then **Allow restricted settings**, and confirm with your PIN or fingerprint.
      3. Tap **Allow notification access** again; the switch now works.
-5. **Optional: Quick Settings tiles.** Pull down the quick panel twice, tap the pencil (Edit), and drag **Lock computer** and/or **Send clipboard** into your tiles.
+5. **SMS on the laptop:** in the PhoneLink phone app tap **Allow SMS access** and allow SMS and Contacts. If Android says the setting is restricted, use *App info → ⋮ → Allow restricted settings* first (as for notification access).
+6. **Bluetooth backup (optional):**
+   1. Pair the phone and the laptop in the normal Bluetooth settings (phone: Settings → Connections → Bluetooth; laptop: KDE System Settings → Bluetooth).
+   2. In the PhoneLink phone app tap **Allow Nearby devices**.
+   That's all: the laptop tells the phone its Bluetooth address over the encrypted Wi-Fi link.
+7. **Optional: Quick Settings tiles.** Pull down the quick panel twice, tap the pencil (Edit), and drag **Lock computer** and/or **Send clipboard** into your tiles.
 
 ### What the phone app can and can't access
 - **Microphone:** never. The permission isn't in the app, and the build fails if anything adds it.
 - **Camera:** only while you scan the pairing QR code. Afterwards the app gives the permission back, and Android removes it as soon as the app closes. Check under Settings → Apps → PhoneLink → Permissions.
-- **Location, contacts, storage:** never.
+- **Location, storage, Bluetooth scanning:** never.
+- **SMS and contacts:** only after you tap *Allow SMS access*. Conversations go only to your paired laptop.
+- **Nearby devices (Bluetooth):** only to connect to your paired laptop when Wi-Fi is gone.
 - **Clipboard:** read only when you tap *Send clipboard* (or share text to *Copy to computer*). Text from the laptop is put on the phone's clipboard, marked as sensitive so Android's preview pop-up doesn't show it. Switch it off under *Share clipboard* in the phone app.
 - **Notifications:** read only after you grant access. They're sent only to your paired laptop, encrypted.
 - **Files:** only files you share to PhoneLink or pick in its *Send files* screen are read. Files from the laptop are written to Download/PhoneLink through Android's own download store, so the app needs no storage permission.
@@ -191,6 +200,12 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 34 | Send a big video (1 GB+) from the phone, and turn Wi-Fi (or the hotspot) off at about half way; turn it back on | it continues from where it stopped (not from 0%) and the video plays |
 | 35 | Start a big transfer and press **Cancel** on the laptop | it stops on both devices; no partial file is left anywhere |
 | 36 | Send the same file twice | the second is saved as `name (2).ext`; nothing is overwritten |
+| 37 | Allow SMS access on the phone; open the laptop's Messages tab | your recent conversations, with names |
+| 38 | Get an SMS (e.g. an OTP or ask someone to text you) | it appears in the conversation within a few seconds, with an unread dot |
+| 39 | Reply from the laptop | *Sending…* then *Sent*; the text is in Samsung Messages on the phone, sent from your default SIM |
+| 40 | Turn on airplane mode on the phone (Wi-Fi off), reply from the laptop | refused with a reason; nothing is sent later by surprise |
+| 41 | Pair phone and laptop in Bluetooth settings, allow Nearby devices; then turn **Wi-Fi/hotspot off** | within ~20 s the laptop app shows *Connected · Bluetooth*; a WhatsApp notification still pops up |
+| 42 | Turn Wi-Fi/hotspot back on | back to *Connected* (Wi-Fi) within a minute, without touching anything |
 
 When something fails, include:
 - the step number
@@ -274,6 +289,29 @@ When something fails, include:
 | dropping files on the window does nothing | drop them inside the PhoneLink window (the drop zone lights up); folders can't be sent yet, zip them first |
 | received files go somewhere else | set `download_dir = "/path"` in `~/.config/phonelink/config.toml`, then `systemctl --user restart phonelinkd` |
 
+### SMS
+
+| Symptom | Fix |
+|---|---|
+| Messages tab says *No conversations yet* | phone app: tap **Allow SMS access** (and allow restricted settings if asked). Then reconnect |
+| names show as numbers | allow Contacts too (phone: Settings → Apps → PhoneLink → Permissions → Contacts) |
+| some chats are missing | RCS chats (blue "chat" bubbles in Samsung Messages / Google Messages) can't be read by other apps; only SMS appear |
+| *Message not sent: … not connected* | the phone must be connected at that moment; texts are never queued to be sent later |
+| *No mobile service* / *Airplane mode is on* | what the phone's network said; try again when it has signal |
+| group conversations can't be answered | sending to groups isn't supported yet |
+| marking read on the laptop doesn't mark it on the phone | by design: only the default SMS app may change that |
+
+### Bluetooth backup
+
+| Symptom | Fix |
+|---|---|
+| laptop Settings: *Bluetooth backup — not available: no Bluetooth adapter found* | turn Bluetooth on (KDE system tray). `bluetoothctl show` should list a controller |
+| phone shows *Offline · Pair this phone with … in Bluetooth settings first* | pair them in the system Bluetooth settings (PhoneLink never starts pairing itself) |
+| *Offline · Allow "Nearby devices"* | phone app: tap **Allow Nearby devices** |
+| *Offline · The computer has the Bluetooth backup off* | laptop app → Settings → *Bluetooth backup* on |
+| it never switches to Bluetooth | the backup starts 15 s after Wi-Fi is gone, then retries every 30 s–2 min. Check `journalctl --user -u phonelinkd -n 30` for "connected over Bluetooth" |
+| files say *Waiting for Wi-Fi* | by design over Bluetooth; they continue when Wi-Fi is back |
+
 ### Music controls
 
 | Symptom | Fix |
@@ -351,6 +389,8 @@ On the phone: uninstall the app as usual. Its keys are deleted with it, and they
 - On the network, other devices only see random identifiers that change every 10 minutes: never your laptop's name or your phone's model.
 - Mirrored notifications are kept **in memory only** on the laptop (the newest 200), never written to disk. App icons are cached in `~/.local/share/phonelink/icons`.
 - Files go directly between your two devices, encrypted, never through a server. Partial files are kept hidden (`.phonelink-….part`) until complete and checked, and removed if you cancel.
+- SMS conversations are kept in memory only on the laptop (never written to disk) and resent by the phone when it connects. Texts are only sent when you press Send, never queued.
+- The Bluetooth backup carries the same mutual-TLS session as Wi-Fi: a device that is merely Bluetooth-paired to your laptop still can't talk to PhoneLink. The phone never scans for devices.
 - Shared clipboard text goes only to your paired devices, encrypted, and only while they are connected. It isn't stored by PhoneLink on either side. Passwords copied from a password manager on the laptop are skipped (KDE marks them and PhoneLink never sees them).
 - See *What the phone app can and can't access* in section 2 for camera, microphone and uninstall.
 - The GitHub repository holds only source code. Keys, pairings and messages never leave your devices. The repository is currently **public**; you can make it private in GitHub → Settings without affecting anything.

@@ -89,6 +89,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var bluetoothOn by mutableStateOf(true)
+    private val askBluetooth = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        bluetoothOn = ok
+        notice = if (ok) "Bluetooth backup ready" else "Without \"Nearby devices\", PhoneLink can't use the Bluetooth backup"
+    }
+
     /** The system file picker; the permission to read the files is kept so sends can resume. */
     private val pickFiles = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isEmpty()) return@registerForActivityResult
@@ -142,6 +148,8 @@ class MainActivity : ComponentActivity() {
                         onCancelTransfer = { LinkManager.cancelTransfer(it) },
                         smsOn = smsOn,
                         onAllowSms = { askSms.launch(SmsSync.permissions) },
+                        bluetoothOn = bluetoothOn,
+                        onAllowBluetooth = { askBluetooth.launch(BluetoothBackup.permission) },
                     )
                     pendingPair?.let { (uri, code) ->
                         ConfirmPairDialog(
@@ -161,6 +169,7 @@ class MainActivity : ComponentActivity() {
         mirrorOn = LinkManager.mirrorEnabled(this)
         clipboardOn = Prefs.clipboardSharing(this)
         smsOn = SmsSync.canRead()
+        bluetoothOn = BluetoothBackup.allowed()
         lifecycleScope.launch(Dispatchers.IO) { runCatching { LinkManager.link() }; LinkManager.refresh() }
         LinkManager.nudge() // opening the app = "connect now", no waiting for the next retry
     }
@@ -300,6 +309,8 @@ private fun HomeScreen(
     onCancelTransfer: (String) -> Unit,
     smsOn: Boolean,
     onAllowSms: () -> Unit,
+    bluetoothOn: Boolean,
+    onAllowBluetooth: () -> Unit,
 ) {
     var draft by remember { mutableStateOf("") }
     var confirmUnpair by remember { mutableStateOf<Device?>(null) }
@@ -330,6 +341,22 @@ private fun HomeScreen(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         OutlinedButton(onClick = onOpenAppInfo) { Text("Open App info") }
+                    }
+                }
+            }
+        }
+
+        if (devices.isNotEmpty() && !bluetoothOn) {
+            item {
+                Card {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Stay connected over Bluetooth", fontWeight = FontWeight.Bold)
+                        Text(
+                            "When Wi-Fi is gone, PhoneLink can reach your computer over Bluetooth (pair them in " +
+                                "Bluetooth settings first). It only connects to your paired computer: no scanning, " +
+                                "no location."
+                        )
+                        Button(onClick = onAllowBluetooth) { Text("Allow Nearby devices") }
                     }
                 }
             }
@@ -375,7 +402,11 @@ private fun HomeScreen(
                     Column(Modifier.weight(1f)) {
                         Text(d.name, fontWeight = FontWeight.Bold)
                         Text(d.id, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                        val state = if (d.connected) "Connected" else "Offline"
+                        val state = when {
+                            d.connected && d.via == "bluetooth" -> "Connected over Bluetooth"
+                            d.connected -> "Connected"
+                            else -> BluetoothBackup.problem?.let { "Offline · $it" } ?: "Offline"
+                        }
                         val queued = if (d.pending > 0uL) " · ${d.pending} queued" else ""
                         Text(state + queued, color = if (d.connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
                     }

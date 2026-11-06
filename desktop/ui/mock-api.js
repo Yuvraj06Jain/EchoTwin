@@ -82,6 +82,8 @@
       discovery: true,
       clipboardSync: true,
       allowLock: true,
+      bluetoothBackup: true,
+      bluetoothStatus: '',
       apps: [
         { name: 'WhatsApp', enabled: true },
         { name: 'Messages', enabled: true },
@@ -156,6 +158,7 @@
       files: true,
       clipboard: true,
       lockFromPhone: true,
+      bluetooth: true,
       media: true,
       deviceDetails: true,
       appFilters: true,

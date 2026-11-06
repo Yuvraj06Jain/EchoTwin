@@ -67,6 +67,8 @@
   let syncDismissals = false;
   let clipboardSync = false;
   let allowLock = false;
+  let bluetoothBackup = false;
+  let bluetoothStatus = '';
   let knownApps = []; // [{ package, app, muted }] from the service
 
   T.event.listen('phonelink://drop', ({ payload }) => listeners.drop.forEach((cb) => cb(payload)));
@@ -94,6 +96,7 @@
     name: d.name,
     model: null, // not reported by the phone yet
     connected: d.connected,
+    via: d.via || null,
     pending: d.pending,
     network: null,
     battery: null,
@@ -111,6 +114,7 @@
       clipboard: true,
       files: true,
       lockFromPhone: true,
+      bluetooth: true,
       media: true,
       deviceDetails: false,
       appFilters: true,
@@ -123,6 +127,8 @@
       syncDismissals = !!s.sync_dismissals;
       clipboardSync = !!s.clipboard_sync;
       allowLock = !!s.allow_lock;
+      bluetoothBackup = !!s.bluetooth_backup;
+      bluetoothStatus = s.bluetooth_status || '';
       const devices = s.devices.map(toDevice);
       const device = devices.find((d) => d.connected) || devices[0] || null;
       return {
@@ -218,6 +224,8 @@
         discovery: true,
         clipboardSync,
         allowLock,
+        bluetoothBackup,
+        bluetoothStatus,
         apps: knownApps.map((a) => ({ name: a.app, package: a.package, enabled: !a.muted })),
       };
     },
@@ -234,6 +242,9 @@
       } else if (key === 'allowLock') {
         await invoke('set_allow_lock', { enabled: value });
         allowLock = value;
+      } else if (key === 'bluetoothBackup') {
+        await invoke('set_bluetooth_backup', { enabled: value });
+        bluetoothBackup = value;
       }
     },
     async setAppMirrored(name, enabled) {

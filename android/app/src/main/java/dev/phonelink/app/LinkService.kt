@@ -81,7 +81,8 @@ class LinkService : LifecycleService() {
         val connected = devices.filter { it.connected }
         return when {
             devices.isEmpty() -> "Not paired yet. Open the app to pair."
-            connected.isNotEmpty() -> "Connected to ${connected.joinToString { it.name }}"
+            connected.isNotEmpty() -> "Connected to ${connected.joinToString { it.name }}" +
+                if (connected.any { it.via == "bluetooth" }) " over Bluetooth" else ""
             else -> "Waiting for ${devices.joinToString { it.name }}…"
         }
     }

@@ -27,6 +27,8 @@ pub struct Config {
     pub allow_lock: bool,
     /// Where files from the phone are saved. Default: `~/Downloads/PhoneLink`.
     pub download_dir: Option<String>,
+    /// Let the phone connect over Bluetooth when Wi-Fi is gone.
+    pub bluetooth_backup: bool,
 }
 
 impl Default for Config {
@@ -41,6 +43,7 @@ impl Default for Config {
             clipboard_sync: true,
             allow_lock: true,
             download_dir: None,
+            bluetooth_backup: true,
         }
     }
 }

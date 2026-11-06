@@ -22,8 +22,8 @@ No accounts, no cloud, LAN only (v1).
 | Lock the laptop from the phone; shared clipboard (KDE) | **done**; laptop side tested, phone side compiled in CI |
 | Music controls for the phone (Now playing card, buttons, volume) | **done**; laptop side tested, phone side compiled in CI |
 | Resumable file transfer both ways (drag and drop, Dolphin menu, Android share sheet) | **done**; laptop side tested, phone side compiled in CI |
-| SMS | planned |
-| Bluetooth backup link | core done; phone and laptop parts planned |
+| SMS in the Messages tab (read, reply, older messages, send status) | **done**; laptop side tested, phone side compiled in CI |
+| Bluetooth backup link (same encrypted session over RFCOMM, back to Wi-Fi automatically) | **done**; laptop side tested against a stand-in BlueZ, phone side compiled in CI |
 | Packaging (Flatpak, .deb, AUR) | |
 
 ## Layout

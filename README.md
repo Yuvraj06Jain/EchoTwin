@@ -20,7 +20,7 @@ No accounts, no cloud, LAN only (v1).
 | Reconnect after a reboot / new IP (gateway + subnet search, stable phone port) | **done** |
 | Click a popup to open the window | **done** |
 | Lock the laptop from the phone; shared clipboard (KDE) | **done**; laptop side tested, phone side compiled in CI |
-| Music controls for the phone | next |
+| Music controls for the phone (Now playing card, buttons, volume) | **done**; laptop side tested, phone side compiled in CI |
 | Resumable file transfer | planned |
 | SMS | planned |
 | Bluetooth backup link | core done; phone and laptop parts planned |

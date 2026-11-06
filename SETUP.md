@@ -17,11 +17,12 @@ This guide covers the current version (0.3).
   - text you copy on the laptop can be pasted on the phone straight away
   - from the phone, tap **Send clipboard** (phone app, PhoneLink notification, or Quick Settings tile), or *Share → Copy to computer*
   - Android only lets the app on screen read the clipboard, so the phone → laptop direction always needs that one tap
+- **music on the phone, controlled from the laptop**: a *Now playing* card on the left of the laptop app shows the song, artist, album art and progress. It has previous / play-pause / next buttons and a slider for the phone's media volume. Works with any player that shows media controls on the phone (Spotify, YouTube Music, Samsung Music, podcasts…). Keyboard media keys on the laptop stay with the laptop.
 - settings in the laptop app: *Dismiss on both devices* (off by default), which apps to show, desktop popups on/off, *Share clipboard with your phone*, *Let your phone lock this computer*
 
 Mirroring is **one-way**: phone → laptop. The laptop never sends its own notifications to the phone (notes you type with *Send a note* are the only thing that appears on the phone).
 
-**Not built yet:** SMS conversations, file transfer, music controls and the Bluetooth backup link. The app has tabs for messages and files and says "coming in the next update" until each one exists.
+**Not built yet:** SMS conversations, file transfer and the Bluetooth backup link. The app has tabs for messages and files and says "coming in the next update" until each one exists.
 
 ---
 
@@ -126,6 +127,7 @@ systemctl --user restart phonelinkd
 - **Location, contacts, storage:** never.
 - **Clipboard:** read only when you tap *Send clipboard* (or share text to *Copy to computer*). Text from the laptop is put on the phone's clipboard, marked as sensitive so Android's preview pop-up doesn't show it. Switch it off under *Share clipboard* in the phone app.
 - **Notifications:** read only after you grant access. They're sent only to your paired laptop, encrypted.
+- **Music:** the same notification access lets PhoneLink see what the phone's player publishes (title, artist, album art, position) and press its buttons. No audio is ever recorded or sent.
 - **Uninstalling** removes everything: keys, pairings, queued messages and cached app icons all live in the app's private storage, which Android deletes. Nothing is kept in your files or in cloud backups.
 
 ---
@@ -174,6 +176,10 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 24 | Copy some text on the laptop, then paste on the phone (long-press a text field → Paste) | the laptop's text is pasted |
 | 25 | Copy text on the phone, then tap **Send clipboard** on the PhoneLink notification | a "Copied from …" popup on the laptop; Ctrl+V pastes it |
 | 26 | Copy a password from KeePassXC on the laptop, then paste on the phone | the password is **not** there (password-manager copies are never sent) |
+| 27 | Play a song in Spotify / YouTube Music on the phone | within a second the laptop app shows a *Now playing* card with the title, artist, cover and a moving progress bar |
+| 28 | In that card: pause, play, next, previous | the phone does the same |
+| 29 | Drag the volume slider in the card; then press the phone's volume keys | the phone's media volume follows the slider; the slider follows the keys |
+| 30 | Close the music app on the phone (swipe its notification away) | the card disappears |
 
 When something fails, include:
 - the step number
@@ -243,6 +249,16 @@ When something fails, include:
 | laptop copies don't reach the phone | laptop app → Settings → *Share clipboard with your phone* must be on, and so must *Share clipboard* in the phone app. Copies are sent only while connected; something copied while offline isn't sent later. Clipboard sharing uses KDE Plasma's clipboard, which must be running (the clipboard icon in the system tray); other desktops aren't supported yet |
 | *Send clipboard* says "The clipboard is empty" | copy the text again; some apps (banking, password managers) block other apps from reading what they copy |
 | text over 64 KB isn't shared | by design: very long copies are skipped rather than cut off |
+
+### Music controls
+
+| Symptom | Fix |
+|---|---|
+| no *Now playing* card | the phone app needs **notification access** (section 2, step 4), the same switch as for notifications. Also update PhoneLink on both sides |
+| the card shows the wrong player | it shows the player that is playing; if none is, the most recently paused one. Close the other app's media notification |
+| buttons do nothing for one app | that app ignores remote buttons; the phone's own media controls in the notification shade won't work for it either |
+| the volume slider moves but nothing changes | the phone is in *Do not disturb* with media muted, or the sound goes to a Bluetooth speaker that has its own volume |
+| no cover art | the app doesn't publish one (some podcast and browser players) |
 
 ### Pairing
 

@@ -6,7 +6,7 @@ use anyhow::bail;
 use clap::{Parser, Subcommand};
 use phonelink_desktop::{
     client::Client,
-    ipc::{DeviceInfo, Reply, Request, WatchEvent},
+    ipc::{DeviceInfo, MediaAction, Reply, Request, WatchEvent},
     paths,
 };
 use qrcode::{render::unicode::Dense1x2, QrCode};
@@ -53,6 +53,32 @@ enum Cmd {
     Notifications,
     /// Try to reach the phone right now (also searches the local network).
     Reconnect,
+    /// Show what's playing on the phone, or control it:
+    /// play-pause, next, previous, volume-up, volume-down, volume <N>.
+    Media {
+        action: Option<String>,
+        level: Option<u32>,
+    },
+}
+
+fn media_action(action: &str, level: Option<u32>) -> anyhow::Result<MediaAction> {
+    Ok(match (action, level) {
+        ("play-pause" | "play" | "pause", None) => MediaAction::PlayPause,
+        ("next", None) => MediaAction::Next,
+        ("previous" | "prev", None) => MediaAction::Previous,
+        ("volume-up", None) => MediaAction::VolumeUp,
+        ("volume-down", None) => MediaAction::VolumeDown,
+        ("volume", Some(n)) => MediaAction::SetVolume(n),
+        ("volume", None) => bail!("say the level, e.g. `phonelink media volume 8`"),
+        _ => bail!(
+            "unknown media action '{action}'; use play-pause, next, previous, volume-up, volume-down or volume <N>"
+        ),
+    })
+}
+
+fn mmss(ms: u64) -> String {
+    let s = ms / 1000;
+    format!("{}:{:02}", s / 60, s % 60)
 }
 
 fn print_devices(devices: &[DeviceInfo]) {
@@ -105,6 +131,7 @@ fn print_event(e: &WatchEvent) {
             println!("clipboard     {id}  copied from {name}")
         }
         WatchEvent::LockedByPhone { id, name } => println!("lock          {id}  {name} asked to lock"),
+        WatchEvent::MediaChanged { id } => println!("media         {id}  playing state changed"),
     }
 }
 
@@ -195,6 +222,45 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                     }
                 );
             }
+        }
+        Cmd::Media { action: None, .. } => {
+            let r = c.request(&Request::Media).await?;
+            fail_on_error(&r)?;
+            show(&r);
+            if let (false, Reply::Media { items }) = (cli.json, &r) {
+                if items.is_empty() {
+                    println!("Nothing is playing on your phone.");
+                }
+                for m in items {
+                    let state = if m.playing { "playing" } else { "paused" };
+                    let artist = if m.artist.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" · {}", m.artist)
+                    };
+                    let time = if m.duration_ms > 0 {
+                        format!("  {} / {}", mmss(m.position_ms), mmss(m.duration_ms))
+                    } else {
+                        String::new()
+                    };
+                    println!("{}  {}{} ({}, {}){}", m.device_name, m.title, artist, m.app, state, time);
+                    println!("  volume {}/{}", m.volume, m.max_volume);
+                }
+            }
+        }
+        Cmd::Media {
+            action: Some(action),
+            level,
+        } => {
+            let action = media_action(&action, level)?;
+            let r = c
+                .request(&Request::MediaControl {
+                    device: None,
+                    action,
+                })
+                .await?;
+            fail_on_error(&r)?;
+            show(&r);
         }
         Cmd::Reconnect => {
             let r = c.request(&Request::Reconnect).await?;

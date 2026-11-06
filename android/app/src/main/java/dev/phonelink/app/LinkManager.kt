@@ -13,6 +13,7 @@ import dev.phonelink.core.Device
 import dev.phonelink.core.EventListener
 import dev.phonelink.core.LinkEvent
 import dev.phonelink.core.MirroredNotification
+import dev.phonelink.core.PhoneMedia
 import dev.phonelink.core.PhoneLink
 import androidx.core.app.NotificationManagerCompat
 import java.util.concurrent.Executors
@@ -159,6 +160,10 @@ object LinkManager {
     fun mirrorRemoved(key: String) = onIo { it.removeNotification(key) }
     fun mirrorIcon(pkg: String, png: ByteArray) = onIo { it.sendAppIcon(pkg, png) }
 
+    /** What's playing, for connected computers (not queued while they're offline). */
+    fun sendNowPlaying(media: PhoneMedia?) = onIo { it.sendNowPlaying(media) }
+    fun sendMediaArt(key: String, image: ByteArray) = onIo { it.sendMediaArt(key, image) }
+
     /** The listener (re)connected: give the computer the full picture. */
     fun onMirrorReady() = sendSnapshot()
 
@@ -188,7 +193,11 @@ object LinkManager {
                     _messages.value = (listOf("${event.name}: ${event.text}") + _messages.value).take(50)
                     Notifications.message(app, event.name, event.text)
                 }
-                is LinkEvent.Connected -> sendSnapshot()
+                is LinkEvent.Connected -> {
+                    sendSnapshot()
+                    MediaWatcher.resend()
+                }
+                is LinkEvent.MediaControlRequested -> MediaWatcher.control(event.command)
                 is LinkEvent.DismissRequested -> handleRequest(event.id, event.key) { it.dismiss(event.key) }
                 is LinkEvent.ReplyRequested -> handleRequest(event.id, event.key) { it.reply(event.key, event.text) }
                 is LinkEvent.ActionRequested -> handleRequest(event.id, event.key) { it.press(event.key, event.index.toInt()) }

@@ -86,6 +86,7 @@
       files: false,
       clipboard: true,
       lockFromPhone: true,
+      media: true,
       deviceDetails: false,
       appFilters: true,
       discoveryToggle: false,
@@ -216,6 +217,15 @@
 
     onEvent(cb) {
       listeners.event.push(cb);
+    },
+
+    // What's playing on the phone, and its buttons.
+    async media() {
+      return invoke('media');
+    },
+    async mediaControl(action, value) {
+      const a = action === 'set_volume' ? { set_volume: value } : action;
+      await invoke('media_control', { action: a });
     },
     onDaemon(cb) {
       listeners.daemon.push(cb);

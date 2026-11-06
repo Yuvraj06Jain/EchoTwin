@@ -16,6 +16,7 @@
     discoveryToggle: true,
     syncDismissals: true,
     notificationButtons: true,
+    media: true,
     ...(api.capabilities || {}),
   };
 
@@ -43,6 +44,12 @@
     check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
     alert: '<path d="M12 4.5l8.5 15h-17z"/><path d="M12 10v4.2M12 17v.01"/>',
     phone: '<rect x="7" y="3" width="10" height="18" rx="2.2"/><path d="M11 18h2"/>',
+    play: '<path d="M8 5.5v13l10.5-6.5z"/>',
+    pause: '<path d="M8.5 5.5v13M15.5 5.5v13"/>',
+    prev: '<path d="M7 5.5v13M18 5.5v13L9 12z"/>',
+    next: '<path d="M17 5.5v13M6 5.5v13L15 12z"/>',
+    volume: '<path d="M4.5 9.5h3L12 6v12l-4.5-3.5h-3z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/>',
+    music: '<path d="M9 17.5V6l10-2v11.5"/><circle cx="6.8" cy="17.5" r="2.2"/><circle cx="16.8" cy="15.5" r="2.2"/>',
     reply: '<path d="M9.5 7.5L5 12l4.5 4.5"/><path d="M5.5 12H14a5.5 5.5 0 0 1 5.5 5.5"/>',
     plus: '<path d="M12 5.5v13M5.5 12h13"/>',
     file: '<path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z"/><path d="M14 3.5V8h4"/>',
@@ -120,7 +127,10 @@
     busy: new Set(),
     showPairing: false,
     pairing: null, // { expiresAt, cancellable, qr, id, loading, error }
+    media: null, // what plays on the phone: { ..., position_ms, fetchedAt }
+    mediaDragging: false, // the volume slider is being dragged: don't redraw under it
   };
+  let mediaSeq = 0;
   let loadSeq = 0;
   // Every notification-list request is numbered; an older answer never overwrites a newer
   // one (a slow full reload must not undo a live update that finished first).
@@ -233,6 +243,7 @@
     state.transfers = transfers;
     state.settings = settings;
     if (api.appIcons) state.icons = (await api.appIcons().catch(() => ({}))) || {};
+    if (caps.media && api.media) await refreshMedia(false);
     if (seq !== loadSeq) return;
     if (!threads.some((t) => t.id === state.activeThread)) {
       state.activeThread = threads.length ? sortedThreads()[0].id : null;
@@ -320,6 +331,7 @@
         <div class="device-model">${esc(d.model || 'Paired phone')}</div>
       </div>
       <ul class="stats">${statusRows}</ul>
+      <div data-np></div>
       <div>
         <p class="section-label">Quick actions</p>
         <div class="actions">
@@ -335,6 +347,109 @@
           .join('')}
         <button type="button" class="link-btn" data-action="pair-new">Pair another device</button>
       </div>`;
+    renderMedia();
+  }
+
+  // ------------------------------------------------------------------ music on the phone
+
+  const mmss = (ms) => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    return `${Math.floor(s / 60)}:${pad(s % 60)}`;
+  };
+
+  function mediaPosition(m) {
+    let pos = m.position_ms + (m.playing ? Date.now() - m.fetchedAt : 0);
+    if (m.duration_ms > 0) pos = Math.min(pos, m.duration_ms);
+    return pos;
+  }
+
+  async function refreshMedia(render = true) {
+    if (!caps.media || !api.media) return;
+    const seq = ++mediaSeq;
+    let items;
+    try {
+      items = await api.media();
+    } catch (err) {
+      console.info('PhoneLink UI: music state unavailable:', err && err.message);
+      return;
+    }
+    if (seq !== mediaSeq) return; // an older answer must not overwrite a newer one
+    const d = state.device;
+    const m = (d && items.find((x) => x.device === d.id)) || items[0] || null;
+    state.media = m ? { ...m, fetchedAt: Date.now() } : null;
+    if (render) renderMedia();
+  }
+
+  function renderMedia() {
+    const slot = $('[data-np]', el.device);
+    if (!slot) return;
+    const m = caps.media && state.device && state.device.connected ? state.media : null;
+    el.device.classList.toggle('has-media', !!m);
+    if (!m) {
+      slot.innerHTML = '';
+      return;
+    }
+    if (state.mediaDragging) return; // redrawn when the slider is let go
+    const focused = document.activeElement && slot.contains(document.activeElement)
+      ? document.activeElement.dataset.media || (document.activeElement.matches('[data-media-volume]') ? 'volume' : null)
+      : null;
+    const sub = [m.artist, m.app].filter(Boolean).join(' · ');
+    const pos = mediaPosition(m);
+    const pct = m.duration_ms > 0 ? (100 * pos) / m.duration_ms : 0;
+    const max = Math.max(1, m.max_volume);
+    slot.innerHTML = `
+      <section class="now-playing" aria-label="Playing on your phone">
+        <div class="np-top">
+          <div class="np-art">${m.art ? `<img src="${esc(m.art)}" alt="">` : icon('music')}</div>
+          <div class="np-text">
+            <div class="np-title" title="${esc(m.title)}">${esc(m.title || 'Unknown title')}</div>
+            <div class="np-sub" title="${esc(sub)}">${esc(sub)}</div>
+          </div>
+        </div>
+        ${m.duration_ms > 0 ? `<div class="np-progress">
+          <div class="np-bar" role="progressbar" aria-label="Position" aria-valuemin="0" aria-valuemax="${Math.round(m.duration_ms / 1000)}" aria-valuenow="${Math.round(pos / 1000)}"><i data-np-bar style="width:${pct.toFixed(2)}%"></i></div>
+          <div class="np-times tnum"><span data-np-pos>${mmss(pos)}</span><span>${mmss(m.duration_ms)}</span></div>
+        </div>` : ''}
+        <div class="np-controls">
+          <button type="button" class="icon-btn" data-action="media" data-media="previous" aria-label="Previous"${m.can_previous ? '' : ' disabled'}>${icon('prev')}</button>
+          <button type="button" class="np-play" data-action="media" data-media="play_pause" aria-label="${m.playing ? 'Pause' : 'Play'}">${icon(m.playing ? 'pause' : 'play')}</button>
+          <button type="button" class="icon-btn" data-action="media" data-media="next" aria-label="Next"${m.can_next ? '' : ' disabled'}>${icon('next')}</button>
+        </div>
+        ${m.max_volume > 0 ? `<label class="np-volume">${icon('volume')}<input type="range" min="0" max="${max}" step="1" value="${Math.min(m.volume, max)}" style="--pct:${((100 * Math.min(m.volume, max)) / max).toFixed(1)}%" data-media-volume aria-label="Phone volume"></label>` : ''}
+      </section>`;
+    if (focused === 'volume') $('[data-media-volume]', slot)?.focus();
+    else if (focused) $(`[data-media="${focused}"]`, slot)?.focus();
+  }
+
+  function tickMedia() {
+    const m = state.media;
+    if (!m || !m.playing || m.duration_ms <= 0) return;
+    const pos = mediaPosition(m);
+    const bar = $('[data-np-bar]', el.device);
+    const t = $('[data-np-pos]', el.device);
+    if (bar) bar.style.width = `${((100 * pos) / m.duration_ms).toFixed(2)}%`;
+    if (t) t.textContent = mmss(pos);
+  }
+
+  async function mediaButton(kind) {
+    const m = state.media;
+    if (!m) return;
+    if (kind === 'play_pause') {
+      // Answer at once; the phone's real state follows a moment later.
+      state.media = { ...m, position_ms: mediaPosition(m), fetchedAt: Date.now(), playing: !m.playing };
+      renderMedia();
+    }
+    try {
+      await api.mediaControl(kind);
+    } catch (err) {
+      await refreshMedia();
+      throw err;
+    }
+  }
+
+  async function setPhoneVolume(level) {
+    if (state.media) state.media = { ...state.media, volume: level };
+    await api.mediaControl('set_volume', level);
   }
 
   function renderTabs() {
@@ -995,6 +1110,7 @@
       return undefined;
     }
     if (ev.kind === 'locked_by_phone') return undefined;
+    if (ev.kind === 'media_changed') return refreshMedia();
     if (ev.kind === 'app_icon') {
       if (api.appIcons) {
         api.appIcons().then((icons) => {
@@ -1078,6 +1194,8 @@
         return windowControl('Close');
       case 'troubleshoot':
         return openTroubleshoot();
+      case 'media':
+        return mediaButton(a.dataset.media);
       case 'reconnect':
         a.disabled = true;
         try {
@@ -1249,6 +1367,23 @@
     else if (submitHandlers[form.dataset.form]) submitHandlers[form.dataset.form](form);
   });
 
+  // Phone volume: follow the slider while dragging, send once it is let go.
+  document.addEventListener('input', (e) => {
+    const t = e.target;
+    if (!(t.matches && t.matches('[data-media-volume]'))) return;
+    state.mediaDragging = true;
+    t.style.setProperty('--pct', `${((100 * Number(t.value)) / Number(t.max)).toFixed(1)}%`);
+  });
+  document.addEventListener('change', run(async (e) => {
+    if (!(e.target.matches && e.target.matches('[data-media-volume]'))) return;
+    state.mediaDragging = false;
+    try {
+      await setPhoneVolume(Number(e.target.value));
+    } finally {
+      renderMedia();
+    }
+  }));
+
   document.addEventListener('input', (e) => {
     const t = e.target;
     if (t === el.composerInput) updateComposer();
@@ -1384,6 +1519,7 @@
   }, 30 * 1000);
 
   setInterval(tickTransfers, 500);
+  setInterval(tickMedia, 1000);
 
   // ------------------------------------------------------------------ start
 

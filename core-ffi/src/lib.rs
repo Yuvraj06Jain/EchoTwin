@@ -20,8 +20,8 @@ use phonelink_core::{
         is_fresh, truncate_text, CLIPBOARD_MAX_AGE_MS, MAX_CLIPBOARD_TEXT,
         MAX_NOTIFICATION_TEXT, MAX_SNAPSHOT_ITEMS,
     },
-    AppMessage, Event, Fingerprint, Node, NodeConfig, PairingOffer, PeerRecord, PhoneNotification,
-    CAP_CLIPBOARD, CAP_LOCK, CAP_NOTIFICATIONS,
+    AppMessage, Event, Fingerprint, MediaAction, Node, NodeConfig, NowPlaying, PairingOffer,
+    PeerRecord, PhoneNotification, CAP_CLIPBOARD, CAP_LOCK, CAP_MEDIA, CAP_NOTIFICATIONS,
 };
 use tokio::{runtime::Runtime, task::JoinHandle};
 
@@ -103,6 +103,11 @@ pub enum LinkEvent {
         name: String,
         text: String,
     },
+    /// The computer pressed a music button.
+    MediaControlRequested {
+        id: String,
+        command: MediaCommand,
+    },
     /// How a request this phone made went (e.g. `key` = "lock").
     RequestResult {
         id: String,
@@ -111,6 +116,69 @@ pub enum LinkEvent {
         ok: bool,
         message: String,
     },
+}
+
+/// A music button pressed on the computer.
+#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
+pub enum MediaCommand {
+    PlayPause,
+    Next,
+    Previous,
+    VolumeUp,
+    VolumeDown,
+    SetVolume { level: u32 },
+}
+
+impl From<MediaAction> for MediaCommand {
+    fn from(a: MediaAction) -> Self {
+        match a {
+            MediaAction::PlayPause => Self::PlayPause,
+            MediaAction::Next => Self::Next,
+            MediaAction::Previous => Self::Previous,
+            MediaAction::VolumeUp => Self::VolumeUp,
+            MediaAction::VolumeDown => Self::VolumeDown,
+            MediaAction::SetVolume(level) => Self::SetVolume { level },
+        }
+    }
+}
+
+/// What is playing on this phone, for the computer's Now Playing card.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct PhoneMedia {
+    pub app: String,
+    pub package: String,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub duration_ms: u64,
+    pub position_ms: u64,
+    pub playing: bool,
+    pub can_previous: bool,
+    pub can_next: bool,
+    pub volume: u32,
+    pub max_volume: u32,
+    /// Names the image sent with `send_media_art`; empty for none.
+    pub art_key: String,
+}
+
+impl PhoneMedia {
+    fn into_wire(self) -> NowPlaying {
+        NowPlaying {
+            app: truncate_text(&self.app, 100),
+            package: truncate_text(&self.package, 200),
+            title: truncate_text(&self.title, 300),
+            artist: truncate_text(&self.artist, 300),
+            album: truncate_text(&self.album, 300),
+            duration_ms: self.duration_ms,
+            position_ms: self.position_ms,
+            playing: self.playing,
+            can_previous: self.can_previous,
+            can_next: self.can_next,
+            volume: self.volume.min(self.max_volume),
+            max_volume: self.max_volume,
+            art_key: truncate_text(&self.art_key, 100),
+        }
+    }
 }
 
 /// A notification shown on this phone, to mirror to the computer.
@@ -247,7 +315,7 @@ impl PhoneLink {
                 ] {
                     let mut cfg = NodeConfig::new(device_name.clone(), Some(dir.clone()), bind);
                     cfg.capabilities.extend(
-                        [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD].map(String::from),
+                        [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, CAP_MEDIA].map(String::from),
                     );
                     match Node::start(cfg).await {
                         Ok((node, events)) => {
@@ -357,6 +425,10 @@ impl PhoneLink {
                                 text,
                             }
                         }
+                        AppMessage::MediaControl { action } => LinkEvent::MediaControlRequested {
+                            id: peer.short(),
+                            command: action.into(),
+                        },
                         AppMessage::ActionResult { key, ok, message } => LinkEvent::RequestResult {
                             id: peer.short(),
                             name: name_of(&pump_node, &peer),
@@ -552,6 +624,21 @@ impl PhoneLink {
         Ok(targets.len() as u32)
     }
 
+    /// What is playing now (`None`: nothing), for connected computers that show music.
+    /// Not queued for computers that are offline: they get the current state when they
+    /// connect (call again on `Connected`). Returns how many got it.
+    pub fn send_now_playing(&self, media: Option<PhoneMedia>) -> Result<u32, LinkError> {
+        self.send_connected(CAP_MEDIA, AppMessage::NowPlaying(media.map(PhoneMedia::into_wire)))
+    }
+
+    /// Album art for `PhoneMedia::art_key`: a JPEG or PNG of at most 64 KB.
+    pub fn send_media_art(&self, key: String, image: Vec<u8>) -> Result<u32, LinkError> {
+        if !phonelink_core::message::is_art_image(&image) {
+            return Err(LinkError::Failed("album art must be a JPEG or PNG under 64 KB".into()));
+        }
+        self.send_connected(CAP_MEDIA, AppMessage::MediaArt { key, image })
+    }
+
     /// Call from `ConnectivityManager.NetworkCallback`: retry immediately instead of
     /// waiting out the reconnect backoff.
     pub fn on_network_changed(&self) {
@@ -572,6 +659,19 @@ impl PhoneLink {
             self.node.send(&p.fingerprint, body.clone())?;
         }
         Ok(())
+    }
+
+    /// Send to every connected computer supporting `cap`; returns how many.
+    fn send_connected(&self, cap: &str, msg: AppMessage) -> Result<u32, LinkError> {
+        let body = msg.encode()?;
+        let mut n = 0;
+        for p in self.node.peers() {
+            if self.node.is_connected(&p.fingerprint) && has_cap(&self.caps, &p.fingerprint, cap) {
+                self.node.send(&p.fingerprint, body.clone())?;
+                n += 1;
+            }
+        }
+        Ok(n)
     }
 
     /// The device to send a "right now" request to: connected and supporting `cap`.
@@ -1037,5 +1137,84 @@ mod tests {
         assert!(phone2.send_clipboard("x".into()).is_err());
         phone2.shutdown();
         rt.block_on(old_laptop.shutdown());
+    }
+
+    /// Music, as the Android app calls it: state and art go to a computer that shows
+    /// music (and not to one that doesn't), and its buttons come back as events.
+    #[test]
+    fn media_call_sequence() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut cfg = NodeConfig::new("Kubuntu", None, "127.0.0.1:0".parse().unwrap());
+        cfg.capabilities.push(CAP_MEDIA.into());
+        let (laptop, mut lrx) = rt.block_on(Node::start(cfg)).unwrap();
+        let uri = laptop
+            .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
+            .to_uri();
+        let dir = tempfile::tempdir().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let phone = PhoneLink::start(
+            dir.path().to_string_lossy().into(),
+            "Galaxy S24 FE".into(),
+            Arc::new(Collect(Mutex::new(tx))),
+        )
+        .unwrap();
+        let media = PhoneMedia {
+            app: "YouTube Music".into(),
+            package: "com.google.android.apps.youtube.music".into(),
+            title: "Tum Hi Ho".into(),
+            artist: "Arijit Singh".into(),
+            album: "Aashiqui 2".into(),
+            duration_ms: 262_000,
+            position_ms: 5_000,
+            playing: true,
+            can_previous: false,
+            can_next: true,
+            volume: 20, // more than the maximum: clamped
+            max_volume: 15,
+            art_key: "tumhiho".into(),
+        };
+        // Not connected yet: nothing goes anywhere (and nothing is queued).
+        assert_eq!(phone.send_now_playing(Some(media.clone())).unwrap(), 0);
+        phone.pair(uri).unwrap();
+        wait(&rx, |e| matches!(e, LinkEvent::Connected { .. }));
+        assert_eq!(phone.devices()[0].pending, 0, "no stale music state queued");
+
+        let jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3];
+        assert_eq!(phone.send_media_art("tumhiho".into(), jpeg.clone()).unwrap(), 1);
+        assert!(phone.send_media_art("x".into(), b"GIF89a".to_vec()).is_err());
+        assert_eq!(phone.send_now_playing(Some(media)).unwrap(), 1);
+        assert_eq!(phone.send_now_playing(None).unwrap(), 1);
+        let got: Vec<AppMessage> = rt.block_on(async {
+            let mut v = vec![];
+            while v.len() < 3 {
+                if let Some(Event::Message { body, .. }) = lrx.recv().await {
+                    v.push(AppMessage::decode(&body));
+                }
+            }
+            v
+        });
+        assert_eq!(got[0], AppMessage::MediaArt { key: "tumhiho".into(), image: jpeg });
+        let AppMessage::NowPlaying(Some(n)) = &got[1] else { panic!("{:?}", got[1]) };
+        assert_eq!((n.title.as_str(), n.volume, n.max_volume, n.can_previous), ("Tum Hi Ho", 15, 15, false));
+        assert_eq!(got[2], AppMessage::NowPlaying(None));
+
+        let phone_fp = laptop.peers()[0].fingerprint;
+        for action in [MediaAction::PlayPause, MediaAction::SetVolume(7)] {
+            laptop
+                .send(&phone_fp, AppMessage::MediaControl { action }.encode().unwrap())
+                .unwrap();
+        }
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::MediaControlRequested { .. }));
+        assert!(matches!(ev, LinkEvent::MediaControlRequested { command: MediaCommand::PlayPause, .. }));
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::MediaControlRequested { .. }));
+        assert!(matches!(ev, LinkEvent::MediaControlRequested { command: MediaCommand::SetVolume { level: 7 }, .. }));
+
+        // Computer gone: music updates are not queued for later (it gets fresh state
+        // when it reconnects instead of a backlog of old songs).
+        rt.block_on(laptop.shutdown());
+        wait(&rx, |e| matches!(e, LinkEvent::Disconnected { .. }));
+        assert_eq!(phone.send_now_playing(None).unwrap(), 0);
+        assert_eq!(phone.devices()[0].pending, 0);
+        phone.shutdown();
     }
 }

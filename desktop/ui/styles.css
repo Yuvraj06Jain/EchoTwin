@@ -232,6 +232,65 @@ body.in-app:not(.maximized) .resize-handle { display: block; }
 .battery > i { position: absolute; left: 1px; top: 1px; bottom: 1px; border-radius: 1px; background: var(--text-2); }
 .battery.low > i { background: var(--danger); }
 
+/* Now playing on the phone */
+.now-playing {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--raised);
+  padding: 10px;
+  display: grid; gap: 8px;
+}
+.np-top { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.np-art {
+  width: 44px; height: 44px; flex: none;
+  border-radius: var(--r-sm);
+  background: var(--raised-2);
+  display: grid; place-items: center; overflow: hidden;
+  color: var(--text-3);
+}
+.np-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.np-text { min-width: 0; flex: 1; }
+.np-title, .np-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np-title { font-weight: 600; }
+.np-sub { color: var(--text-3); font-size: 12px; margin-top: 1px; }
+.np-progress { display: grid; gap: 4px; }
+.np-bar { height: 3px; border-radius: 2px; background: var(--border-strong); overflow: hidden; }
+.np-bar > i { display: block; height: 100%; background: var(--accent-text); border-radius: 2px; }
+.np-times { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); }
+.np-controls { display: flex; justify-content: center; align-items: center; gap: 14px; }
+.np-play {
+  width: 34px; height: 34px;
+  border: 0; border-radius: 50%;
+  background: var(--accent); color: var(--accent-ink);
+  display: inline-grid; place-items: center;
+}
+.np-play:hover { background: var(--accent-hover); }
+.np-play svg.i { fill: currentColor; }
+.np-controls .icon-btn svg.i { fill: currentColor; }
+.np-volume { display: flex; align-items: center; gap: 8px; color: var(--text-3); }
+/* Drawn by hand so it looks the same in WebKitGTK (the app) and Chromium (the preview). */
+.np-volume input {
+  -webkit-appearance: none; appearance: none;
+  flex: 1; min-width: 0; height: 16px; margin: 0;
+  background: transparent; cursor: pointer;
+}
+.np-volume input::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 2px;
+  background: linear-gradient(to right, var(--accent-text) var(--pct, 0%), var(--border-strong) var(--pct, 0%));
+}
+.np-volume input::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 12px; height: 12px; margin-top: -4px;
+  border-radius: 50%; border: 0;
+  background: #e6e8eb;
+}
+.np-volume input:focus-visible { outline: none; }
+.np-volume input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent-line); }
+/* Short windows: the phone drawing gives way so the controls stay in view. */
+@media (max-height: 720px) {
+  .device-panel.has-media .phone-art { display: none; }
+}
+
 .section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); margin: 0 0 8px; font-weight: 600; }
 
 .actions { display: grid; gap: 4px; }

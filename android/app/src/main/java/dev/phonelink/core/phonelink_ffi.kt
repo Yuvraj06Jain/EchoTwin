@@ -723,6 +723,10 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_clipboard(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_media_art(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_now_playing(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_snapshot(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_text(
@@ -795,6 +799,10 @@ internal object UniffiLib {
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_app_icon(`ptr`: Long,`package`: RustBuffer.ByValue,`png`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_clipboard(`ptr`: Long,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_send_media_art(`ptr`: Long,`key`: RustBuffer.ByValue,`image`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_send_now_playing(`ptr`: Long,`media`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Int
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_snapshot(`ptr`: Long,`notifications`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
@@ -964,6 +972,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_clipboard() and 0xFFFF) != 31547) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_media_art() and 0xFFFF) != 21606) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_now_playing() and 0xFFFF) != 25730) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_snapshot() and 0xFFFF) != 32996) {
@@ -1824,6 +1838,18 @@ public interface PhoneLinkInterface {
     fun `sendClipboard`(`text`: kotlin.String): kotlin.UInt
     
     /**
+     * Album art for `PhoneMedia::art_key`: a JPEG or PNG of at most 64 KB.
+     */
+    fun `sendMediaArt`(`key`: kotlin.String, `image`: kotlin.ByteArray): kotlin.UInt
+    
+    /**
+     * What is playing now (`None`: nothing), for connected computers that show music.
+     * Not queued for computers that are offline: they get the current state when they
+     * connect (call again on `Connected`). Returns how many got it.
+     */
+    fun `sendNowPlaying`(`media`: PhoneMedia?): kotlin.UInt
+    
+    /**
      * Everything currently shown; call when a computer (re)connects.
      */
     fun `sendSnapshot`(`notifications`: List<MirroredNotification>)
@@ -2160,6 +2186,45 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
 
     
     /**
+     * Album art for `PhoneMedia::art_key`: a JPEG or PNG of at most 64 KB.
+     */
+    @Throws(LinkException::class)override fun `sendMediaArt`(`key`: kotlin.String, `image`: kotlin.ByteArray): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_send_media_art(
+        it,
+        
+        FfiConverterString.lower(`key`),
+        FfiConverterByteArray.lower(`image`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * What is playing now (`None`: nothing), for connected computers that show music.
+     * Not queued for computers that are offline: they get the current state when they
+     * connect (call again on `Connected`). Returns how many got it.
+     */
+    @Throws(LinkException::class)override fun `sendNowPlaying`(`media`: PhoneMedia?): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_send_now_playing(
+        it,
+        
+        FfiConverterOptionalTypePhoneMedia.lower(`media`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Everything currently shown; call when a computer (re)connects.
      */
     @Throws(LinkException::class)override fun `sendSnapshot`(`notifications`: List<MirroredNotification>)
@@ -2488,6 +2553,105 @@ public object FfiConverterTypePairingCode: FfiConverterRustBuffer<PairingCode> {
 
 
 
+/**
+ * What is playing on this phone, for the computer's Now Playing card.
+ */
+data class PhoneMedia (
+    var `app`: kotlin.String
+    , 
+    var `package`: kotlin.String
+    , 
+    var `title`: kotlin.String
+    , 
+    var `artist`: kotlin.String
+    , 
+    var `album`: kotlin.String
+    , 
+    var `durationMs`: kotlin.ULong
+    , 
+    var `positionMs`: kotlin.ULong
+    , 
+    var `playing`: kotlin.Boolean
+    , 
+    var `canPrevious`: kotlin.Boolean
+    , 
+    var `canNext`: kotlin.Boolean
+    , 
+    var `volume`: kotlin.UInt
+    , 
+    var `maxVolume`: kotlin.UInt
+    , 
+    /**
+     * Names the image sent with `send_media_art`; empty for none.
+     */
+    var `artKey`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePhoneMedia: FfiConverterRustBuffer<PhoneMedia> {
+    override fun read(buf: ByteBuffer): PhoneMedia {
+        return PhoneMedia(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PhoneMedia) = (
+            FfiConverterString.allocationSize(value.`app`) +
+            FfiConverterString.allocationSize(value.`package`) +
+            FfiConverterString.allocationSize(value.`title`) +
+            FfiConverterString.allocationSize(value.`artist`) +
+            FfiConverterString.allocationSize(value.`album`) +
+            FfiConverterULong.allocationSize(value.`durationMs`) +
+            FfiConverterULong.allocationSize(value.`positionMs`) +
+            FfiConverterBoolean.allocationSize(value.`playing`) +
+            FfiConverterBoolean.allocationSize(value.`canPrevious`) +
+            FfiConverterBoolean.allocationSize(value.`canNext`) +
+            FfiConverterUInt.allocationSize(value.`volume`) +
+            FfiConverterUInt.allocationSize(value.`maxVolume`) +
+            FfiConverterString.allocationSize(value.`artKey`)
+    )
+
+    override fun write(value: PhoneMedia, buf: ByteBuffer) {
+            FfiConverterString.write(value.`app`, buf)
+            FfiConverterString.write(value.`package`, buf)
+            FfiConverterString.write(value.`title`, buf)
+            FfiConverterString.write(value.`artist`, buf)
+            FfiConverterString.write(value.`album`, buf)
+            FfiConverterULong.write(value.`durationMs`, buf)
+            FfiConverterULong.write(value.`positionMs`, buf)
+            FfiConverterBoolean.write(value.`playing`, buf)
+            FfiConverterBoolean.write(value.`canPrevious`, buf)
+            FfiConverterBoolean.write(value.`canNext`, buf)
+            FfiConverterUInt.write(value.`volume`, buf)
+            FfiConverterUInt.write(value.`maxVolume`, buf)
+            FfiConverterString.write(value.`artKey`, buf)
+    }
+}
+
+
+
 
 
 sealed class LinkException(message: String): kotlin.Exception(message) {
@@ -2629,6 +2793,19 @@ sealed class LinkEvent {
     }
     
     /**
+     * The computer pressed a music button.
+     */
+    data class MediaControlRequested(
+        val `id`: kotlin.String, 
+        val `command`: dev.phonelink.core.MediaCommand) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
      * How a request this phone made went (e.g. `key` = "lock").
      */
     data class RequestResult(
@@ -2696,7 +2873,11 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            9 -> LinkEvent.RequestResult(
+            9 -> LinkEvent.MediaControlRequested(
+                FfiConverterString.read(buf),
+                FfiConverterTypeMediaCommand.read(buf),
+                )
+            10 -> LinkEvent.RequestResult(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
@@ -2776,6 +2957,14 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 + FfiConverterString.allocationSize(value.`text`)
             )
         }
+        is LinkEvent.MediaControlRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterTypeMediaCommand.allocationSize(value.`command`)
+            )
+        }
         is LinkEvent.RequestResult -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
@@ -2843,13 +3032,151 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.write(value.`text`, buf)
                 Unit
             }
-            is LinkEvent.RequestResult -> {
+            is LinkEvent.MediaControlRequested -> {
                 buf.putInt(9)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterTypeMediaCommand.write(value.`command`, buf)
+                Unit
+            }
+            is LinkEvent.RequestResult -> {
+                buf.putInt(10)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`key`, buf)
                 FfiConverterBoolean.write(value.`ok`, buf)
                 FfiConverterString.write(value.`message`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+/**
+ * A music button pressed on the computer.
+ */
+sealed class MediaCommand {
+    
+    object PlayPause : MediaCommand()
+    
+    
+    object Next : MediaCommand()
+    
+    
+    object Previous : MediaCommand()
+    
+    
+    object VolumeUp : MediaCommand()
+    
+    
+    object VolumeDown : MediaCommand()
+    
+    
+    data class SetVolume(
+        val `level`: kotlin.UInt) : MediaCommand()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMediaCommand : FfiConverterRustBuffer<MediaCommand>{
+    override fun read(buf: ByteBuffer): MediaCommand {
+        return when(buf.getInt()) {
+            1 -> MediaCommand.PlayPause
+            2 -> MediaCommand.Next
+            3 -> MediaCommand.Previous
+            4 -> MediaCommand.VolumeUp
+            5 -> MediaCommand.VolumeDown
+            6 -> MediaCommand.SetVolume(
+                FfiConverterUInt.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: MediaCommand): ULong = when(value) {
+        is MediaCommand.PlayPause -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is MediaCommand.Next -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is MediaCommand.Previous -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is MediaCommand.VolumeUp -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is MediaCommand.VolumeDown -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is MediaCommand.SetVolume -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterUInt.allocationSize(value.`level`)
+            )
+        }
+    }
+
+    override fun write(value: MediaCommand, buf: ByteBuffer) {
+        when(value) {
+            is MediaCommand.PlayPause -> {
+                buf.putInt(1)
+                Unit
+            }
+            is MediaCommand.Next -> {
+                buf.putInt(2)
+                Unit
+            }
+            is MediaCommand.Previous -> {
+                buf.putInt(3)
+                Unit
+            }
+            is MediaCommand.VolumeUp -> {
+                buf.putInt(4)
+                Unit
+            }
+            is MediaCommand.VolumeDown -> {
+                buf.putInt(5)
+                Unit
+            }
+            is MediaCommand.SetVolume -> {
+                buf.putInt(6)
+                FfiConverterUInt.write(value.`level`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -2886,6 +3213,38 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
         } else {
             buf.put(1)
             FfiConverterString.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypePhoneMedia: FfiConverterRustBuffer<PhoneMedia?> {
+    override fun read(buf: ByteBuffer): PhoneMedia? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypePhoneMedia.read(buf)
+    }
+
+    override fun allocationSize(value: PhoneMedia?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypePhoneMedia.allocationSize(value)
+        }
+    }
+
+    override fun write(value: PhoneMedia?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypePhoneMedia.write(value, buf)
         }
     }
 }

@@ -169,6 +169,23 @@ async fn app_icons() -> Result<std::collections::BTreeMap<String, String>, Strin
     }
 }
 
+#[tauri::command]
+async fn media() -> Result<Vec<phonelink_desktop::ipc::MediaInfo>, String> {
+    match request(Request::Media).await? {
+        Reply::Media { items } => Ok(items),
+        r => Err(unexpected(r)),
+    }
+}
+
+#[tauri::command]
+async fn media_control(action: phonelink_desktop::ipc::MediaAction) -> Result<(), String> {
+    expect_done(Request::MediaControl {
+        device: None,
+        action,
+    })
+    .await
+}
+
 async fn expect_done(req: Request) -> Result<(), String> {
     match request(req).await? {
         Reply::Done => Ok(()),
@@ -453,6 +470,8 @@ fn main() {
             set_clipboard_sync,
             set_allow_lock,
             set_app_muted,
+            media,
+            media_control,
             reconnect,
             start_pairing,
             cancel_pairing,

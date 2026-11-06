@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+pub use crate::media::MediaInfo;
 pub use crate::notifications::{AppInfo, NotificationInfo};
+pub use phonelink_core::MediaAction;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
@@ -62,6 +64,13 @@ pub enum Request {
     },
     SetAllowLock {
         enabled: bool,
+    },
+    /// What's playing on the connected phones.
+    Media,
+    /// Control the phone's player. `device` may be omitted with one phone connected.
+    MediaControl {
+        device: Option<String>,
+        action: MediaAction,
     },
 }
 
@@ -129,6 +138,10 @@ pub enum WatchEvent {
         id: String,
         name: String,
     },
+    /// What's playing on this phone changed (or it stopped / disconnected): ask `Media`.
+    MediaChanged {
+        id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -156,6 +169,9 @@ pub enum Reply {
     },
     AppIcons {
         icons: BTreeMap<String, String>,
+    },
+    Media {
+        items: Vec<MediaInfo>,
     },
     Devices {
         devices: Vec<DeviceInfo>,

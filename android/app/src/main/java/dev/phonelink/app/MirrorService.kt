@@ -38,10 +38,12 @@ class MirrorService : NotificationListenerService() {
     override fun onListenerConnected() {
         instance = this
         LinkManager.onMirrorReady()
+        MediaWatcher.start(this) // same access lets us see what's playing
     }
 
     override fun onListenerDisconnected() {
         if (instance === this) instance = null
+        MediaWatcher.stop()
     }
 
     override fun onDestroy() {

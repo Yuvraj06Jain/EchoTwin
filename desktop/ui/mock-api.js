@@ -100,6 +100,39 @@
   }
 
   const pairingListeners = [];
+  const eventListeners = [];
+
+  // A song playing on the phone (preview only). The art is drawn here, not downloaded.
+  const art = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 88;
+    const g = c.getContext('2d');
+    const grad = g.createLinearGradient(0, 0, 88, 88);
+    grad.addColorStop(0, '#7a3b2e');
+    grad.addColorStop(1, '#1d3b5c');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 88, 88);
+    g.fillStyle = 'rgba(255,255,255,0.18)';
+    g.beginPath();
+    g.arc(58, 34, 18, 0, Math.PI * 2);
+    g.fill();
+    return c.toDataURL('image/png');
+  })();
+  const music = {
+    device: phone.id, device_name: phone.name,
+    app: 'Spotify', package: 'com.spotify.music',
+    title: 'Kesariya', artist: 'Arijit Singh', album: 'Brahmastra',
+    duration_ms: 268000, position_ms: 61000, playing: true,
+    can_previous: true, can_next: true, volume: 9, max_volume: 15, art,
+  };
+  const playlist = [
+    ['Kesariya', 'Arijit Singh', 268000],
+    ['Apna Bana Le', 'Arijit Singh', 264000],
+    ['Tum Hi Ho', 'Arijit Singh', 262000],
+  ];
+  let track = 0;
+  let musicAt = Date.now();
+  const musicNow = () => (music.playing ? Math.min(music.duration_ms, music.position_ms + Date.now() - musicAt) : music.position_ms);
 
   const api = {
     // The preview shows every planned feature.
@@ -110,6 +143,7 @@
       files: true,
       clipboard: true,
       lockFromPhone: true,
+      media: true,
       deviceDetails: true,
       appFilters: true,
       discoveryToggle: true,
@@ -151,7 +185,30 @@
     async reconnect() {
       await wait(100);
     },
-    onEvent() {},
+    onEvent(cb) {
+      eventListeners.push(cb);
+    },
+    async media() {
+      await wait(30);
+      if (mode !== 'connected') return [];
+      return [{ ...clone(music), position_ms: musicNow() }];
+    },
+    async mediaControl(action, value) {
+      await wait(60);
+      music.position_ms = musicNow();
+      musicAt = Date.now();
+      if (action === 'play_pause') music.playing = !music.playing;
+      else if (action === 'next' || action === 'previous') {
+        track = (track + (action === 'next' ? 1 : playlist.length - 1)) % playlist.length;
+        [music.title, music.artist, music.duration_ms] = playlist[track];
+        music.position_ms = 0;
+        music.playing = true;
+      } else if (action === 'set_volume') music.volume = Math.max(0, Math.min(music.max_volume, value));
+      else if (action === 'volume_up') music.volume = Math.min(music.max_volume, music.volume + 1);
+      else if (action === 'volume_down') music.volume = Math.max(0, music.volume - 1);
+      // The phone reports its new state a moment later.
+      setTimeout(() => eventListeners.forEach((cb) => cb({ kind: 'media_changed', id: phone.id })), 150);
+    },
     onDaemon() {},
     onPairing(cb) {
       pairingListeners.push(cb);

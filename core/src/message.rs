@@ -16,6 +16,11 @@ pub const CAP_LOCK: &str = "lock/1";
 /// Clipboard text in both directions.
 pub const CAP_CLIPBOARD: &str = "clipboard/1";
 
+/// What is playing on the phone, and controlling it from the computer.
+pub const CAP_MEDIA: &str = "media/1";
+/// Largest album-art image sent (JPEG or PNG, bytes).
+pub const MAX_ART_BYTES: usize = 64 * 1024;
+
 /// Longest clipboard text sent (bytes). Longer copies are not sent at all: a cut-off
 /// paste would be worse than none.
 pub const MAX_CLIPBOARD_TEXT: usize = 64 * 1024;
@@ -47,6 +52,42 @@ pub struct PhoneNotification {
     pub can_reply: bool,
     /// Titles of the other action buttons, in order (index = position here).
     pub actions: Vec<String>,
+}
+
+/// The phone's current media session, as shown on the computer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NowPlaying {
+    /// Player app name as the user sees it, e.g. `Spotify`.
+    pub app: String,
+    pub package: String,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    /// 0 when unknown (live streams).
+    pub duration_ms: u64,
+    /// Position when this was sent; the computer advances it itself while `playing`.
+    pub position_ms: u64,
+    pub playing: bool,
+    pub can_previous: bool,
+    pub can_next: bool,
+    /// Media volume on the phone: `0..=max_volume`.
+    pub volume: u32,
+    pub max_volume: u32,
+    /// Identifies the album art sent in `MediaArt`; empty when there is none.
+    pub art_key: String,
+}
+
+/// A button pressed on the computer for the phone's player.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaAction {
+    PlayPause,
+    Next,
+    Previous,
+    VolumeUp,
+    VolumeDown,
+    /// Absolute media volume, `0..=max_volume`.
+    SetVolume(u32),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -110,6 +151,26 @@ pub enum AppMessage {
         text: String,
         copied_ms: u64,
     },
+
+    // ---- media/1
+    /// Phone → computer: what's playing now (`None`: nothing). Sent on every change and
+    /// when a computer connects.
+    NowPlaying(Option<NowPlaying>),
+    /// Phone → computer: album art for `NowPlaying::art_key` (JPEG or PNG).
+    MediaArt {
+        key: String,
+        image: Vec<u8>,
+    },
+    /// Computer → phone: control the player / media volume.
+    MediaControl {
+        action: MediaAction,
+    },
+}
+
+/// Album art must be a small JPEG or PNG.
+pub fn is_art_image(data: &[u8]) -> bool {
+    data.len() <= MAX_ART_BYTES
+        && (data.starts_with(&[0xFF, 0xD8, 0xFF]) || data.starts_with(b"\x89PNG\r\n\x1a\n"))
 }
 
 /// `ActionResult::key` for the answer to `LockComputer`.
@@ -225,6 +286,50 @@ mod tests {
             .unwrap()[0],
             11
         );
+    }
+
+    #[test]
+    fn media_messages_roundtrip_and_keep_their_positions() {
+        let now = NowPlaying {
+            app: "Spotify".into(),
+            package: "com.spotify.music".into(),
+            title: "Kesariya".into(),
+            artist: "Arijit Singh".into(),
+            album: "Brahmastra".into(),
+            duration_ms: 268_000,
+            position_ms: 61_500,
+            playing: true,
+            can_previous: true,
+            can_next: true,
+            volume: 9,
+            max_volume: 15,
+            art_key: "a1".into(),
+        };
+        let all = [
+            AppMessage::NowPlaying(Some(now)),
+            AppMessage::NowPlaying(None),
+            AppMessage::MediaArt {
+                key: "a1".into(),
+                image: vec![0xFF, 0xD8, 0xFF, 0xE0],
+            },
+            AppMessage::MediaControl {
+                action: MediaAction::SetVolume(7),
+            },
+            AppMessage::MediaControl {
+                action: MediaAction::PlayPause,
+            },
+        ];
+        for m in all {
+            assert_eq!(AppMessage::decode(&m.encode().unwrap()), m);
+        }
+        assert_eq!(AppMessage::NowPlaying(None).encode().unwrap()[0], 12);
+        assert!(is_art_image(&[0xFF, 0xD8, 0xFF, 0xE0, 1, 2]));
+        assert!(is_art_image(b"\x89PNG\r\n\x1a\n...."));
+        assert!(!is_art_image(b"<svg onload=alert(1)>"));
+        assert!(!is_art_image(&[0xFF; MAX_ART_BYTES + 1]));
+        // The JSON form used by the computer's control socket.
+        assert_eq!(serde_json::to_string(&MediaAction::PlayPause).unwrap(), "\"play_pause\"");
+        assert_eq!(serde_json::to_string(&MediaAction::SetVolume(4)).unwrap(), "{\"set_volume\":4}");
     }
 
     #[test]

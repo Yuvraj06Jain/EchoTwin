@@ -20,7 +20,7 @@ use phonelink_core::{
         MAX_NOTIFICATION_TEXT,
     },
     AppMessage, Event, Fingerprint, Node, NodeConfig, PeerRecord, CAP_CLIPBOARD, CAP_LOCK,
-    CAP_NOTIFICATIONS,
+    CAP_MEDIA, CAP_NOTIFICATIONS,
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -34,6 +34,7 @@ use crate::{
     clipboard::ClipboardSync,
     config::Config,
     lock::Buses,
+    media::MediaStore,
     ipc::{DeviceInfo, Reply, Request, WatchEvent},
     netaddrs,
     notifications::{self, Effect, NotificationInfo, PopupCmd, Popups, Store},
@@ -80,6 +81,7 @@ struct State {
     caps: Mutex<HashMap<Fingerprint, Vec<String>>>,
     clipboard: ClipboardSync,
     buses: Buses,
+    media: Mutex<MediaStore>,
 }
 
 /// Run until `shutdown` resolves.
@@ -113,6 +115,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         caps: Mutex::new(HashMap::new()),
         clipboard: ClipboardSync::start(opts.buses.session.clone(), copies_tx),
         buses: opts.buses.clone(),
+        media: Mutex::new(MediaStore::default()),
     });
     info!(
         name = %opts.config.device_name(),
@@ -169,7 +172,7 @@ async fn start_node(
     ] {
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
         cfg.capabilities.extend(
-            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD].map(String::from),
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, CAP_MEDIA].map(String::from),
         );
         match Node::start(cfg).await {
             Ok(x) => return Ok(x),
@@ -448,6 +451,31 @@ impl State {
         }
     }
 
+    /// The phone to send a media button to: connected and supporting media/1.
+    fn media_target(&self, query: Option<&str>) -> Result<Fingerprint, String> {
+        let fp = match query {
+            Some(q) => self.resolve(Some(q))?.fingerprint,
+            None => {
+                let connected = self.connected_with(CAP_MEDIA);
+                match connected.as_slice() {
+                    [one] => *one,
+                    [] => return Err("no phone with music controls is connected".into()),
+                    _ => return Err("several phones connected; say which one".into()),
+                }
+            }
+        };
+        if !self.node.is_connected(&fp) {
+            return Err(format!("{} is not connected", self.name_of(&fp)));
+        }
+        if !self.connected_with(CAP_MEDIA).contains(&fp) {
+            return Err(format!(
+                "update PhoneLink on {} for music controls",
+                self.name_of(&fp)
+            ));
+        }
+        Ok(fp)
+    }
+
     fn devices(&self) -> Vec<DeviceInfo> {
         self.node
             .peers()
@@ -541,6 +569,9 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
             Event::PeerDisconnected { peer } => {
                 last_disconnect.insert(peer, std::time::Instant::now());
                 lock(&state.caps).remove(&peer);
+                if lock(&state.media).forget(&peer) {
+                    state.broadcast(WatchEvent::MediaChanged { id: peer.short() });
+                }
                 WatchEvent::Disconnected {
                     id: peer.short(),
                     name: state.name_of(&peer),
@@ -647,6 +678,23 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                         name,
                     }
                 }
+                AppMessage::NowPlaying(now) => {
+                    let changed =
+                        lock(&state.media).update(peer, now, std::time::Instant::now());
+                    if !changed {
+                        continue;
+                    }
+                    WatchEvent::MediaChanged { id: peer.short() }
+                }
+                AppMessage::MediaArt { key, image } => {
+                    if !lock(&state.media).set_art(peer, key, image) {
+                        debug!("album art rejected (not a small JPEG/PNG)");
+                        continue;
+                    }
+                    WatchEvent::MediaChanged { id: peer.short() }
+                }
+                // Only ever computer → phone.
+                AppMessage::MediaControl { .. } => continue,
                 AppMessage::Unsupported => {
                     debug!("message type not supported by this version; ignored");
                     continue;
@@ -766,6 +814,38 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
             Request::SetAllowLock { enabled } => {
                 lock(&state.settings).allow_lock = enabled;
                 let reply = state.persist(|c| c.allow_lock = enabled);
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::Media => {
+                let at = std::time::Instant::now();
+                let items = {
+                    let media = lock(&state.media);
+                    state
+                        .node
+                        .peers()
+                        .iter()
+                        .filter_map(|p| media.view(&p.fingerprint, &p.name, at))
+                        .collect()
+                };
+                write_reply(&mut w, &Reply::Media { items }).await?;
+            }
+            Request::MediaControl { device, action } => {
+                let reply = match state.media_target(device.as_deref()) {
+                    Err(message) => Reply::Error { message },
+                    Ok(fp) => {
+                        let action = match action {
+                            phonelink_core::MediaAction::SetVolume(v) => {
+                                let max = lock(&state.media).max_volume(&fp).unwrap_or(u32::MAX);
+                                phonelink_core::MediaAction::SetVolume(v.min(max))
+                            }
+                            other => other,
+                        };
+                        match state.to_phone(&fp, AppMessage::MediaControl { action }) {
+                            Ok(_) => Reply::Done,
+                            Err(message) => Reply::Error { message },
+                        }
+                    }
+                };
                 write_reply(&mut w, &reply).await?;
             }
             Request::Reconnect => {
@@ -923,6 +1003,7 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                             }
                             state.advert_refresh.notify_one();
                             lock(&state.store).forget_device(&p.fingerprint);
+                            lock(&state.media).forget(&p.fingerprint);
                             state.broadcast(WatchEvent::NotificationsChanged);
                             Reply::Done
                         }

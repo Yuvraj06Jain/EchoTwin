@@ -16,12 +16,20 @@ DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
 
 glibc_ok() {
   local have
-  have="$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$' || echo 0.0)"
+  # No pipe from ldd: with pipefail, `head` closing early can kill ldd (SIGPIPE) and fail the check.
+  local out
+  out="$(ldd --version 2>/dev/null || true)"
+  have="$(printf '%s\n' "${out%%$'\n'*}" | grep -oE '[0-9]+\.[0-9]+$' || true)"
+  [ -n "$have" ] || return 1
   [ "$(printf '%s\n2.39\n' "$have" | sort -V | head -1)" = "2.39" ]
 }
 prebuilt_ok() { [ -x "bin/$1" ] && [ "$(uname -m)" = "x86_64" ] && glibc_ok; }
 # Can the prebuilt window actually load? (Checks every library it links, WebKitGTK included.)
-app_libs_ok() { ldd bin/phonelink-app >/dev/null 2>&1 && ! ldd bin/phonelink-app 2>/dev/null | grep -q 'not found'; }
+app_libs_ok() {
+  local out
+  out="$(ldd bin/phonelink-app 2>/dev/null)" || return 1
+  case "$out" in *"not found"*) return 1 ;; esac
+}
 webkit_dev() { pkg-config --exists webkit2gtk-4.1 2>/dev/null; }
 webkit_hint() {
   echo "    Kubuntu/Ubuntu:  sudo apt install $1"

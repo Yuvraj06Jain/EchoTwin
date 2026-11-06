@@ -33,7 +33,7 @@
     }
   }
 
-  const listeners = { event: [], daemon: [], pairing: [] };
+  const listeners = { event: [], daemon: [], pairing: [], open: [] };
   let notes = [];
   let noteSeq = 0;
   let notificationsOn = true;
@@ -55,6 +55,8 @@
   });
   T.event.listen('phonelink://daemon', ({ payload }) => listeners.daemon.forEach((cb) => cb(payload)));
   T.event.listen('phonelink://pairing', ({ payload }) => listeners.pairing.forEach((cb) => cb(payload)));
+  // The window was asked to come forward (a popup was clicked while it was open).
+  T.event.listen('phonelink://open', ({ payload }) => listeners.open.forEach((cb) => cb(payload)));
 
   const toDevice = (d) => ({
     id: d.id,
@@ -208,6 +210,9 @@
     },
     onPairing(cb) {
       listeners.pairing.push(cb);
+    },
+    onOpen(cb) {
+      listeners.open.push(cb);
     },
   };
 })();

@@ -21,6 +21,7 @@ struct Rig {
     socket: std::path::PathBuf,
     dir: tempfile::TempDir,
     popups: mpsc::Receiver<PopupCmd>,
+    status_popups: Vec<String>,
     phone: Node,
     phone_rx: UnboundedReceiver<Event>,
     laptop_fp: Fingerprint,
@@ -106,6 +107,7 @@ async fn setup() -> Rig {
         socket,
         dir,
         popups: popup_rx,
+        status_popups: vec![],
         phone,
         phone_rx,
         laptop_fp: offer.fingerprint,
@@ -157,9 +159,22 @@ impl Rig {
         .ok()
     }
 
-    fn popups(&self) -> Vec<PopupCmd> {
+    /// Popups for mirrored notifications (PhoneLink's own status popups are recorded in
+    /// `status_popups`).
+    fn popups(&mut self) -> Vec<PopupCmd> {
         std::thread::sleep(Duration::from_millis(50));
-        self.popups.try_iter().collect()
+        let mut mirrored = vec![];
+        for cmd in self.popups.try_iter() {
+            match &cmd {
+                PopupCmd::Show { id, title, .. }
+                    if id.starts_with("status/") || id.starts_with("note/") =>
+                {
+                    self.status_popups.push(title.clone())
+                }
+                _ => mirrored.push(cmd),
+            }
+        }
+        mirrored
     }
 
     async fn list(&self) -> Vec<phonelink_desktop::ipc::NotificationInfo> {
@@ -195,6 +210,12 @@ async fn notifications_flow_from_phone_to_laptop() {
     );
     let id = item.id.clone();
     let shown = r.popups();
+    // PhoneLink's own popups use the same clickable path.
+    assert!(
+        r.status_popups.iter().any(|t| t.ends_with("connected")),
+        "connection popup: {:?}",
+        r.status_popups
+    );
     assert!(
         matches!(shown.as_slice(), [PopupCmd::Show { id: i, app, body, .. }] if *i == id && app == "WhatsApp" && body == "Lab at &lt;3pm&gt; &amp; viva"),
         "one escaped popup"

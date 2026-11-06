@@ -19,6 +19,14 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 qrcode = { version = "0.14", default-features = false }
+# A second launch (e.g. clicking a popup) brings the open window forward instead.
+tauri-plugin-single-instance = "2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Same versions Tauri already uses: hand the activation token to GTK so Wayland lets the
+# window take focus.
+gtk = "0.18"
+libc = "0.2"
 
 [features]
 # Embed the UI in the binary and serve it over Tauri's own protocol (no dev server, no

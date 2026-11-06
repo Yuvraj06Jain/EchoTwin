@@ -2375,20 +2375,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
-name = "mac-notification-sys"
-version = "0.6.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd604973958ddcc11b561193c0fb96ba146506ef2f231ef2e7c35fd2cbc9beca"
-dependencies = [
- "cc",
- "log",
- "objc2",
- "objc2-foundation",
- "time",
- "uuid",
-]
-
-[[package]]
 name = "markup5ever"
 version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2547,20 +2533,6 @@ checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
 dependencies = [
  "memchr",
  "minimal-lexical",
-]
-
-[[package]]
-name = "notify-rust"
-version = "4.18.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4587364a9a0074333429b3df75a30a205340c56a536ca3eb6ca0e59b87bbf8af"
-dependencies = [
- "futures-lite",
- "log",
- "mac-notification-sys",
- "serde",
- "tauri-winrt-notification",
- "zbus",
 ]
 
 [[package]]
@@ -2752,7 +2724,6 @@ checksum = "e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272"
 dependencies = [
  "bitflags 2.13.2",
  "block2",
- "libc",
  "objc2",
  "objc2-core-foundation",
 ]
@@ -2989,12 +2960,15 @@ dependencies = [
 name = "phonelink-app"
 version = "0.1.0"
 dependencies = [
+ "gtk",
+ "libc",
  "phonelink-desktop",
  "qrcode",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
+ "tauri-plugin-single-instance",
  "tokio",
 ]
 
@@ -3033,7 +3007,6 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "if-addrs",
- "notify-rust",
  "phonelink-core",
  "qrcode",
  "serde",
@@ -3043,6 +3016,7 @@ dependencies = [
  "toml 1.2.0+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
+ "zbus",
 ]
 
 [[package]]
@@ -4354,6 +4328,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-single-instance"
+version = "2.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "726b6da0dd5bd1344f84f4108a622c07d01923baacb5c803a605189672c5352f"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "windows-sys 0.61.2",
+ "zbus",
+]
+
+[[package]]
 name = "tauri-runtime"
 version = "2.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4450,17 +4440,6 @@ dependencies = [
  "dunce",
  "embed-resource",
  "toml 1.2.0+spec-1.1.0",
-]
-
-[[package]]
-name = "tauri-winrt-notification"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f37a6c354fd28fc9e322ed9bd47e3959576dad28c9d58ea1cf888cce1c7ccb36"
-dependencies = [
- "thiserror 2.0.21",
- "windows",
- "windows-version",
 ]
 
 [[package]]

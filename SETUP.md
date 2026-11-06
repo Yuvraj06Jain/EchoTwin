@@ -11,6 +11,7 @@ This guide covers the current version (0.2).
   - reply where the phone app allows it (WhatsApp, Messages…)
   - press their buttons ("Mark as read", "Archive"…)
   - dismiss them
+  - click a popup to open the PhoneLink window on its Notifications tab
 - settings in the laptop app: *Dismiss on both devices* (off by default), which apps to show, and desktop popups on/off
 
 Mirroring is **one-way**: phone → laptop. The laptop never sends its own notifications to the phone (notes you type with *Send a note* are the only thing that appears on the phone).
@@ -158,6 +159,8 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 16 | Turn *Dismiss on both devices* **on** (laptop app → ⚙ Settings) and repeat 15 | clearing either side clears the other |
 | 17 | Laptop app → Settings → switch off an app under *Show notifications from* | its notifications disappear from the app and stop popping up |
 | 18 | Pair again later (or check now): after the scan, close the phone app, then look at Settings → Apps → PhoneLink → Permissions | Camera shows *Not allowed* |
+| 19 | With the PhoneLink window closed, click a popup from your phone | the window opens on the Notifications tab, in front |
+| 20 | With the window open but behind other windows (or on another tab), click another popup | the same window comes to the front on the Notifications tab; no second window |
 
 When something fails, include:
 - the step number
@@ -214,6 +217,8 @@ When something fails, include:
 | **Reply** is missing for an app | that app doesn't offer a reply box in its phone notification either |
 | "Your phone couldn't do that" | the notification was already gone on the phone, or the app refused. Some apps only accept replies or buttons when the phone is unlocked |
 | notifications stop after a while | battery settings (see *Can't connect*): PhoneLink must be in *Never sleeping apps* |
+| clicking a popup does nothing | the window is opened as `phonelink-app` from the folder `phonelinkd` runs from (normally `~/.local/bin`): re-run `./packaging/install.sh`. Then check `journalctl --user -u phonelinkd -n 30` for "could not open the PhoneLink window". Clicks on popups shown *before* the service restarted are not received |
+| the window opens but stays behind other windows | KDE's focus-stealing prevention: System Settings → Window Management → Window Behavior → *Focus stealing prevention* at *Low* (the default) allows it. Wayland needs Plasma 5.27 or newer |
 
 ### Pairing
 

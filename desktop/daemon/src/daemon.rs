@@ -230,21 +230,8 @@ fn device_info(node: &Node, p: &PeerRecord) -> DeviceInfo {
     }
 }
 
-fn notify_desktop(enabled: bool, summary: String, body: String) {
-    if !enabled {
-        return;
-    }
-    tokio::task::spawn_blocking(move || {
-        if let Err(e) = notify_rust::Notification::new()
-            .appname("PhoneLink")
-            .summary(&summary)
-            .body(&body)
-            .icon("smartphone")
-            .show()
-        {
-            debug!("desktop notification failed: {e}");
-        }
-    });
+fn hex_id(id: &phonelink_core::MsgId) -> String {
+    id.0.iter().take(6).map(|b| format!("{b:02x}")).collect()
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -289,6 +276,20 @@ impl State {
                 message: format!("saved for now, but could not write {}: {e}", path.display()),
             },
         }
+    }
+
+    /// PhoneLink's own popups (paired, connected, a note). Same click-to-open behaviour.
+    fn status_popup(&self, enabled: bool, id: String, title: String, body: String) {
+        if !enabled {
+            return;
+        }
+        self.popups.send(PopupCmd::Show {
+            id,
+            app: "PhoneLink".into(),
+            title: notifications::escape_markup(&title),
+            body: notifications::escape_markup(&body),
+            icon: None,
+        });
     }
 
     fn maybe_popup(&self, info: &NotificationInfo) {
@@ -424,8 +425,9 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     }
                 });
                 state.advert_refresh.notify_one();
-                notify_desktop(
+                state.status_popup(
                     notify,
+                    format!("status/{}", peer.short()),
                     "Device paired".into(),
                     format!("{name} can now connect to this computer."),
                 );
@@ -438,8 +440,9 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                 let blip = last_disconnect
                     .get(&peer)
                     .is_some_and(|t| t.elapsed() < RECONNECT_QUIET);
-                notify_desktop(
+                state.status_popup(
                     notify && !blip,
+                    format!("status/{}", peer.short()),
                     format!("{name} connected"),
                     "PhoneLink is active.".into(),
                 );
@@ -455,10 +458,15 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     name: state.name_of(&peer),
                 }
             }
-            Event::Message { peer, body, .. } => match AppMessage::decode(&body) {
+            Event::Message { peer, id, body } => match AppMessage::decode(&body) {
                 AppMessage::Text { text } => {
                     let name = state.name_of(&peer);
-                    notify_desktop(notify, format!("Message from {name}"), text.clone());
+                    state.status_popup(
+                        notify,
+                        format!("note/{}", hex_id(&id)),
+                        format!("Message from {name}"),
+                        text.clone(),
+                    );
                     WatchEvent::Text {
                         id: peer.short(),
                         name,

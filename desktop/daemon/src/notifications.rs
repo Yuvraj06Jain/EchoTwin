@@ -6,12 +6,10 @@
 use std::{
     collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
-    sync::mpsc,
 };
 
 use phonelink_core::{Fingerprint, PhoneNotification};
 use serde::{Deserialize, Serialize};
-use tracing::debug;
 
 /// Newest notifications kept per computer (all phones together).
 pub const MAX_STORED: usize = 200;
@@ -251,98 +249,7 @@ pub fn escape_markup(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
-pub enum PopupCmd {
-    Show {
-        id: String,
-        app: String,
-        title: String,
-        body: String,
-        icon: Option<PathBuf>,
-    },
-    Close {
-        id: String,
-    },
-}
-
-/// Owns the popup handles on one thread, so an update replaces the earlier popup and a
-/// removal on the phone closes it.
-#[derive(Clone)]
-pub struct Popups {
-    tx: mpsc::Sender<PopupCmd>,
-}
-
-impl Popups {
-    pub fn start() -> Self {
-        let (tx, rx) = mpsc::channel::<PopupCmd>();
-        std::thread::Builder::new()
-            .name("phonelink-popups".into())
-            .spawn(move || popup_thread(rx))
-            .expect("spawn popup thread");
-        Self { tx }
-    }
-
-    /// For tests: a sink that records commands instead of talking to D-Bus.
-    pub fn recording() -> (Self, mpsc::Receiver<PopupCmd>) {
-        let (tx, rx) = mpsc::channel();
-        (Self { tx }, rx)
-    }
-
-    pub fn send(&self, cmd: PopupCmd) {
-        let _ = self.tx.send(cmd);
-    }
-}
-
-fn popup_thread(rx: mpsc::Receiver<PopupCmd>) {
-    let mut open: HashMap<String, notify_rust::NotificationHandle> = HashMap::new();
-    let mut order: VecDeque<String> = VecDeque::new();
-    while let Ok(cmd) = rx.recv() {
-        match cmd {
-            PopupCmd::Show {
-                id,
-                app,
-                title,
-                body,
-                icon,
-            } => {
-                let icon = icon
-                    .filter(|p| p.exists())
-                    .map(|p| p.to_string_lossy().into_owned());
-                let icon = icon.as_deref().unwrap_or("smartphone");
-                if let Some(handle) = open.get_mut(&id) {
-                    handle.appname(&app).summary(&title).body(&body).icon(icon);
-                    if let Err(e) = handle.update() {
-                        debug!("popup update failed: {e}");
-                    }
-                    continue;
-                }
-                match notify_rust::Notification::new()
-                    .appname(&app)
-                    .summary(&title)
-                    .body(&body)
-                    .icon(icon)
-                    .show()
-                {
-                    Ok(handle) => {
-                        open.insert(id.clone(), handle);
-                        order.push_back(id);
-                        while order.len() > MAX_STORED {
-                            if let Some(old) = order.pop_front() {
-                                open.remove(&old); // just forget it; the server expires it
-                            }
-                        }
-                    }
-                    Err(e) => debug!("popup failed: {e}"),
-                }
-            }
-            PopupCmd::Close { id } => {
-                if let Some(handle) = open.remove(&id) {
-                    order.retain(|x| x != &id);
-                    handle.close();
-                }
-            }
-        }
-    }
-}
+pub use crate::popups::{PopupCmd, Popups};
 
 #[cfg(test)]
 mod tests {

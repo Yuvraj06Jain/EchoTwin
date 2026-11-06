@@ -320,6 +320,83 @@ async fn watch_daemon(app: AppHandle) {
     }
 }
 
+/// What a launch asks for: `--show=<tab>` and `--activation-token=<token>` (both sent by
+/// the service when a popup is clicked).
+#[derive(Debug, Default, PartialEq)]
+struct LaunchRequest {
+    tab: Option<String>,
+    token: Option<String>,
+}
+
+fn launch_request(args: &[String]) -> LaunchRequest {
+    let mut req = LaunchRequest::default();
+    for a in args {
+        if let Some(t) = a.strip_prefix("--show=") {
+            if ["notifications", "messages", "files"].contains(&t) {
+                req.tab = Some(t.to_string());
+            }
+        } else if let Some(t) = a.strip_prefix("--activation-token=") {
+            if !t.is_empty() && t.len() <= 512 && t.bytes().all(|b| b.is_ascii_graphic()) {
+                req.token = Some(t.to_string());
+            }
+        }
+    }
+    req
+}
+
+/// Hand an activation token to GTK before presenting, so the compositor lets the window
+/// take focus (KDE on Wayland otherwise only highlights it in the taskbar). Looked up at
+/// run time, so a GTK built without one of the backends still starts.
+#[cfg(target_os = "linux")]
+fn use_activation_token(window: &tauri::WebviewWindow, token: &str) {
+    use gtk::glib::translate::ToGlibPtr;
+    use gtk::prelude::WidgetExt;
+    type GetType = unsafe extern "C" fn() -> gtk::glib::ffi::GType;
+    type SetId = unsafe extern "C" fn(*mut gtk::gdk::ffi::GdkDisplay, *const libc::c_char);
+    let Ok(gw) = window.gtk_window() else { return };
+    let display = gw.display();
+    let ptr: *mut gtk::gdk::ffi::GdkDisplay = display.to_glib_none().0;
+    let Ok(id) = std::ffi::CString::new(token) else { return };
+    for (get_type, set_id) in [
+        (c"gdk_wayland_display_get_type", c"gdk_wayland_display_set_startup_notification_id"),
+        (c"gdk_x11_display_get_type", c"gdk_x11_display_set_startup_notification_id"),
+    ] {
+        // SAFETY: symbols come from the GTK already loaded in this process, with the
+        // signatures GTK 3 documents; the setter is only called on a display of its type.
+        unsafe {
+            let t = libc::dlsym(libc::RTLD_DEFAULT, get_type.as_ptr());
+            let f = libc::dlsym(libc::RTLD_DEFAULT, set_id.as_ptr());
+            if t.is_null() || f.is_null() {
+                continue;
+            }
+            let t: GetType = std::mem::transmute(t);
+            let f: SetId = std::mem::transmute(f);
+            if gtk::glib::gobject_ffi::g_type_check_instance_is_a(ptr.cast(), t()) != 0 {
+                f(ptr, id.as_ptr());
+                return;
+            }
+        }
+    }
+}
+
+/// Bring the window forward (unminimised, focused) and show what was asked for.
+fn bring_forward(app: &AppHandle, req: LaunchRequest) {
+    let app2 = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let Some(w) = app2.get_webview_window("main") else { return };
+        let _ = w.unminimize();
+        let _ = w.show();
+        #[cfg(target_os = "linux")]
+        if let Some(t) = &req.token {
+            use_activation_token(&w, t);
+        }
+        let _ = w.set_focus();
+        if let Some(tab) = req.tab {
+            let _ = app2.emit("phonelink://open", serde_json::json!({ "tab": tab }));
+        }
+    });
+}
+
 fn main() {
     // WebKitGTK's DMA-BUF renderer shows a blank window on some NVIDIA/older drivers.
     // This UI is light enough that the fallback renderer costs nothing noticeable.
@@ -333,7 +410,17 @@ fn main() {
         return;
     }
 
+    let args: Vec<String> = std::env::args().collect();
+    let first = launch_request(&args);
+    // The token in our environment (if any) belongs to this launch only.
+    std::env::remove_var("XDG_ACTIVATION_TOKEN");
+    std::env::remove_var("DESKTOP_STARTUP_ID");
+
     tauri::Builder::default()
+        // Must be the first plugin: a second launch hands its arguments over and exits.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            bring_forward(app, launch_request(&argv));
+        }))
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             status,
@@ -354,11 +441,14 @@ fn main() {
             start_daemon
         ])
         .setup(move |app| {
-            let init = if demo {
-                "window.__PHONELINK_DEMO__ = true;"
-            } else {
-                ""
-            };
+            let mut init = String::new();
+            if demo {
+                init.push_str("window.__PHONELINK_DEMO__ = true;");
+            }
+            if let Some(tab) = &first.tab {
+                // Only one of three fixed names (see launch_request), so safe to inline.
+                init.push_str(&format!("window.__PHONELINK_OPEN_TAB__ = {tab:?};"));
+            }
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("PhoneLink")
                 .inner_size(1180.0, 760.0)
@@ -367,8 +457,13 @@ fn main() {
                 .transparent(true)
                 .resizable(true)
                 .center()
-                .initialization_script(init)
+                .initialization_script(&init)
                 .build()?;
+            #[cfg(target_os = "linux")]
+            if let (Some(t), Some(w)) = (&first.token, app.get_webview_window("main")) {
+                use_activation_token(&w, t);
+                let _ = w.set_focus();
+            }
             if !demo {
                 tauri::async_runtime::spawn(watch_daemon(app.handle().clone()));
             }
@@ -381,4 +476,27 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("failed to start the PhoneLink window");
+}
+
+#[cfg(test)]
+mod launch_tests {
+    use super::*;
+
+    fn args(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn launch_arguments_are_validated() {
+        assert_eq!(launch_request(&args(&["phonelink-app"])), LaunchRequest::default());
+        assert_eq!(
+            launch_request(&args(&["x", "--show=notifications", "--activation-token=kwin-1"])),
+            LaunchRequest {
+                tab: Some("notifications".into()),
+                token: Some("kwin-1".into())
+            }
+        );
+        let bad = launch_request(&args(&["x", "--show=\";alert(1)//", "--activation-token=a b"]));
+        assert_eq!(bad, LaunchRequest::default());
+    }
 }

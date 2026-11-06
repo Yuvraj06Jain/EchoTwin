@@ -22,7 +22,8 @@ toml = "1"
 clap = { version = "4", features = ["derive"] }
 qrcode = { version = "0.14", default-features = false }
 if-addrs = "0.15"
-notify-rust = "4"
+# Desktop popups over D-Bus (pure Rust). One long-lived connection, so clicks come back to us.
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"

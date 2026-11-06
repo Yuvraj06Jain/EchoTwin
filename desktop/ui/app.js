@@ -999,6 +999,15 @@
     }
     return scheduleLoad();
   });
+  // A popup was clicked: show what it was about. An open dialog (Settings, …) gives way.
+  function openFromPopup(tab) {
+    if (!el.tabs[tab]) return;
+    if (dialog) closeDialog(false);
+    selectTab(tab);
+  }
+  if (api.onOpen) api.onOpen((req) => openFromPopup(req && req.tab));
+  if (window.__PHONELINK_OPEN_TAB__) state.tab = el.tabs[window.__PHONELINK_OPEN_TAB__] ? window.__PHONELINK_OPEN_TAB__ : state.tab;
+
   api.onDaemon((up) => {
     if (up) scheduleLoad();
     else if (!state.serviceDown) {

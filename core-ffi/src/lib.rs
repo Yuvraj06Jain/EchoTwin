@@ -22,7 +22,8 @@ use phonelink_core::{
     },
     transfer::{Direction, SourceOpener, TransferConfig, TransferInfo, Transfers, CAP_FILES},
     AppMessage, Event, Fingerprint, MediaAction, Node, NodeConfig, NowPlaying, PairingOffer,
-    PeerRecord, PhoneNotification, CAP_CLIPBOARD, CAP_LOCK, CAP_MEDIA, CAP_NOTIFICATIONS,
+    PeerRecord, PhoneNotification, SmsMessage, SmsState, SmsThread, CAP_CLIPBOARD, CAP_LOCK,
+    CAP_MEDIA, CAP_NOTIFICATIONS, CAP_SMS,
 };
 use tokio::{runtime::Runtime, task::JoinHandle};
 
@@ -108,6 +109,20 @@ pub enum LinkEvent {
     MediaControlRequested {
         id: String,
         command: MediaCommand,
+    },
+    /// The computer asks to send an SMS (now; reply with `sms_send_result`).
+    SmsSendRequested {
+        id: String,
+        client_id: String,
+        thread: u64,
+        address: String,
+        body: String,
+    },
+    /// The computer wants older messages of a conversation (reply with `sms_older`).
+    SmsOlderRequested {
+        id: String,
+        thread: u64,
+        before_ms: u64,
     },
     /// A file transfer started, progressed (at most a few times a second) or finished.
     TransferChanged {
@@ -216,6 +231,58 @@ impl MirroredNotification {
                 .map(|a| truncate_text(&a, 60))
                 .collect(),
         }
+    }
+}
+
+/// One SMS read from the phone's message store.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct PhoneSms {
+    pub id: u64,
+    pub from_me: bool,
+    pub body: String,
+    pub date_ms: u64,
+    /// received | sent | sending | failed
+    pub state: String,
+    pub read: bool,
+}
+
+/// One conversation with its most recent messages (oldest first).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct PhoneSmsThread {
+    pub id: u64,
+    pub address: String,
+    pub name: String,
+    pub messages: Vec<PhoneSms>,
+    pub has_older: bool,
+}
+
+fn sms_wire(m: PhoneSms) -> SmsMessage {
+    SmsMessage {
+        id: m.id,
+        from_me: m.from_me,
+        body: truncate_text(&m.body, phonelink_core::message::SMS_MAX_BODY),
+        date_ms: m.date_ms,
+        state: match m.state.as_str() {
+            "sent" => SmsState::Sent,
+            "sending" => SmsState::Sending,
+            "failed" => SmsState::Failed,
+            _ => SmsState::Received,
+        },
+        read: m.read,
+    }
+}
+
+fn thread_wire(t: PhoneSmsThread) -> SmsThread {
+    let mut messages: Vec<SmsMessage> = t.messages.into_iter().map(sms_wire).collect();
+    messages.sort_by_key(|m| m.date_ms);
+    let cut = messages.len().saturating_sub(phonelink_core::message::SMS_MAX_MESSAGES);
+    let has_older = t.has_older || cut > 0;
+    SmsThread {
+        id: t.id,
+        address: truncate_text(&t.address, 200),
+        name: truncate_text(&t.name, 200),
+        messages: messages.split_off(cut),
+        has_older,
     }
 }
 
@@ -392,7 +459,7 @@ impl PhoneLink {
                 ] {
                     let mut cfg = NodeConfig::new(device_name.clone(), Some(dir.clone()), bind);
                     cfg.capabilities.extend(
-                        [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, CAP_MEDIA, CAP_FILES]
+                        [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, CAP_MEDIA, CAP_FILES, CAP_SMS]
                             .map(String::from),
                     );
                     match Node::start(cfg).await {
@@ -537,6 +604,23 @@ impl PhoneLink {
                                 text,
                             }
                         }
+                        AppMessage::SmsSend {
+                            client_id,
+                            thread,
+                            address,
+                            body,
+                        } => LinkEvent::SmsSendRequested {
+                            id: peer.short(),
+                            client_id,
+                            thread,
+                            address,
+                            body,
+                        },
+                        AppMessage::SmsLoadOlder { thread, before_ms } => LinkEvent::SmsOlderRequested {
+                            id: peer.short(),
+                            thread,
+                            before_ms,
+                        },
                         AppMessage::MediaControl { action } => LinkEvent::MediaControlRequested {
                             id: peer.short(),
                             command: action.into(),
@@ -783,6 +867,65 @@ impl PhoneLink {
     /// connect (call again on `Connected`). Returns how many got it.
     pub fn send_now_playing(&self, media: Option<PhoneMedia>) -> Result<u32, LinkError> {
         self.send_connected(CAP_MEDIA, AppMessage::NowPlaying(media.map(PhoneMedia::into_wire)))
+    }
+
+    /// All conversations (most recent first), for computers that just connected. Not queued
+    /// for computers that are offline: they get a fresh one when they connect.
+    pub fn sms_snapshot(&self, threads: Vec<PhoneSmsThread>) -> Result<u32, LinkError> {
+        let threads: Vec<SmsThread> = threads
+            .into_iter()
+            .take(phonelink_core::message::SMS_MAX_THREADS)
+            .map(thread_wire)
+            .collect();
+        let ids = threads.iter().map(|t| t.id).collect();
+        let n = self.send_connected(CAP_SMS, AppMessage::SmsSnapshot { threads: ids })?;
+        for t in threads {
+            self.send_connected(CAP_SMS, AppMessage::SmsThreadUpdate(t))?;
+        }
+        Ok(n)
+    }
+
+    /// One conversation changed (a message arrived or was sent).
+    pub fn sms_thread_update(&self, thread: PhoneSmsThread) -> Result<u32, LinkError> {
+        self.send_connected(CAP_SMS, AppMessage::SmsThreadUpdate(thread_wire(thread)))
+    }
+
+    /// The answer to `SmsOlderRequested`.
+    pub fn sms_older(
+        &self,
+        device_id: String,
+        thread: u64,
+        messages: Vec<PhoneSms>,
+        has_older: bool,
+    ) -> Result<(), LinkError> {
+        let fp = self.resolve(Some(device_id))?;
+        let mut messages: Vec<SmsMessage> = messages.into_iter().map(sms_wire).collect();
+        messages.sort_by_key(|m| m.date_ms);
+        let msg = AppMessage::SmsOlder {
+            thread,
+            messages,
+            has_older,
+        };
+        self.node.send(&fp, msg.encode()?)?;
+        Ok(())
+    }
+
+    /// How an `SmsSendRequested` went.
+    pub fn sms_send_result(
+        &self,
+        device_id: String,
+        client_id: String,
+        sent: bool,
+        message: String,
+    ) -> Result<(), LinkError> {
+        let fp = self.resolve(Some(device_id))?;
+        let msg = AppMessage::SmsSendResult {
+            client_id,
+            state: if sent { SmsState::Sent } else { SmsState::Failed },
+            message,
+        };
+        self.node.send(&fp, msg.encode()?)?;
+        Ok(())
     }
 
     /// Album art for `PhoneMedia::art_key`: a JPEG or PNG of at most 64 KB.
@@ -1468,6 +1611,89 @@ mod tests {
         phone.clear_transfers().unwrap();
         assert!(phone.transfers().is_empty());
         assert!(path.exists(), "clearing the list keeps the file");
+        phone.shutdown();
+        rt.block_on(laptop.shutdown());
+    }
+
+    /// SMS as the Android app drives it: snapshot and updates go to the computer, its
+    /// send and history requests come back as events, and the answers return.
+    #[test]
+    fn sms_call_sequence() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut cfg = NodeConfig::new("Kubuntu", None, "127.0.0.1:0".parse().unwrap());
+        cfg.capabilities.push(CAP_SMS.into());
+        let (laptop, mut lrx) = rt.block_on(Node::start(cfg)).unwrap();
+        let uri = laptop
+            .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
+            .to_uri();
+        let dir = tempfile::tempdir().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let phone = PhoneLink::start(
+            dir.path().to_string_lossy().into(),
+            "Galaxy S24 FE".into(),
+            Arc::new(Collect(Mutex::new(tx))),
+            Arc::new(Paths),
+        )
+        .unwrap();
+        phone.pair(uri).unwrap();
+        wait(&rx, |e| matches!(e, LinkEvent::Connected { .. }));
+        let sms = |id: u64, from_me: bool, body: &str, date_ms: u64| PhoneSms {
+            id,
+            from_me,
+            body: body.into(),
+            date_ms,
+            state: if from_me { "sent" } else { "received" }.into(),
+            read: true,
+        };
+        // 35 messages in one conversation: only the newest 30 go, with "has older".
+        let many: Vec<PhoneSms> = (0..35).rev().map(|i| sms(i, i % 2 == 0, &format!("m{i}"), 1000 + i)).collect();
+        let threads = vec![
+            PhoneSmsThread { id: 3, address: "+919800004410".into(), name: "Mom".into(), messages: many, has_older: false },
+            PhoneSmsThread { id: 4, address: "AX-HDFCBK".into(), name: "AX-HDFCBK".into(), messages: vec![sms(90, false, "debited", 50)], has_older: false },
+        ];
+        assert_eq!(phone.sms_snapshot(threads).unwrap(), 1);
+        let got: Vec<AppMessage> = rt.block_on(async {
+            let mut v = vec![];
+            while v.len() < 3 {
+                if let Some(Event::Message { body, .. }) = lrx.recv().await {
+                    v.push(AppMessage::decode(&body));
+                }
+            }
+            v
+        });
+        assert_eq!(got[0], AppMessage::SmsSnapshot { threads: vec![3, 4] });
+        let AppMessage::SmsThreadUpdate(t) = &got[1] else { panic!("{:?}", got[1]) };
+        assert_eq!((t.messages.len(), t.has_older), (30, true));
+        assert_eq!(t.messages.first().unwrap().body, "m5", "oldest first, newest 30 kept");
+
+        // The computer asks to send, and for older messages.
+        let phone_fp = laptop.peers()[0].fingerprint;
+        for m in [
+            AppMessage::SmsSend { client_id: "c9".into(), thread: 3, address: "+919800004410".into(), body: "On my way".into() },
+            AppMessage::SmsLoadOlder { thread: 3, before_ms: 1005 },
+        ] {
+            laptop.send(&phone_fp, m.encode().unwrap()).unwrap();
+        }
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::SmsSendRequested { .. }));
+        let LinkEvent::SmsSendRequested { id, client_id, address, body, .. } = ev else { unreachable!() };
+        assert_eq!((client_id.as_str(), address.as_str(), body.as_str()), ("c9", "+919800004410", "On my way"));
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::SmsOlderRequested { .. }));
+        assert!(matches!(ev, LinkEvent::SmsOlderRequested { thread: 3, before_ms: 1005, .. }));
+
+        phone.sms_send_result(id.clone(), "c9".into(), false, "No service".into()).unwrap();
+        phone.sms_older(id, 3, vec![sms(2, false, "m2", 1002), sms(1, true, "m1", 1001)], true).unwrap();
+        let got: Vec<AppMessage> = rt.block_on(async {
+            let mut v = vec![];
+            while v.len() < 2 {
+                if let Some(Event::Message { body, .. }) = lrx.recv().await {
+                    v.push(AppMessage::decode(&body));
+                }
+            }
+            v
+        });
+        assert!(matches!(&got[0], AppMessage::SmsSendResult { state: SmsState::Failed, message, .. } if message == "No service"));
+        let AppMessage::SmsOlder { messages, has_older: true, .. } = &got[1] else { panic!("{:?}", got[1]) };
+        assert_eq!(messages.iter().map(|m| m.id).collect::<Vec<_>>(), vec![1, 2], "oldest first");
         phone.shutdown();
         rt.block_on(laptop.shutdown());
     }

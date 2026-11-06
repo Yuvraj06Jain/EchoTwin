@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 pub use crate::media::MediaInfo;
+pub use crate::sms::{SmsMessageView, SmsThreadView};
+pub use phonelink_core::SmsState;
 pub use crate::notifications::{AppInfo, NotificationInfo};
 pub use phonelink_core::transfer::{Direction, TransferState};
 pub use phonelink_core::MediaAction;
@@ -111,6 +113,21 @@ pub enum Request {
         #[serde(default)]
         reveal: bool,
     },
+    /// SMS conversations from the phone(s), most recent first.
+    SmsThreads,
+    /// Send an SMS in a conversation (`thread` from `SmsThreads`).
+    SendSms {
+        thread: String,
+        text: String,
+    },
+    /// Mark a conversation read on this computer.
+    SmsMarkRead {
+        thread: String,
+    },
+    /// Ask the phone for older messages of a conversation.
+    SmsLoadOlder {
+        thread: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -184,6 +201,16 @@ pub enum WatchEvent {
     TransferChanged {
         item: TransferView,
     },
+    /// Conversations changed (`thread`: just that one): ask `SmsThreads`.
+    SmsChanged {
+        thread: Option<String>,
+    },
+    /// What happened to an SMS sent from here.
+    SmsSendResult {
+        client_id: String,
+        state: SmsState,
+        error: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -220,6 +247,12 @@ pub enum Reply {
     },
     FilesQueued {
         ids: Vec<String>,
+    },
+    SmsThreads {
+        threads: Vec<SmsThreadView>,
+    },
+    SmsQueued {
+        client_id: String,
     },
     Devices {
         devices: Vec<DeviceInfo>,

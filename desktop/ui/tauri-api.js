@@ -34,6 +34,22 @@
   }
 
   const listeners = { event: [], daemon: [], pairing: [], open: [], drop: [] };
+  const SMS_STATUS = { sent: 'sent', sending: 'sending', failed: 'failed' };
+  const toThread = (t) => ({
+    id: t.id,
+    name: t.name || t.address,
+    number: t.address,
+    unread: t.unread,
+    hasOlder: t.has_older,
+    messages: t.messages.map((m) => ({
+      id: m.id,
+      from: m.from_me ? 'me' : 'them',
+      text: m.body,
+      time: m.date_ms,
+      status: SMS_STATUS[m.state],
+      error: m.error || '',
+    })),
+  });
   const toTransfer = (t) => ({
     id: t.id,
     name: t.name,
@@ -84,10 +100,6 @@
     lastSeen: null,
   });
 
-  const notYet = (what) => async () => {
-    throw new Error(`${what} is not available yet`);
-  };
-
   window.PhoneLinkAPI = {
     // What the phone and service can do today. The UI hides or explains the rest.
     capabilities: {
@@ -95,8 +107,7 @@
       notificationMirroring: true,
       syncDismissals: true,
       notificationButtons: true,
-      sms: false,
-      files: false,
+      sms: true,
       clipboard: true,
       files: true,
       lockFromPhone: true,
@@ -163,10 +174,19 @@
     },
 
     async threads() {
-      return [];
+      return (await invoke('sms_threads')).map(toThread);
     },
-    async markRead() {},
-    sendSms: notYet('SMS'),
+    async markRead(threadId) {
+      await invoke('sms_mark_read', { thread: threadId });
+    },
+    // The phone sends it; the result arrives later as an event (sms_send_result).
+    async sendSms(threadId, text) {
+      const id = await invoke('send_sms', { thread: threadId, text });
+      return { id, from: 'me', text, time: Date.now(), status: 'sending' };
+    },
+    async loadOlder(threadId) {
+      await invoke('sms_load_older', { thread: threadId });
+    },
 
     async transfers() {
       return (await invoke('transfers')).map(toTransfer);

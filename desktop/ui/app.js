@@ -557,7 +557,7 @@
       (t) => !q || t.name.toLowerCase().includes(q) || t.messages.some((m) => m.text.toLowerCase().includes(q)),
     );
     if (!list.length) {
-      el.threadList.innerHTML = `<li class="thread-empty">${q ? `No conversations match “${esc(state.threadSearch.trim())}”` : 'No conversations yet'}</li>`;
+      el.threadList.innerHTML = `<li class="thread-empty">${q ? `No conversations match “${esc(state.threadSearch.trim())}”` : `No conversations yet.${caps.preview ? '' : ' On your phone, open PhoneLink and allow SMS access.'}`}</li>`;
       return;
     }
     el.threadList.innerHTML = list
@@ -592,7 +592,9 @@
     el.convHeader.innerHTML = `<span class="avatar" style="--c:${colorFor(t.name)}" aria-hidden="true">${esc(initial(t.name))}</span>
       <div class="conv-title"><strong title="${esc(t.name)}">${esc(t.name)}</strong><span>${esc(t.number)}</span></div>`;
 
-    let html = '';
+    let html = t.hasOlder && api.loadOlder
+      ? '<div class="load-older"><button type="button" class="link-btn" data-action="load-older">Load earlier messages</button></div>'
+      : '';
     let lastDay = '';
     const msgs = t.messages;
     msgs.forEach((m, i) => {
@@ -610,16 +612,20 @@
         if (m.from === 'me') {
           meta += {
             sending: ' · Sending…',
+            sent: ' · Sent',
             delivered: ' · Delivered',
             queued: ' · Queued until your phone reconnects',
-            failed: ' · Not sent',
+            failed: ` · Not sent${m.error ? `: ${m.error}` : ''}`,
           }[m.status] || '';
         }
         html += `<div class="bubble-meta ${m.from} tnum">${esc(meta)}</div>`;
       }
     });
+    // Loading earlier messages keeps your place; anything else shows the newest.
+    const keep = state.keepScroll ? el.convScroll.scrollHeight - el.convScroll.scrollTop : null;
+    state.keepScroll = false;
     el.convScroll.innerHTML = html;
-    el.convScroll.scrollTop = el.convScroll.scrollHeight;
+    el.convScroll.scrollTop = keep === null ? el.convScroll.scrollHeight : el.convScroll.scrollHeight - keep;
     el.composerInput.placeholder = `Text ${t.name}`;
     updateComposer();
   }
@@ -796,6 +802,25 @@
     renderConversation();
     markActiveRead();
     if (!el.composerInput.disabled) el.composerInput.focus();
+  }
+
+  let threadsSeq = 0;
+  /** Conversations changed on the phone (new message, sent, older ones loaded). */
+  async function refreshThreads() {
+    if (!caps.sms) return;
+    const seq = ++threadsSeq;
+    const threads = await api.threads();
+    if (seq !== threadsSeq) return; // a newer refresh is on its way
+    state.threads = threads;
+    if (!threads.some((t) => t.id === state.activeThread)) {
+      state.activeThread = threads.length ? sortedThreads()[0].id : null;
+    }
+    const typing = document.activeElement === el.composerInput;
+    renderThreads();
+    renderConversation();
+    renderTabs();
+    if (state.tab === 'messages') markActiveRead();
+    if (typing) el.composerInput.focus();
   }
 
   async function sendSms() {
@@ -1161,6 +1186,11 @@
     if (ev.kind === 'locked_by_phone') return undefined;
     if (ev.kind === 'media_changed') return refreshMedia();
     if (ev.kind === 'transfer_changed') return ev.item && upsertTransfer(ev.item);
+    if (ev.kind === 'sms_changed') return refreshThreads();
+    if (ev.kind === 'sms_send_result') {
+      if (ev.state === 'failed') toast(`Message not sent: ${ev.error || 'the phone could not send it'}`);
+      return refreshThreads();
+    }
     if (ev.kind === 'app_icon') {
       if (api.appIcons) {
         api.appIcons().then((icons) => {
@@ -1337,6 +1367,14 @@
         if (t && RUNNING.includes(t.state)) upsertTransfer({ ...t, state: 'cancelled', message: 'Cancelled' });
         el.tabs.files.focus();
         return t && toast(`Cancelled “${t.name}”`);
+      }
+      case 'load-older': {
+        const t = activeThread();
+        if (!t) return undefined;
+        a.disabled = true;
+        a.textContent = 'Loading…';
+        state.keepScroll = true;
+        return api.loadOlder(t.id);
       }
       case 'open-transfer':
         return api.openTransfer(id, false);

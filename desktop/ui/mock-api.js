@@ -40,7 +40,7 @@
     ],
     threads: [
       {
-        id: 't1', name: 'Mom', number: '+91 98xxxx4410', unread: 1,
+        id: 't1', name: 'Mom', number: '+91 98xxxx4410', unread: 1, hasOlder: true,
         messages: [
           { id: 'm1', from: 'them', text: 'Did you reach the hostel?', time: ago(60 * 26) },
           { id: 'm2', from: 'me', text: 'Yes, reached at 9. Train was late.', time: ago(60 * 26 - 3), status: 'delivered' },
@@ -261,6 +261,17 @@
     async threads() {
       await wait(60);
       return clone(db.threads);
+    },
+    async loadOlder(threadId) {
+      await wait(200);
+      const t = db.threads.find((x) => x.id === threadId);
+      if (!t || !t.hasOlder) return;
+      t.messages.unshift(
+        { id: nextId('m'), from: 'me', text: 'Leaving for the station now', time: ago(60 * 30), status: 'delivered' },
+        { id: nextId('m'), from: 'them', text: 'Text me when the train starts', time: ago(60 * 29) },
+      );
+      t.hasOlder = false;
+      emit({ kind: 'sms_changed', thread: threadId });
     },
     async markRead(threadId) {
       const t = db.threads.find((x) => x.id === threadId);

@@ -179,6 +179,12 @@ fn print_event(e: &WatchEvent) {
         }
         WatchEvent::LockedByPhone { id, name } => println!("lock          {id}  {name} asked to lock"),
         WatchEvent::MediaChanged { id } => println!("media         {id}  playing state changed"),
+        WatchEvent::SmsChanged { thread } => {
+            println!("sms           {}", thread.as_deref().unwrap_or("conversations changed"))
+        }
+        WatchEvent::SmsSendResult { client_id, state, error } => {
+            println!("sms sent      {client_id}  {state:?} {error}")
+        }
         WatchEvent::TransferChanged { item } => println!(
             "file          {}  {} {} ({})",
             item.device,

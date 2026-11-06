@@ -243,6 +243,32 @@ async fn open_transfer(id: String, reveal: bool) -> Result<(), String> {
     expect_done(Request::OpenTransfer { id, reveal }).await
 }
 
+#[tauri::command]
+async fn sms_threads() -> Result<Vec<phonelink_desktop::ipc::SmsThreadView>, String> {
+    match request(Request::SmsThreads).await? {
+        Reply::SmsThreads { threads } => Ok(threads),
+        r => Err(unexpected(r)),
+    }
+}
+
+#[tauri::command]
+async fn send_sms(thread: String, text: String) -> Result<String, String> {
+    match request(Request::SendSms { thread, text }).await? {
+        Reply::SmsQueued { client_id } => Ok(client_id),
+        r => Err(unexpected(r)),
+    }
+}
+
+#[tauri::command]
+async fn sms_mark_read(thread: String) -> Result<(), String> {
+    expect_done(Request::SmsMarkRead { thread }).await
+}
+
+#[tauri::command]
+async fn sms_load_older(thread: String) -> Result<(), String> {
+    expect_done(Request::SmsLoadOlder { thread }).await
+}
+
 async fn expect_done(req: Request) -> Result<(), String> {
     match request(req).await? {
         Reply::Done => Ok(()),
@@ -530,6 +556,10 @@ fn main() {
             set_app_muted,
             media,
             media_control,
+            sms_threads,
+            send_sms,
+            sms_mark_read,
+            sms_load_older,
             transfers,
             send_files,
             pick_files,

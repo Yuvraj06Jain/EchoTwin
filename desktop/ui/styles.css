@@ -291,6 +291,8 @@ body.in-app:not(.maximized) .resize-handle { display: block; }
   .device-panel.has-media .phone-art { display: none; }
 }
 
+.load-older { display: flex; justify-content: center; padding: 4px 0 10px; }
+
 .files-head { display: flex; align-items: baseline; justify-content: space-between; }
 .transfer-side { display: flex; gap: 6px; align-items: center; }
 .transfer.failed .transfer-meta { color: var(--danger); }

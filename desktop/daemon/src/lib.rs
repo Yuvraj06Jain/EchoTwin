@@ -16,3 +16,4 @@ pub mod notifications;
 pub mod open;
 pub mod paths;
 pub mod popups;
+pub mod sms;

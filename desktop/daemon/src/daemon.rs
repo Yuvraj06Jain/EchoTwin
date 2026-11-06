@@ -21,7 +21,7 @@ use phonelink_core::{
         MAX_NOTIFICATION_TEXT,
     },
     AppMessage, Event, Fingerprint, Node, NodeConfig, PeerRecord, CAP_CLIPBOARD, CAP_LOCK,
-    CAP_MEDIA, CAP_NOTIFICATIONS,
+    CAP_MEDIA, CAP_NOTIFICATIONS, CAP_SMS,
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -36,6 +36,7 @@ use crate::{
     config::Config,
     lock::Buses,
     media::MediaStore,
+    sms::SmsStore,
     ipc::{DeviceInfo, Reply, Request, TransferView, WatchEvent},
     netaddrs,
     notifications::{self, Effect, NotificationInfo, PopupCmd, Popups, Store},
@@ -86,6 +87,7 @@ struct State {
     buses: Buses,
     media: Mutex<MediaStore>,
     transfers: Transfers,
+    sms: Mutex<SmsStore>,
 }
 
 /// Run until `shutdown` resolves.
@@ -130,6 +132,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         buses: opts.buses.clone(),
         media: Mutex::new(MediaStore::default()),
         transfers,
+        sms: Mutex::new(SmsStore::default()),
     });
     info!(
         name = %opts.config.device_name(),
@@ -187,7 +190,8 @@ async fn start_node(
     ] {
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
         cfg.capabilities.extend(
-            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, CAP_MEDIA, CAP_FILES].map(String::from),
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, CAP_MEDIA, CAP_FILES, CAP_SMS]
+                .map(String::from),
         );
         match Node::start(cfg).await {
             Ok(x) => return Ok(x),
@@ -472,6 +476,56 @@ impl State {
         }
     }
 
+    /// `<device id>/<thread>` → (device, thread).
+    fn sms_thread(&self, key: &str) -> Option<(Fingerprint, u64)> {
+        self.node
+            .peers()
+            .iter()
+            .find_map(|p| crate::sms::parse_key(&p.fingerprint, key).map(|t| (p.fingerprint, t)))
+    }
+
+    /// Ask the phone to send an SMS now. Not queued: a text sent hours later, when the
+    /// phone happens to reconnect, would be a surprise.
+    fn send_sms(&self, thread: &str, text: &str) -> Result<String, String> {
+        let text = text.trim_end();
+        if text.trim().is_empty() {
+            return Err("the message is empty".into());
+        }
+        if text.len() > phonelink_core::message::SMS_MAX_BODY {
+            return Err("the message is too long".into());
+        }
+        let (fp, id) = self.sms_thread(thread).ok_or("no such conversation")?;
+        if !self.node.is_connected(&fp) {
+            return Err(format!("{} is not connected; the message was not sent", self.name_of(&fp)));
+        }
+        if !self.connected_with(CAP_SMS).contains(&fp) {
+            return Err(format!("update PhoneLink on {} to send SMS", self.name_of(&fp)));
+        }
+        let address = lock(&self.sms).address(&fp, id).unwrap_or_default();
+        if address.is_empty() {
+            return Err("this conversation has no number to send to".into());
+        }
+        if address.contains(',') || address.contains(';') {
+            return Err("group messages can't be sent from the computer yet".into());
+        }
+        let client_id: String = phonelink_core::MsgId::random().0[..8].iter().map(|b| format!("{b:02x}")).collect();
+        lock(&self.sms).add_pending(fp, id, client_id.clone(), text.to_string(), now_ms());
+        let msg = AppMessage::SmsSend {
+            client_id: client_id.clone(),
+            thread: id,
+            address,
+            body: text.to_string(),
+        };
+        if let Err(e) = self.to_phone(&fp, msg) {
+            lock(&self.sms).send_result(&fp, &client_id, phonelink_core::SmsState::Failed, &e);
+            return Err(e);
+        }
+        self.broadcast(WatchEvent::SmsChanged {
+            thread: Some(thread.to_string()),
+        });
+        Ok(client_id)
+    }
+
     fn transfer_view(&self, t: &TransferInfo) -> TransferView {
         TransferView {
             id: t.id.clone(),
@@ -676,6 +730,42 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     state.transfers.on_message(&peer, &msg);
                     continue;
                 }
+                AppMessage::SmsSnapshot { threads } => {
+                    lock(&state.sms).snapshot(peer, &threads);
+                    WatchEvent::SmsChanged { thread: None }
+                }
+                AppMessage::SmsThreadUpdate(t) => {
+                    let key = crate::sms::thread_key(&peer, t.id);
+                    lock(&state.sms).update(peer, t);
+                    WatchEvent::SmsChanged { thread: Some(key) }
+                }
+                AppMessage::SmsOlder {
+                    thread,
+                    messages,
+                    has_older,
+                } => {
+                    lock(&state.sms).older(peer, thread, messages, has_older);
+                    WatchEvent::SmsChanged {
+                        thread: Some(crate::sms::thread_key(&peer, thread)),
+                    }
+                }
+                AppMessage::SmsSendResult {
+                    client_id,
+                    state: sms_state,
+                    message,
+                } => {
+                    let thread = lock(&state.sms).send_result(&peer, &client_id, sms_state, &message);
+                    state.broadcast(WatchEvent::SmsChanged {
+                        thread: thread.map(|t| crate::sms::thread_key(&peer, t)),
+                    });
+                    WatchEvent::SmsSendResult {
+                        client_id,
+                        state: sms_state,
+                        error: message,
+                    }
+                }
+                // Only ever computer → phone.
+                AppMessage::SmsLoadOlder { .. } | AppMessage::SmsSend { .. } => continue,
                 AppMessage::Text { text } => {
                     let name = state.name_of(&peer);
                     state.status_popup(
@@ -1049,6 +1139,50 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                 };
                 write_reply(&mut w, &reply).await?;
             }
+            Request::SmsThreads => {
+                let threads = {
+                    let sms = lock(&state.sms);
+                    state.node.peers().iter().flat_map(|p| sms.view(&p.fingerprint)).collect()
+                };
+                write_reply(&mut w, &Reply::SmsThreads { threads }).await?;
+            }
+            Request::SendSms { thread, text } => {
+                let reply = match state.send_sms(&thread, &text) {
+                    Ok(client_id) => Reply::SmsQueued { client_id },
+                    Err(message) => Reply::Error { message },
+                };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::SmsMarkRead { thread } => {
+                let reply = match state.sms_thread(&thread) {
+                    Some((fp, id)) => {
+                        lock(&state.sms).mark_read(&fp, id, now_ms());
+                        Reply::Done
+                    }
+                    None => Reply::Error {
+                        message: "no such conversation".into(),
+                    },
+                };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::SmsLoadOlder { thread } => {
+                let reply = match state.sms_thread(&thread) {
+                    Some((fp, id)) if state.connected_with(CAP_SMS).contains(&fp) => {
+                        let before_ms = lock(&state.sms).oldest(&fp, id).unwrap_or(u64::MAX);
+                        match state.to_phone(&fp, AppMessage::SmsLoadOlder { thread: id, before_ms }) {
+                            Ok(_) => Reply::Done,
+                            Err(message) => Reply::Error { message },
+                        }
+                    }
+                    Some((fp, _)) => Reply::Error {
+                        message: format!("{} is not connected", state.name_of(&fp)),
+                    },
+                    None => Reply::Error {
+                        message: "no such conversation".into(),
+                    },
+                };
+                write_reply(&mut w, &reply).await?;
+            }
             Request::Reconnect => {
                 info!("reconnect requested");
                 state.node.nudge();
@@ -1206,6 +1340,7 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                             lock(&state.store).forget_device(&p.fingerprint);
                             lock(&state.media).forget(&p.fingerprint);
                             state.transfers.forget_peer(&p.fingerprint);
+                            lock(&state.sms).forget(&p.fingerprint);
                             state.broadcast(WatchEvent::NotificationsChanged);
                             Reply::Done
                         }

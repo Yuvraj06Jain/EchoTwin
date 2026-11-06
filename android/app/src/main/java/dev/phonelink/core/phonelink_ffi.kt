@@ -763,6 +763,14 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_shutdown(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_sms_older(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_sms_send_result(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_sms_snapshot(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_sms_thread_update(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_start_discovery(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_stop_discovery(
@@ -857,6 +865,14 @@ internal object UniffiLib {
     ): Byte
     external fun uniffi_phonelink_ffi_fn_method_phonelink_shutdown(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_sms_older(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`thread`: Long,`messages`: RustBuffer.ByValue,`hasOlder`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_sms_send_result(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`clientId`: RustBuffer.ByValue,`sent`: Byte,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_sms_snapshot(`ptr`: Long,`threads`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_sms_thread_update(`ptr`: Long,`thread`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
     external fun uniffi_phonelink_ffi_fn_method_phonelink_start_discovery(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_stop_discovery(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1048,6 +1064,18 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_shutdown() and 0xFFFF) != 7840) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_sms_older() and 0xFFFF) != 64866) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_sms_send_result() and 0xFFFF) != 7699) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_sms_snapshot() and 0xFFFF) != 59034) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_sms_thread_update() and 0xFFFF) != 6275) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_start_discovery() and 0xFFFF) != 36363) {
@@ -2289,6 +2317,27 @@ public interface PhoneLinkInterface {
     fun `shutdown`()
     
     /**
+     * The answer to `SmsOlderRequested`.
+     */
+    fun `smsOlder`(`deviceId`: kotlin.String, `thread`: kotlin.ULong, `messages`: List<PhoneSms>, `hasOlder`: kotlin.Boolean)
+    
+    /**
+     * How an `SmsSendRequested` went.
+     */
+    fun `smsSendResult`(`deviceId`: kotlin.String, `clientId`: kotlin.String, `sent`: kotlin.Boolean, `message`: kotlin.String)
+    
+    /**
+     * All conversations (most recent first), for computers that just connected. Not queued
+     * for computers that are offline: they get a fresh one when they connect.
+     */
+    fun `smsSnapshot`(`threads`: List<PhoneSmsThread>): kotlin.UInt
+    
+    /**
+     * One conversation changed (a message arrived or was sent).
+     */
+    fun `smsThreadUpdate`(`thread`: PhoneSmsThread): kotlin.UInt
+    
+    /**
      * Start browsing the LAN for paired laptops. On Android, hold a
      * `WifiManager.MulticastLock` while this runs, or multicast packets are dropped.
      */
@@ -2758,6 +2807,83 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
 }
     }
     
+    
+
+    
+    /**
+     * The answer to `SmsOlderRequested`.
+     */
+    @Throws(LinkException::class)override fun `smsOlder`(`deviceId`: kotlin.String, `thread`: kotlin.ULong, `messages`: List<PhoneSms>, `hasOlder`: kotlin.Boolean)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_sms_older(
+        it,
+        
+        FfiConverterString.lower(`deviceId`),
+        FfiConverterULong.lower(`thread`),
+        FfiConverterSequenceTypePhoneSms.lower(`messages`),
+        FfiConverterBoolean.lower(`hasOlder`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * How an `SmsSendRequested` went.
+     */
+    @Throws(LinkException::class)override fun `smsSendResult`(`deviceId`: kotlin.String, `clientId`: kotlin.String, `sent`: kotlin.Boolean, `message`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_sms_send_result(
+        it,
+        
+        FfiConverterString.lower(`deviceId`),
+        FfiConverterString.lower(`clientId`),
+        FfiConverterBoolean.lower(`sent`),
+        FfiConverterString.lower(`message`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * All conversations (most recent first), for computers that just connected. Not queued
+     * for computers that are offline: they get a fresh one when they connect.
+     */
+    @Throws(LinkException::class)override fun `smsSnapshot`(`threads`: List<PhoneSmsThread>): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_sms_snapshot(
+        it,
+        
+        FfiConverterSequenceTypePhoneSmsThread.lower(`threads`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * One conversation changed (a message arrived or was sent).
+     */
+    @Throws(LinkException::class)override fun `smsThreadUpdate`(`thread`: PhoneSmsThread): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_sms_thread_update(
+        it,
+        
+        FfiConverterTypePhoneSmsThread.lower(`thread`),_status)
+}
+    }
+    )
+    }
     
 
     
@@ -3253,6 +3379,126 @@ public object FfiConverterTypePhoneMedia: FfiConverterRustBuffer<PhoneMedia> {
 
 
 
+/**
+ * One SMS read from the phone's message store.
+ */
+data class PhoneSms (
+    var `id`: kotlin.ULong
+    , 
+    var `fromMe`: kotlin.Boolean
+    , 
+    var `body`: kotlin.String
+    , 
+    var `dateMs`: kotlin.ULong
+    , 
+    /**
+     * received | sent | sending | failed
+     */
+    var `state`: kotlin.String
+    , 
+    var `read`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePhoneSms: FfiConverterRustBuffer<PhoneSms> {
+    override fun read(buf: ByteBuffer): PhoneSms {
+        return PhoneSms(
+            FfiConverterULong.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PhoneSms) = (
+            FfiConverterULong.allocationSize(value.`id`) +
+            FfiConverterBoolean.allocationSize(value.`fromMe`) +
+            FfiConverterString.allocationSize(value.`body`) +
+            FfiConverterULong.allocationSize(value.`dateMs`) +
+            FfiConverterString.allocationSize(value.`state`) +
+            FfiConverterBoolean.allocationSize(value.`read`)
+    )
+
+    override fun write(value: PhoneSms, buf: ByteBuffer) {
+            FfiConverterULong.write(value.`id`, buf)
+            FfiConverterBoolean.write(value.`fromMe`, buf)
+            FfiConverterString.write(value.`body`, buf)
+            FfiConverterULong.write(value.`dateMs`, buf)
+            FfiConverterString.write(value.`state`, buf)
+            FfiConverterBoolean.write(value.`read`, buf)
+    }
+}
+
+
+
+/**
+ * One conversation with its most recent messages (oldest first).
+ */
+data class PhoneSmsThread (
+    var `id`: kotlin.ULong
+    , 
+    var `address`: kotlin.String
+    , 
+    var `name`: kotlin.String
+    , 
+    var `messages`: List<PhoneSms>
+    , 
+    var `hasOlder`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePhoneSmsThread: FfiConverterRustBuffer<PhoneSmsThread> {
+    override fun read(buf: ByteBuffer): PhoneSmsThread {
+        return PhoneSmsThread(
+            FfiConverterULong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterSequenceTypePhoneSms.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PhoneSmsThread) = (
+            FfiConverterULong.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`address`) +
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterSequenceTypePhoneSms.allocationSize(value.`messages`) +
+            FfiConverterBoolean.allocationSize(value.`hasOlder`)
+    )
+
+    override fun write(value: PhoneSmsThread, buf: ByteBuffer) {
+            FfiConverterULong.write(value.`id`, buf)
+            FfiConverterString.write(value.`address`, buf)
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterSequenceTypePhoneSms.write(value.`messages`, buf)
+            FfiConverterBoolean.write(value.`hasOlder`, buf)
+    }
+}
+
+
+
 
 
 sealed class LinkException(message: String): kotlin.Exception(message) {
@@ -3407,6 +3653,36 @@ sealed class LinkEvent {
     }
     
     /**
+     * The computer asks to send an SMS (now; reply with `sms_send_result`).
+     */
+    data class SmsSendRequested(
+        val `id`: kotlin.String, 
+        val `clientId`: kotlin.String, 
+        val `thread`: kotlin.ULong, 
+        val `address`: kotlin.String, 
+        val `body`: kotlin.String) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * The computer wants older messages of a conversation (reply with `sms_older`).
+     */
+    data class SmsOlderRequested(
+        val `id`: kotlin.String, 
+        val `thread`: kotlin.ULong, 
+        val `beforeMs`: kotlin.ULong) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
      * A file transfer started, progressed (at most a few times a second) or finished.
      */
     data class TransferChanged(
@@ -3490,10 +3766,22 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.read(buf),
                 FfiConverterTypeMediaCommand.read(buf),
                 )
-            10 -> LinkEvent.TransferChanged(
+            10 -> LinkEvent.SmsSendRequested(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterULong.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                )
+            11 -> LinkEvent.SmsOlderRequested(
+                FfiConverterString.read(buf),
+                FfiConverterULong.read(buf),
+                FfiConverterULong.read(buf),
+                )
+            12 -> LinkEvent.TransferChanged(
                 FfiConverterTypeFileTransfer.read(buf),
                 )
-            11 -> LinkEvent.RequestResult(
+            13 -> LinkEvent.RequestResult(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
@@ -3581,6 +3869,26 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 + FfiConverterTypeMediaCommand.allocationSize(value.`command`)
             )
         }
+        is LinkEvent.SmsSendRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterString.allocationSize(value.`clientId`)
+                + FfiConverterULong.allocationSize(value.`thread`)
+                + FfiConverterString.allocationSize(value.`address`)
+                + FfiConverterString.allocationSize(value.`body`)
+            )
+        }
+        is LinkEvent.SmsOlderRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterULong.allocationSize(value.`thread`)
+                + FfiConverterULong.allocationSize(value.`beforeMs`)
+            )
+        }
         is LinkEvent.TransferChanged -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
@@ -3661,13 +3969,29 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterTypeMediaCommand.write(value.`command`, buf)
                 Unit
             }
-            is LinkEvent.TransferChanged -> {
+            is LinkEvent.SmsSendRequested -> {
                 buf.putInt(10)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterString.write(value.`clientId`, buf)
+                FfiConverterULong.write(value.`thread`, buf)
+                FfiConverterString.write(value.`address`, buf)
+                FfiConverterString.write(value.`body`, buf)
+                Unit
+            }
+            is LinkEvent.SmsOlderRequested -> {
+                buf.putInt(11)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterULong.write(value.`thread`, buf)
+                FfiConverterULong.write(value.`beforeMs`, buf)
+                Unit
+            }
+            is LinkEvent.TransferChanged -> {
+                buf.putInt(12)
                 FfiConverterTypeFileTransfer.write(value.`transfer`, buf)
                 Unit
             }
             is LinkEvent.RequestResult -> {
-                buf.putInt(11)
+                buf.putInt(13)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`key`, buf)
@@ -3985,6 +4309,62 @@ public object FfiConverterSequenceTypeMirroredNotification: FfiConverterRustBuff
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeMirroredNotification.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypePhoneSms: FfiConverterRustBuffer<List<PhoneSms>> {
+    override fun read(buf: ByteBuffer): List<PhoneSms> {
+        val len = buf.getInt()
+        return List<PhoneSms>(len) {
+            FfiConverterTypePhoneSms.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<PhoneSms>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypePhoneSms.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<PhoneSms>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypePhoneSms.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypePhoneSmsThread: FfiConverterRustBuffer<List<PhoneSmsThread>> {
+    override fun read(buf: ByteBuffer): List<PhoneSmsThread> {
+        val len = buf.getInt()
+        return List<PhoneSmsThread>(len) {
+            FfiConverterTypePhoneSmsThread.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<PhoneSmsThread>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypePhoneSmsThread.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<PhoneSmsThread>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypePhoneSmsThread.write(it, buf)
         }
     }
 }

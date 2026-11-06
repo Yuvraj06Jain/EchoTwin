@@ -21,6 +21,14 @@ pub const CAP_MEDIA: &str = "media/1";
 /// Largest album-art image sent (JPEG or PNG, bytes).
 pub const MAX_ART_BYTES: usize = 64 * 1024;
 
+/// SMS conversations from the phone, and sending SMS from the computer.
+pub const CAP_SMS: &str = "sms/1";
+/// Conversations the phone shares (most recent first) and messages per conversation.
+pub const SMS_MAX_THREADS: usize = 30;
+pub const SMS_MAX_MESSAGES: usize = 30;
+/// Longest SMS text carried (bytes); longer ones are cut with "…".
+pub const SMS_MAX_BODY: usize = 4000;
+
 /// Longest clipboard text sent (bytes). Longer copies are not sent at all: a cut-off
 /// paste would be worse than none.
 pub const MAX_CLIPBOARD_TEXT: usize = 64 * 1024;
@@ -75,6 +83,43 @@ pub struct NowPlaying {
     pub max_volume: u32,
     /// Identifies the album art sent in `MediaArt`; empty when there is none.
     pub art_key: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SmsState {
+    Received,
+    Sent,
+    /// Still being sent by the phone.
+    Sending,
+    Failed,
+}
+
+/// One SMS as stored on the phone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SmsMessage {
+    /// The phone's message id (unique per phone).
+    pub id: u64,
+    pub from_me: bool,
+    pub body: String,
+    pub date_ms: u64,
+    pub state: SmsState,
+    /// Read on the phone.
+    pub read: bool,
+}
+
+/// One conversation, with its most recent messages (oldest first).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SmsThread {
+    /// The phone's thread id.
+    pub id: u64,
+    /// The other side's number(s), comma-separated for a group.
+    pub address: String,
+    /// Contact name, or the number.
+    pub name: String,
+    pub messages: Vec<SmsMessage>,
+    /// There are older messages on the phone than those included.
+    pub has_older: bool,
 }
 
 /// A button pressed on the computer for the phone's player.
@@ -170,6 +215,39 @@ pub enum AppMessage {
     /// Stop transfer `id` (hex): the sender or the receiver cancelled it.
     FileCancel {
         id: String,
+    },
+
+    // ---- sms/1
+    /// Phone → computer, on connect: the conversations that exist (newest first). Each is
+    /// then sent as an `SmsThreadUpdate`; conversations not listed are gone.
+    SmsSnapshot {
+        threads: Vec<u64>,
+    },
+    /// Phone → computer: a conversation and its latest messages (new message, sent, read).
+    SmsThreadUpdate(SmsThread),
+    /// Computer → phone: older messages of `thread`, before `before_ms`.
+    SmsLoadOlder {
+        thread: u64,
+        before_ms: u64,
+    },
+    /// Phone → computer: the answer to `SmsLoadOlder` (oldest first).
+    SmsOlder {
+        thread: u64,
+        messages: Vec<SmsMessage>,
+        has_older: bool,
+    },
+    /// Computer → phone: send an SMS in `thread` (to `address`).
+    SmsSend {
+        client_id: String,
+        thread: u64,
+        address: String,
+        body: String,
+    },
+    /// Phone → computer: what happened to an `SmsSend`.
+    SmsSendResult {
+        client_id: String,
+        state: SmsState,
+        message: String,
     },
 }
 
@@ -336,6 +414,63 @@ mod tests {
         // The JSON form used by the computer's control socket.
         assert_eq!(serde_json::to_string(&MediaAction::PlayPause).unwrap(), "\"play_pause\"");
         assert_eq!(serde_json::to_string(&MediaAction::SetVolume(4)).unwrap(), "{\"set_volume\":4}");
+    }
+
+    #[test]
+    fn sms_messages_roundtrip() {
+        let msg = SmsMessage {
+            id: 41,
+            from_me: false,
+            body: "Your OTP is 123456 ✓".into(),
+            date_ms: 1_762_350_000_000,
+            state: SmsState::Received,
+            read: false,
+        };
+        let thread = SmsThread {
+            id: 7,
+            address: "+919800000000".into(),
+            name: "Mom".into(),
+            messages: vec![msg.clone()],
+            has_older: true,
+        };
+        for m in [
+            AppMessage::SmsSnapshot { threads: vec![7, 3] },
+            AppMessage::SmsThreadUpdate(thread),
+            AppMessage::SmsLoadOlder { thread: 7, before_ms: 5 },
+            AppMessage::SmsOlder { thread: 7, messages: vec![msg], has_older: false },
+            AppMessage::SmsSend {
+                client_id: "c1".into(),
+                thread: 7,
+                address: "+919800000000".into(),
+                body: "Calling you in 5".into(),
+            },
+            AppMessage::SmsSendResult {
+                client_id: "c1".into(),
+                state: SmsState::Sent,
+                message: String::new(),
+            },
+        ] {
+            assert_eq!(AppMessage::decode(&m.encode().unwrap()), m);
+        }
+        assert_eq!(AppMessage::SmsSnapshot { threads: vec![] }.encode().unwrap()[0], 16);
+        // A full conversation fits in one message.
+        let big = SmsThread {
+            id: 1,
+            address: "x".into(),
+            name: "x".into(),
+            messages: (0..SMS_MAX_MESSAGES as u64)
+                .map(|i| SmsMessage {
+                    id: i,
+                    from_me: i % 2 == 0,
+                    body: "é".repeat(SMS_MAX_BODY / 2),
+                    date_ms: i,
+                    state: SmsState::Sent,
+                    read: true,
+                })
+                .collect(),
+            has_older: false,
+        };
+        assert!(AppMessage::SmsThreadUpdate(big).encode().unwrap().len() < crate::wire::MAX_BODY_LEN);
     }
 
     #[test]

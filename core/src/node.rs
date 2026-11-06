@@ -6,6 +6,11 @@
 //! 3. Both sides exchange capabilities, then flush their durable outbox to each other.
 //! 4. `Deliver`/`Ack` until the connection drops; [`Node::maintain`] then reconnects with
 //!    backoff and the outbox resends whatever was not acknowledged.
+//!
+//! A session can also run over a byte stream the app supplies (the Bluetooth backup link):
+//! [`Node::connect_stream`] / [`Node::accept_stream`] do mutual TLS 1.3 with the same pinned
+//! keys, then the same Hello/Deliver/Ack protocol. One session per peer: QUIC always wins,
+//! and a QUIC connection that comes back replaces a running stream session.
 
 use std::{
     collections::HashMap,
@@ -18,13 +23,15 @@ use std::{
     time::Duration,
 };
 
-use quinn::{Connection, Endpoint, RecvStream, SendStream, VarInt};
-use rustls::crypto::CryptoProvider;
+use quinn::{Connection, Endpoint, SendStream, VarInt};
+use rustls::{crypto::CryptoProvider, pki_types::ServerName};
 use tokio::{
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt},
     sync::{mpsc, watch},
     task::JoinHandle,
     time::timeout,
 };
+use tokio_rustls::{TlsAcceptor, TlsConnector};
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -59,6 +66,13 @@ const SEEN_RETENTION_SECS: u64 = 60 * 60 * 24 * 30;
 /// Undelivered messages are given up after a week (well inside SEEN_RETENTION_SECS, so a
 /// late delivery can still never be a duplicate).
 const PENDING_RETENTION_SECS: u64 = 60 * 60 * 24 * 7;
+/// Byte-stream links (Bluetooth) are slower to set up than QUIC on a LAN.
+const STREAM_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
+const STREAM_FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(10);
+/// A stream link has no transport keep-alive of its own: ping when idle, and give up on a
+/// link that has been silent for a while (out of range, socket wedged).
+pub const STREAM_PING_EVERY: Duration = Duration::from_secs(10);
+pub const STREAM_SILENCE_LIMIT: Duration = Duration::from_secs(35);
 
 #[derive(Clone, Debug)]
 pub struct NodeConfig {
@@ -69,6 +83,10 @@ pub struct NodeConfig {
     pub capabilities: Vec<String>,
     /// Finding a peer whose address changed without help from discovery.
     pub probe: ProbeConfig,
+    /// Keep-alive on stream (Bluetooth) links: ping this often when idle…
+    pub stream_ping_every: Duration,
+    /// …and drop a link that has been silent this long.
+    pub stream_silence_limit: Duration,
 }
 
 /// How [`Node::maintain`] looks for a peer whose remembered addresses stopped working.
@@ -112,8 +130,87 @@ impl NodeConfig {
             bind,
             capabilities: vec![CAP_MESSAGES.to_string()],
             probe: ProbeConfig::default(),
+            stream_ping_every: STREAM_PING_EVERY,
+            stream_silence_limit: STREAM_SILENCE_LIMIT,
         }
     }
+}
+
+/// Which kind of link carries a session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Transport {
+    /// QUIC over IP: Wi-Fi, a hotspot, Ethernet. Preferred whenever it works.
+    Quic,
+    /// TLS over a byte stream the app supplied: the Bluetooth backup link.
+    Stream,
+}
+
+/// A live link to a peer. Closing it ends the session's tasks, which drops the stream.
+#[derive(Clone)]
+enum Link {
+    Quic(Connection),
+    Stream(Arc<watch::Sender<bool>>),
+}
+
+impl Link {
+    fn new_stream() -> Self {
+        Link::Stream(Arc::new(watch::channel(false).0))
+    }
+
+    fn transport(&self) -> Transport {
+        match self {
+            Link::Quic(_) => Transport::Quic,
+            Link::Stream(_) => Transport::Stream,
+        }
+    }
+
+    fn is_open(&self) -> bool {
+        match self {
+            Link::Quic(c) => c.close_reason().is_none(),
+            Link::Stream(closed) => !*closed.borrow(),
+        }
+    }
+
+    fn close(&self, code: u32, reason: &'static [u8]) {
+        match self {
+            Link::Quic(c) => c.close(VarInt::from_u32(code), reason),
+            Link::Stream(closed) => {
+                closed.send_replace(true);
+            }
+        }
+    }
+
+    async fn closed(&self) {
+        match self {
+            Link::Quic(c) => {
+                c.closed().await;
+            }
+            Link::Stream(closed) => {
+                let mut rx = closed.subscribe();
+                let _ = rx.wait_for(|v| *v).await;
+            }
+        }
+    }
+
+    fn remote_addr(&self) -> Option<SocketAddr> {
+        match self {
+            Link::Quic(c) => Some(c.remote_address()),
+            Link::Stream(_) => None,
+        }
+    }
+}
+
+/// `AA:BB:CC:DD:EE:FF`, upper-case hex. Anything else from a peer is ignored.
+pub fn valid_bluetooth_addr(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 17
+        && b.iter().enumerate().all(|(i, c)| {
+            if i % 3 == 2 {
+                *c == b':'
+            } else {
+                c.is_ascii_digit() || (b'A'..=b'F').contains(c)
+            }
+        })
 }
 
 #[derive(Debug, Clone)]
@@ -122,11 +219,14 @@ pub enum Event {
         peer: Fingerprint,
         name: String,
     },
+    /// Also sent when an existing session moves to another link (Bluetooth → Wi-Fi).
     PeerConnected {
         peer: Fingerprint,
         name: String,
         capabilities: Vec<String>,
-        addr: SocketAddr,
+        /// `None` for a stream link.
+        addr: Option<SocketAddr>,
+        transport: Transport,
     },
     PeerDisconnected {
         peer: Fingerprint,
@@ -141,7 +241,7 @@ pub enum Event {
 
 struct SessionHandle {
     id: u64,
-    conn: Connection,
+    link: Link,
     tx: mpsc::UnboundedSender<Control>,
     we_dialed: bool,
 }
@@ -167,6 +267,8 @@ struct Inner {
     /// the reconnect loop) could both connect, and the second connection would replace
     /// the first: a needless disconnect/reconnect blip.
     dial_locks: Mutex<HashMap<Fingerprint, Arc<tokio::sync::Mutex<()>>>>,
+    /// The `Links` frame sent to every peer after `Hello` (`None`: not set, send nothing).
+    links: Mutex<Option<Control>>,
 }
 
 #[derive(Clone)]
@@ -222,6 +324,7 @@ impl Node {
                 addr_hints: Mutex::new(HashMap::new()),
                 nudge: watch::channel(0).0,
                 dial_locks: Mutex::new(HashMap::new()),
+                links: Mutex::new(None),
             }),
         };
         info!(fingerprint = %node.fingerprint().short(), addr = ?node.local_addr(), "node started");
@@ -250,9 +353,15 @@ impl Node {
     }
 
     pub fn is_connected(&self, fp: &Fingerprint) -> bool {
+        self.transport(fp).is_some()
+    }
+
+    /// The link the session with `fp` currently runs on, if connected.
+    pub fn transport(&self, fp: &Fingerprint) -> Option<Transport> {
         self.sessions()
             .get(fp)
-            .is_some_and(|s| s.conn.close_reason().is_none())
+            .filter(|s| s.link.is_open())
+            .map(|s| s.link.transport())
     }
 
     pub fn pending_count(&self, fp: &Fingerprint) -> Result<usize> {
@@ -353,6 +462,7 @@ impl Node {
                     pair_key: pairing::derive_pair_key(&offer.secret, &me, &offer.fingerprint),
                     paired_at: util::now_unix(),
                     last_addrs: vec![addr],
+                    bluetooth: None,
                 };
                 self.inner.gate.trust().upsert(rec.clone())?;
                 info!(peer = %rec.fingerprint.short(), name = %rec.name, "paired");
@@ -366,7 +476,7 @@ impl Node {
                 Err(Error::PairingRejected(reason))
             }
             // Window closed/expired: the laptop refused our certificate during the handshake.
-            Ok(_) | Err(Error::Read(_)) | Err(Error::Connection(_)) => Err(Error::PairingRejected(
+            Ok(_) | Err(Error::Io(_)) | Err(Error::Connection(_)) => Err(Error::PairingRejected(
                 "the code expired or was already used".into(),
             )),
             Err(e) => Err(e),
@@ -410,6 +520,7 @@ impl Node {
             pair_key: pairing::derive_pair_key(&secret, &client, &me),
             paired_at: util::now_unix(),
             last_addrs: vec![conn.remote_address()],
+            bluetooth: None,
         };
         if let Err(e) = self.inner.gate.trust().upsert(rec.clone()) {
             warn!("could not save paired device: {e}");
@@ -430,11 +541,21 @@ impl Node {
         let _ = timeout(Duration::from_secs(3), conn.closed()).await;
     }
 
+    /// Drop the current session with `fp` (if any). A [`Node::maintain`] loop reconnects.
+    pub fn disconnect(&self, fp: &Fingerprint) -> bool {
+        match self.sessions().get(fp) {
+            Some(s) if s.link.is_open() => {
+                s.link.close(close_code::NORMAL, b"disconnect");
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub fn unpair(&self, fp: &Fingerprint) -> Result<bool> {
         let removed = self.inner.gate.trust().remove(fp)?;
         if let Some(s) = self.sessions().remove(fp) {
-            s.conn
-                .close(VarInt::from_u32(close_code::UNPAIRED), b"unpaired");
+            s.link.close(close_code::UNPAIRED, b"unpaired");
         }
         self.inner.outbox.forget_peer(fp)?;
         Ok(removed)
@@ -460,11 +581,12 @@ impl Node {
 
     /// Dial all `addrs` in parallel and keep the first that completes the handshake.
     /// A dead address (laptop moved, old Wi-Fi) therefore never delays a live one.
+    /// No-op if already connected over QUIC; a Bluetooth session is replaced on success.
     pub async fn connect_any(&self, peer: Fingerprint, addrs: Vec<SocketAddr>) -> Result<()> {
         if !self.inner.gate.is_trusted(&peer) {
             return Err(Error::NotPaired);
         }
-        if self.is_connected(&peer) {
+        if self.transport(&peer) == Some(Transport::Quic) {
             return Ok(());
         }
         let lock = self
@@ -476,7 +598,7 @@ impl Node {
             .or_default()
             .clone();
         let _dialing = lock.lock().await;
-        if self.is_connected(&peer) {
+        if self.transport(&peer) == Some(Transport::Quic) {
             return Ok(()); // another caller connected while we waited
         }
         if addrs.is_empty() {
@@ -532,7 +654,7 @@ impl Node {
                     )));
                 }
                 self.start_session(
-                    conn,
+                    Link::Quic(conn),
                     peer,
                     send,
                     recv,
@@ -616,7 +738,7 @@ impl Node {
                     return;
                 }
                 self.start_session(
-                    conn,
+                    Link::Quic(conn),
                     peer,
                     send,
                     recv,
@@ -635,71 +757,109 @@ impl Node {
         }
     }
 
-    fn start_session(
+    /// Install a session on `link`. Returns false if an existing session was kept instead
+    /// (then `link` is closed and the halves are dropped).
+    fn start_session<R, W>(
         &self,
-        conn: Connection,
+        link: Link,
         peer: Fingerprint,
-        mut send: SendStream,
-        mut recv: RecvStream,
+        mut send: W,
+        mut recv: R,
         we_dialed: bool,
         hello: PeerHello,
-    ) {
+    ) -> bool
+    where
+        R: AsyncRead + Unpin + Send + 'static,
+        W: AsyncWrite + Unpin + Send + 'static,
+    {
         let id = self.inner.next_session.fetch_add(1, Ordering::Relaxed);
         let (tx, mut rx) = mpsc::unbounded_channel::<Control>();
+        let transport = link.transport();
         {
             let mut sessions = self.sessions();
             if let Some(existing) = sessions.get(&peer) {
-                if existing.conn.close_reason().is_none() {
-                    // Both sides may dial each other at the same moment. Both apply the same
-                    // rule, so they keep the same connection: the one dialed by the lower
-                    // fingerprint. A newer connection from the same dialer replaces the old one
-                    // (e.g. the phone changed networks).
-                    let keep_new =
-                        existing.we_dialed == we_dialed || we_dialed == (self.fingerprint() < peer);
+                if existing.link.is_open() {
+                    let keep_new = match (existing.link.transport(), transport) {
+                        // Wi-Fi is faster: it always wins over the Bluetooth backup.
+                        (Transport::Quic, Transport::Stream) => false,
+                        (Transport::Stream, Transport::Quic) => true,
+                        // Both sides may dial each other at the same moment. Both apply the
+                        // same rule, so they keep the same connection: the one dialed by the
+                        // lower fingerprint. A newer connection from the same dialer replaces
+                        // the old one (e.g. the phone changed networks).
+                        _ => {
+                            existing.we_dialed == we_dialed
+                                || we_dialed == (self.fingerprint() < peer)
+                        }
+                    };
                     if !keep_new {
-                        debug!(peer = %peer.short(), "dropping duplicate connection");
-                        return conn.close(VarInt::from_u32(close_code::REPLACED), b"duplicate");
+                        debug!(peer = %peer.short(), ?transport, "dropping duplicate connection");
+                        link.close(close_code::REPLACED, b"duplicate");
+                        return false;
                     }
-                    existing
-                        .conn
-                        .close(VarInt::from_u32(close_code::REPLACED), b"replaced");
+                    existing.link.close(close_code::REPLACED, b"replaced");
                 }
             }
             sessions.insert(
                 peer,
                 SessionHandle {
                     id,
-                    conn: conn.clone(),
+                    link: link.clone(),
                     tx: tx.clone(),
                     we_dialed,
                 },
             );
         }
 
-        let addr = conn.remote_address();
-        if let Err(e) = self.inner.gate.trust().remember_addr(&peer, addr) {
-            debug!("could not persist peer address: {e}");
+        let addr = link.remote_addr();
+        if let Some(addr) = addr {
+            if let Err(e) = self.inner.gate.trust().remember_addr(&peer, addr) {
+                debug!("could not persist peer address: {e}");
+            }
         }
         let capabilities: Vec<String> = hello
             .capabilities
             .into_iter()
             .filter(|c| self.inner.config.capabilities.contains(c))
             .collect();
-        info!(peer = %peer.short(), %addr, version = hello.version.min(PROTOCOL_VERSION), "connected");
+        info!(peer = %peer.short(), ?addr, ?transport, version = hello.version.min(PROTOCOL_VERSION), "connected");
         self.emit(Event::PeerConnected {
             peer,
             name: util::sanitize_name(&hello.name),
             capabilities,
             addr,
+            transport,
         });
 
+        let keepalive = transport == Transport::Stream;
+        let (ping_every, silence_limit) = (
+            self.inner.config.stream_ping_every,
+            self.inner.config.stream_silence_limit,
+        );
+        let writer_link = link.clone();
         tokio::spawn(async move {
-            while let Some(msg) = rx.recv().await {
-                if wire::write_frame(&mut send, &msg).await.is_err() {
+            let mut ping = tokio::time::interval(ping_every);
+            ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            ping.reset();
+            loop {
+                let msg = tokio::select! {
+                    m = rx.recv() => match m {
+                        Some(m) => m,
+                        None => break,
+                    },
+                    _ = ping.tick(), if keepalive => Control::Ping,
+                    _ = writer_link.closed() => break,
+                };
+                // A stalled link must not wedge this task: closing the link frees it.
+                let written = tokio::select! {
+                    r = wire::write_frame(&mut send, &msg) => r.is_ok(),
+                    _ = writer_link.closed() => false,
+                };
+                if !written {
                     break;
                 }
             }
-            let _ = send.finish();
+            let _ = timeout(Duration::from_secs(2), send.shutdown()).await;
         });
 
         match self.inner.outbox.pending(&peer) {
@@ -710,11 +870,27 @@ impl Node {
             }
             Err(e) => warn!("could not read outbox: {e}"),
         }
+        if let Some(links) = self.links_frame() {
+            let _ = tx.send(links);
+        }
 
         let node = self.clone();
         tokio::spawn(async move {
             loop {
-                match wire::read_frame(&mut recv).await {
+                let next = async {
+                    if keepalive {
+                        timeout(silence_limit, wire::read_frame(&mut recv))
+                            .await
+                            .unwrap_or(Err(Error::Timeout))
+                    } else {
+                        wire::read_frame(&mut recv).await
+                    }
+                };
+                let frame = tokio::select! {
+                    f = next => f,
+                    _ = link.closed() => break,
+                };
+                match frame {
                     Ok(Some(Frame::Known(Control::Deliver { id: msg, body }))) => {
                         match node.inner.outbox.first_seen(&peer, &msg) {
                             Ok(true) => node.emit(Event::Message {
@@ -736,24 +912,29 @@ impl Node {
                             warn!("could not clear acked message: {e}");
                         }
                     }
+                    Ok(Some(Frame::Known(Control::Ping))) => {}
+                    Ok(Some(Frame::Known(Control::Links { bluetooth }))) => {
+                        node.peer_links(&peer, bluetooth)
+                    }
                     Ok(Some(Frame::Known(other))) => debug!("ignoring unexpected {other:?}"),
                     Ok(Some(Frame::Unknown)) => {
                         debug!("skipping frame from a newer protocol version")
                     }
                     Ok(None) => break,
                     Err(e) => {
-                        debug!(peer = %peer.short(), "session ended: {e}");
+                        debug!(peer = %peer.short(), ?transport, "session ended: {e}");
                         break;
                     }
                 }
             }
             drop(tx);
-            node.end_session(peer, id, &conn);
+            node.end_session(peer, id, &link);
         });
+        true
     }
 
-    fn end_session(&self, peer: Fingerprint, id: u64, conn: &Connection) {
-        conn.close(VarInt::from_u32(close_code::NORMAL), b"");
+    fn end_session(&self, peer: Fingerprint, id: u64, link: &Link) {
+        link.close(close_code::NORMAL, b"");
         let removed = {
             let mut sessions = self.sessions();
             if sessions.get(&peer).is_some_and(|s| s.id == id) {
@@ -766,6 +947,158 @@ impl Node {
         if removed {
             info!(peer = %peer.short(), "disconnected");
             self.emit(Event::PeerDisconnected { peer });
+        }
+    }
+
+    // ---------------------------------------------------------------- stream links
+
+    /// Run a session with the paired `peer` over a byte stream this app opened itself (the
+    /// phone's Bluetooth socket to the laptop). Mutual TLS 1.3 with the same pinned keys as
+    /// QUIC, then the same protocol. Returns once the session is up; it ends when the stream
+    /// ends, or when a QUIC connection to the same peer takes over.
+    pub async fn connect_stream<S>(&self, peer: Fingerprint, io: S) -> Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
+        if !self.inner.gate.is_trusted(&peer) {
+            return Err(Error::NotPaired);
+        }
+        if self.transport(&peer) == Some(Transport::Quic) {
+            return Err(Error::Protocol("already connected over the network".into()));
+        }
+        let cfg = tls::stream_client_config(&self.inner.identity, peer, self.inner.provider.clone())?;
+        let server = ServerName::try_from(tls::SERVER_NAME)
+            .map_err(|e| Error::Protocol(e.to_string()))?;
+        let tls = timeout(
+            STREAM_HANDSHAKE_TIMEOUT,
+            TlsConnector::from(cfg).connect(server, io),
+        )
+        .await
+        .map_err(|_| Error::Timeout)??;
+        let (mut recv, mut send) = tokio::io::split(tls);
+        let reply = timeout(STREAM_FIRST_FRAME_TIMEOUT, async {
+            wire::write_frame(&mut send, &self.hello()).await?;
+            wire::read_frame(&mut recv).await
+        })
+        .await
+        .map_err(|_| Error::Timeout)??;
+        let hello = match reply {
+            Some(Frame::Known(Control::Hello {
+                version,
+                name,
+                capabilities,
+            })) if version >= MIN_PROTOCOL_VERSION => PeerHello {
+                version,
+                name,
+                capabilities,
+            },
+            Some(Frame::Known(Control::Reject { reason })) => return Err(Error::Protocol(reason)),
+            _ => return Err(Error::Protocol("peer did not answer hello".into())),
+        };
+        if self.start_session(Link::new_stream(), peer, send, recv, true, hello) {
+            Ok(())
+        } else {
+            Err(Error::Protocol("already connected over the network".into()))
+        }
+    }
+
+    /// Serve one incoming byte-stream link (the laptop's Bluetooth server). Only paired
+    /// devices get through the TLS handshake, and pairing is never possible over this link.
+    /// Returns the peer once its session is up.
+    pub async fn accept_stream<S>(&self, io: S) -> Result<Fingerprint>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
+        let Some(permit) = self.inner.limiter.try_permit() else {
+            return Err(Error::Protocol("too many handshakes in progress".into()));
+        };
+        let cfg = tls::stream_server_config(
+            &self.inner.identity,
+            self.inner.gate.clone(),
+            self.inner.provider.clone(),
+        )?;
+        let tls = timeout(STREAM_HANDSHAKE_TIMEOUT, TlsAcceptor::from(cfg).accept(io))
+            .await
+            .map_err(|_| Error::Timeout)??;
+        let peer = tls
+            .get_ref()
+            .1
+            .peer_certificates()
+            .and_then(|c| c.first())
+            .map(|c| Fingerprint::of(c))
+            .ok_or_else(|| Error::Protocol("no client certificate".into()))?;
+        if !self.inner.gate.is_trusted(&peer) {
+            return Err(Error::NotPaired);
+        }
+        let (mut recv, mut send) = tokio::io::split(tls);
+        let first = timeout(STREAM_FIRST_FRAME_TIMEOUT, wire::read_frame(&mut recv))
+            .await
+            .map_err(|_| Error::Timeout)??;
+        let hello = match first {
+            Some(Frame::Known(Control::Hello {
+                version,
+                name,
+                capabilities,
+            })) => {
+                if version < MIN_PROTOCOL_VERSION {
+                    let reject = Control::Reject {
+                        reason: "protocol too old".into(),
+                    };
+                    let _ = wire::write_frame(&mut send, &reject).await;
+                    return Err(Error::Protocol(format!("peer speaks protocol {version}")));
+                }
+                PeerHello {
+                    version,
+                    name,
+                    capabilities,
+                }
+            }
+            _ => return Err(Error::Protocol("expected hello".into())),
+        };
+        wire::write_frame(&mut send, &self.hello()).await?;
+        drop(permit);
+        if self.start_session(Link::new_stream(), peer, send, recv, false, hello) {
+            Ok(peer)
+        } else {
+            Err(Error::Protocol("already connected over the network".into()))
+        }
+    }
+
+    /// Tell every peer (now and on each new session) how to reach this device over
+    /// Bluetooth. `None` tells them the backup is off.
+    pub fn set_bluetooth_address(&self, addr: Option<String>) {
+        let addr = addr
+            .map(|a| a.to_ascii_uppercase())
+            .filter(|a| valid_bluetooth_addr(a));
+        let frame = Control::Links { bluetooth: addr };
+        {
+            let mut cur = self.inner.links.lock().unwrap_or_else(|e| e.into_inner());
+            if cur.as_ref() == Some(&frame) {
+                return;
+            }
+            *cur = Some(frame.clone());
+        }
+        for s in self.sessions().values() {
+            let _ = s.tx.send(frame.clone());
+        }
+    }
+
+    fn links_frame(&self) -> Option<Control> {
+        self.inner
+            .links
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    fn peer_links(&self, peer: &Fingerprint, bluetooth: Option<String>) {
+        let bluetooth = match bluetooth {
+            Some(a) if valid_bluetooth_addr(&a) => Some(a),
+            Some(_) => return debug!("ignoring malformed Bluetooth address"),
+            None => None,
+        };
+        if let Err(e) = self.inner.gate.trust().set_bluetooth(peer, bluetooth) {
+            warn!("could not save peer's Bluetooth address: {e}");
         }
     }
 
@@ -861,18 +1194,28 @@ impl Node {
                     return;
                 }
                 let Some(rec) = node.peer(&peer) else { return }; // unpaired
-                let existing = node.sessions().get(&peer).map(|s| s.conn.clone());
-                if let Some(conn) = existing.filter(|c| c.close_reason().is_none()) {
-                    backoff = BACKOFF_MIN;
-                    failures = 0;
-                    last_probe = None;
-                    offline_since = None;
-                    tokio::select! {
-                        _ = conn.closed() => continue,
-                        _ = shutdown.changed() => return,
+                let existing = node.sessions().get(&peer).map(|s| s.link.clone());
+                // On the Bluetooth backup we stay connected but keep trying to get back
+                // onto the network; the QUIC session then replaces the backup.
+                let on_backup = match existing.filter(|l| l.is_open()) {
+                    Some(link) if link.transport() == Transport::Quic => {
+                        backoff = BACKOFF_MIN;
+                        failures = 0;
+                        last_probe = None;
+                        offline_since = None;
+                        tokio::select! {
+                            _ = link.closed() => continue,
+                            _ = shutdown.changed() => return,
+                        }
                     }
+                    Some(_) => true,
+                    None => false,
+                };
+                if on_backup {
+                    offline_since = None;
+                } else {
+                    offline_since.get_or_insert_with(std::time::Instant::now);
                 }
-                offline_since.get_or_insert_with(std::time::Instant::now);
                 nudges.borrow_and_update();
                 let addrs = node.reconnect_candidates(
                     &rec,
@@ -886,7 +1229,9 @@ impl Node {
                 tokio::select! {
                     res = node.connect_any(peer, addrs) => match res {
                         Ok(()) => {
-                            if failures > 0 {
+                            if on_backup {
+                                info!(peer = %peer.short(), "back on the network; leaving the Bluetooth backup");
+                            } else if failures > 0 {
                                 info!(peer = %peer.short(), "reconnected");
                             }
                             backoff = BACKOFF_MIN;
@@ -896,7 +1241,7 @@ impl Node {
                         Err(e) => {
                             failures += 1;
                             debug!(peer = %peer.short(), "reconnect attempt failed: {e}");
-                            if last_log.is_none_or(|t| t.elapsed() >= OFFLINE_LOG_INTERVAL) {
+                            if !on_backup && last_log.is_none_or(|t| t.elapsed() >= OFFLINE_LOG_INTERVAL) {
                                 last_log = Some(std::time::Instant::now());
                                 let mins = offline_since.map(|t| t.elapsed().as_secs() / 60).unwrap_or(0);
                                 info!(
@@ -985,9 +1330,9 @@ impl Node {
     /// Close all connections and stop listening.
     pub async fn shutdown(&self) {
         let _ = self.inner.shutdown.send(true);
-        let sessions: Vec<_> = self.sessions().drain().map(|(_, s)| s.conn).collect();
-        for c in sessions {
-            c.close(VarInt::from_u32(close_code::SHUTDOWN), b"shutdown");
+        let sessions: Vec<_> = self.sessions().drain().map(|(_, s)| s.link).collect();
+        for l in sessions {
+            l.close(close_code::SHUTDOWN, b"shutdown");
         }
         self.inner
             .endpoint

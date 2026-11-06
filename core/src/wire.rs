@@ -1,4 +1,4 @@
-//! Framing on QUIC streams: `[u32 big-endian length][postcard payload]`.
+//! Framing on byte streams (QUIC streams, or TLS over Bluetooth): `[u32 big-endian length][postcard payload]`.
 //!
 //! Compatibility rules (append-only):
 //! * New `Control` variants are only ever appended. An older peer that receives an
@@ -11,6 +11,7 @@
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::{Error, Result};
 
@@ -61,6 +62,14 @@ pub enum Control {
     Reject {
         reason: String,
     },
+    /// Keep-alive on byte-stream links (QUIC has its own). Ignored on receipt.
+    Ping,
+    /// The sender's other ways to be reached, sent after `Hello` (laptop → phone).
+    /// `bluetooth`: the adapter address ("AA:BB:CC:DD:EE:FF") for the backup link, or
+    /// `None` when the backup is switched off.
+    Links {
+        bluetooth: Option<String>,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -89,13 +98,15 @@ pub fn decode(payload: &[u8]) -> Frame {
 }
 
 /// `Ok(None)` on a clean end of stream at a frame boundary.
-pub async fn read_frame(recv: &mut quinn::RecvStream) -> Result<Option<Frame>> {
+///
+/// Works on any byte stream: a QUIC stream, or TLS over a Bluetooth socket.
+pub async fn read_frame<R: AsyncRead + Unpin + ?Sized>(recv: &mut R) -> Result<Option<Frame>> {
     let mut len = [0u8; 4];
-    match recv.read_exact(&mut len).await {
-        Ok(()) => {}
-        Err(quinn::ReadExactError::FinishedEarly(0)) => return Ok(None),
-        Err(e) => return Err(e.into()),
+    // The first byte decides between "clean end" and "cut off mid-frame".
+    if recv.read(&mut len[..1]).await? == 0 {
+        return Ok(None);
     }
+    recv.read_exact(&mut len[1..]).await?;
     let n = u32::from_be_bytes(len) as usize;
     if n > MAX_FRAME_LEN {
         return Err(Error::Protocol(format!("frame of {n} bytes exceeds limit")));
@@ -105,8 +116,10 @@ pub async fn read_frame(recv: &mut quinn::RecvStream) -> Result<Option<Frame>> {
     Ok(Some(decode(&buf)))
 }
 
-pub async fn write_frame(send: &mut quinn::SendStream, msg: &Control) -> Result<()> {
+/// Writes one frame and flushes it (TLS streams buffer until flushed).
+pub async fn write_frame<W: AsyncWrite + Unpin + ?Sized>(send: &mut W, msg: &Control) -> Result<()> {
     send.write_all(&encode(msg)?).await?;
+    send.flush().await?;
     Ok(())
 }
 
@@ -143,5 +156,38 @@ mod tests {
             decode(&bytes),
             Frame::Known(Control::Ack { id: MsgId([7; 16]) })
         );
+    }
+
+    #[tokio::test]
+    async fn frames_over_a_byte_stream_with_clean_and_dirty_ends() {
+        let (mut a, mut b) = tokio::io::duplex(64);
+        let msgs = [
+            Control::Ping,
+            Control::Links {
+                bluetooth: Some("AA:BB:CC:DD:EE:FF".into()),
+            },
+            Control::Ack { id: MsgId([1; 16]) },
+        ];
+        let sent = msgs.clone();
+        let w = tokio::spawn(async move {
+            for m in &sent {
+                write_frame(&mut a, m).await.unwrap();
+            }
+            // dropping `a` = clean end at a frame boundary
+        });
+        for m in msgs {
+            assert_eq!(read_frame(&mut b).await.unwrap(), Some(Frame::Known(m)));
+        }
+        w.await.unwrap();
+        assert_eq!(read_frame(&mut b).await.unwrap(), None);
+
+        // Cut off in the middle of a frame: an error, not a clean end.
+        let (mut a, mut b) = tokio::io::duplex(64);
+        let bytes = encode(&Control::Ping).unwrap();
+        tokio::io::AsyncWriteExt::write_all(&mut a, &bytes[..bytes.len() - 1])
+            .await
+            .unwrap();
+        drop(a);
+        assert!(read_frame(&mut b).await.is_err());
     }
 }

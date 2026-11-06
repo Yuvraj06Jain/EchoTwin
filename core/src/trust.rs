@@ -26,6 +26,10 @@ pub struct PeerRecord {
     /// Most recent first.
     #[serde(default)]
     pub last_addrs: Vec<SocketAddr>,
+    /// The peer's Bluetooth adapter address for the backup link, as it told us over an
+    /// authenticated session. `None`: unknown, or the peer has the backup switched off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bluetooth: Option<String>,
 }
 
 impl fmt::Debug for PeerRecord {
@@ -35,6 +39,7 @@ impl fmt::Debug for PeerRecord {
             .field("name", &self.name)
             .field("paired_at", &self.paired_at)
             .field("last_addrs", &self.last_addrs)
+            .field("bluetooth", &self.bluetooth)
             .finish_non_exhaustive()
     }
 }
@@ -107,6 +112,17 @@ impl TrustStore {
         rec.last_addrs.retain(|a| *a != addr);
         rec.last_addrs.insert(0, addr);
         rec.last_addrs.truncate(MAX_REMEMBERED_ADDRS);
+        self.save()
+    }
+
+    pub fn set_bluetooth(&mut self, fp: &Fingerprint, addr: Option<String>) -> Result<()> {
+        let Some(rec) = self.peers.get_mut(fp) else {
+            return Ok(());
+        };
+        if rec.bluetooth == addr {
+            return Ok(());
+        }
+        rec.bluetooth = addr;
         self.save()
     }
 
@@ -235,6 +251,7 @@ mod tests {
             pair_key: [n; 32],
             paired_at: 1,
             last_addrs: vec![],
+            bluetooth: None,
         }
     }
 

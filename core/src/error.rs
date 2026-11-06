@@ -20,10 +20,6 @@ pub enum Error {
     Connect(#[from] quinn::ConnectError),
     #[error("connection: {0}")]
     Connection(#[from] quinn::ConnectionError),
-    #[error("stream write: {0}")]
-    Write(#[from] quinn::WriteError),
-    #[error("stream read: {0}")]
-    Read(#[from] quinn::ReadExactError),
     #[error("invalid pairing code: {0}")]
     BadOffer(String),
     #[error("pairing rejected: {0}")]

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Fail if the built APK asks for any permission outside this allow-list.
-# Microphone, location, contacts, storage etc. are never allowed. Camera is only used for
-# the pairing scan (and handed back afterwards; see MainActivity.giveUpCamera).
+# Microphone, location, storage, Bluetooth scanning etc. are never allowed. Camera is only
+# used for the pairing scan (and handed back afterwards; see MainActivity.giveUpCamera).
+# SMS and contacts are asked for only when the user taps "Allow SMS access".
 set -euo pipefail
 APK="${1:?usage: audit-apk-permissions.sh app.apk}"
 BT="$(ls -d "${ANDROID_HOME:?}"/build-tools/* | sort -V | tail -1)"
@@ -17,6 +18,9 @@ android.permission.RECEIVE_BOOT_COMPLETED
 android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
 android.permission.POST_NOTIFICATIONS
 android.permission.CAMERA
+android.permission.READ_SMS
+android.permission.SEND_SMS
+android.permission.READ_CONTACTS
 dev.phonelink.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
 "
 

@@ -76,6 +76,19 @@ class MainActivity : ComponentActivity() {
     }
     private val askNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
+    private var smsOn by mutableStateOf(true)
+
+    private val askSms = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        smsOn = SmsSync.canRead()
+        if (smsOn) {
+            SmsSync.start()
+            LinkManager.sendSmsSnapshot()
+            notice = "Your SMS conversations now show on your computer"
+        } else {
+            notice = "SMS access not allowed. If Android says it's restricted, allow restricted settings in App info first."
+        }
+    }
+
     /** The system file picker; the permission to read the files is kept so sends can resume. */
     private val pickFiles = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isEmpty()) return@registerForActivityResult
@@ -127,6 +140,8 @@ class MainActivity : ComponentActivity() {
                         transfers = transfers,
                         onSendFiles = { pickFiles.launch(arrayOf("*/*")) },
                         onCancelTransfer = { LinkManager.cancelTransfer(it) },
+                        smsOn = smsOn,
+                        onAllowSms = { askSms.launch(SmsSync.permissions) },
                     )
                     pendingPair?.let { (uri, code) ->
                         ConfirmPairDialog(
@@ -145,6 +160,7 @@ class MainActivity : ComponentActivity() {
         batteryOk = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
         mirrorOn = LinkManager.mirrorEnabled(this)
         clipboardOn = Prefs.clipboardSharing(this)
+        smsOn = SmsSync.canRead()
         lifecycleScope.launch(Dispatchers.IO) { runCatching { LinkManager.link() }; LinkManager.refresh() }
         LinkManager.nudge() // opening the app = "connect now", no waiting for the next retry
     }
@@ -282,6 +298,8 @@ private fun HomeScreen(
     transfers: List<dev.phonelink.core.FileTransfer>,
     onSendFiles: () -> Unit,
     onCancelTransfer: (String) -> Unit,
+    smsOn: Boolean,
+    onAllowSms: () -> Unit,
 ) {
     var draft by remember { mutableStateOf("") }
     var confirmUnpair by remember { mutableStateOf<Device?>(null) }
@@ -312,6 +330,21 @@ private fun HomeScreen(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         OutlinedButton(onClick = onOpenAppInfo) { Text("Open App info") }
+                    }
+                }
+            }
+        }
+
+        if (devices.isNotEmpty() && !smsOn) {
+            item {
+                Card {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Read and send SMS from your computer", fontWeight = FontWeight.Bold)
+                        Text(
+                            "Allow PhoneLink to read SMS, send SMS and see contact names. Conversations go only to " +
+                                "your paired computer, encrypted, and are not stored there. RCS chats can't be shown."
+                        )
+                        Button(onClick = onAllowSms) { Text("Allow SMS access") }
                     }
                 }
             }

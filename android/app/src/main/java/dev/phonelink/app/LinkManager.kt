@@ -51,6 +51,7 @@ object LinkManager {
     fun init(context: Context) {
         app = context.applicationContext
         FileShare.init(app)
+        SmsSync.init(app)
     }
 
     private fun dataDir(context: Context) = File(context.filesDir, "phonelink")
@@ -66,6 +67,25 @@ object LinkManager {
         refresh()
         io.execute { runCatching { FileShare.publishLeftovers(started.transfers()) } }
         return started
+    }
+
+    // ------------------------------------------------------------------ SMS
+
+    /** All conversations, for computers that just connected (or after access was granted). */
+    fun sendSmsSnapshot() = onIo { if (SmsSync.canRead()) it.smsSnapshot(SmsSync.snapshot()) }
+
+    /** The SMS store changed: send the conversations that changed. */
+    fun smsChanged() = onIo { link -> SmsSync.changedThreads().forEach { link.smsThreadUpdate(it) } }
+
+    private fun smsSend(device: String, clientId: String, address: String, body: String) {
+        SmsSync.send(address, body) { ok, message ->
+            onIo { it.smsSendResult(device, clientId, ok, message) }
+        }
+    }
+
+    private fun smsOlder(device: String, thread: Long, beforeMs: Long) = onIo {
+        val (messages, more) = SmsSync.older(thread, beforeMs)
+        it.smsOlder(device, thread.toULong(), messages, more)
     }
 
     /** Send files to the computer (from the Share menu, or picked in the app). */
@@ -219,7 +239,10 @@ object LinkManager {
                 is LinkEvent.Connected -> {
                     sendSnapshot()
                     MediaWatcher.resend()
+                    sendSmsSnapshot()
                 }
+                is LinkEvent.SmsSendRequested -> smsSend(event.id, event.clientId, event.address, event.body)
+                is LinkEvent.SmsOlderRequested -> smsOlder(event.id, event.thread.toLong(), event.beforeMs.toLong())
                 is LinkEvent.MediaControlRequested -> MediaWatcher.control(event.command)
                 is LinkEvent.DismissRequested -> handleRequest(event.id, event.key) { it.dismiss(event.key) }
                 is LinkEvent.ReplyRequested -> handleRequest(event.id, event.key) { it.reply(event.key, event.text) }

@@ -99,7 +99,7 @@ object MediaWatcher {
             val cb = object : MediaController.Callback() {
                 override fun onPlaybackStateChanged(state: PlaybackState?) = schedule()
                 override fun onMetadataChanged(metadata: MediaMetadata?) = schedule()
-                override fun onAudioInfoChanged(info: MediaController.PlaybackInfo?) = schedule()
+                override fun onAudioInfoChanged(info: MediaController.PlaybackInfo) = schedule()
                 override fun onSessionDestroyed() {
                     controllers.remove(token)?.let { (ctrl, me) -> ctrl.unregisterCallback(me) }
                     schedule()

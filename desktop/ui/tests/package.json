@@ -1,0 +1,13 @@
+{
+  "name": "phonelink-ui-tests",
+  "private": true,
+  "description": "Browser tests for desktop/ui: the preview (mock API) and the app (fake Tauri).",
+  "scripts": {
+    "test": "node preview.test.js && node app.test.js"
+  },
+  "dependencies": {
+    "jsqr": "^1.4.0",
+    "playwright": "^1.40.0",
+    "pngjs": "^7.0.0"
+  }
+}

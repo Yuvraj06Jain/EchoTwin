@@ -1,0 +1,5 @@
+node_modules/
+shots/
+# written by preview.test.js while it runs
+big-video.mkv
+notes-week-10.pdf

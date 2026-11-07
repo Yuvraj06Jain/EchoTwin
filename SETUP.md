@@ -1,34 +1,13 @@
 # PhoneLink: setup, test checklist and troubleshooting
 
-This guide covers the current version (0.3).
+This guide covers **version 1**: installing on the laptop and phone, pairing, the numbered
+test checklist, and troubleshooting. For what PhoneLink does see [README.md](README.md); for
+how it works inside and where each feature lives in the code see [docs/](docs/ARCHITECTURE.md)
+([architecture](docs/ARCHITECTURE.md), [features](docs/FEATURES.md), [files](docs/FILES.md),
+[protocol](docs/PROTOCOL.md), [developing](docs/DEVELOPING.md)).
 
-**What works today:**
-- the **PhoneLink desktop app** (open it from your application menu)
-- pairing by QR code
-- automatic connection and reconnection over your Wi-Fi
-- text notes in both directions
-- **your phone's notifications on the laptop**, both as KDE popups and in the app's Notifications tab:
-  - reply where the phone app allows it (WhatsApp, Messages…)
-  - press their buttons ("Mark as read", "Archive"…)
-  - dismiss them
-  - click a popup to open the PhoneLink window on its Notifications tab
-- **lock the laptop from the phone**: a *Lock computer* button in the phone app, on the PhoneLink notification, and as a Quick Settings tile. It can only lock, never unlock.
-- **shared clipboard**:
-  - text you copy on the laptop can be pasted on the phone straight away
-  - from the phone, tap **Send clipboard** (phone app, PhoneLink notification, or Quick Settings tile), or *Share → Copy to computer*
-  - Android only lets the app on screen read the clipboard, so the phone → laptop direction always needs that one tap
-- **music on the phone, controlled from the laptop**: a *Now playing* card on the left of the laptop app shows the song, artist, album art and progress. It has previous / play-pause / next buttons and a slider for the phone's media volume. Works with any player that shows media controls on the phone (Spotify, YouTube Music, Samsung Music, podcasts…). Keyboard media keys on the laptop stay with the laptop.
-- **file sharing, both ways**, resuming where it stopped if the connection drops:
-  - **laptop → phone:** drag files onto the PhoneLink window, *Choose files* in the Files tab, right-click → **Send to phone (PhoneLink)** in Dolphin, or `phonelink send-file <files>`. They're saved on the phone in **Download/PhoneLink**.
-  - **phone → laptop:** *Share → Send to computer* in any app, or **Send files** in the PhoneLink phone app. They're saved on the laptop in **~/Downloads/PhoneLink**; a popup offers to show them.
-  - a file only appears once all of it arrived and its checksum matched; files over the Bluetooth backup wait for Wi-Fi
-- **SMS in the Messages tab**: your phone's SMS conversations (30 most recent, with contact names), new ones as they arrive, *Load earlier messages*, and sending replies through the phone, with *Sending… → Sent* or the reason it failed. Regular SMS only: RCS "chat" messages can't be read by any other app.
-- **Bluetooth backup**: when Wi-Fi is gone for about 15 seconds, the phone reconnects to the laptop over Bluetooth with the same encryption, and switches back to Wi-Fi when it returns. Notifications, SMS, notes, clipboard, music and lock keep working; files wait for Wi-Fi.
-- settings in the laptop app: *Dismiss on both devices* (off by default), which apps to show, desktop popups on/off, *Share clipboard with your phone*, *Let your phone lock this computer*
-
-Mirroring is **one-way**: phone → laptop. The laptop never sends its own notifications to the phone (notes you type with *Send a note* are the only thing that appears on the phone).
-
-**Not built yet:** starting a brand-new SMS conversation from the laptop, MMS pictures, and sending folders. The app has tabs for messages and files and says "coming in the next update" until each one exists.
+**Not in v1:** starting a brand-new SMS conversation from the laptop, MMS pictures, sending
+folders, alarms/reminders to the phone.
 
 ---
 

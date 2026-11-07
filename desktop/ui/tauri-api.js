@@ -232,6 +232,9 @@
         apps: knownApps.map((a) => ({ name: a.app, package: a.package, enabled: !a.muted })),
       };
     },
+    // Blur behind this window (KDE); opacity itself is pure CSS.
+    setBlur: (on) => invoke('set_blur', { on }),
+    openBlurSettings: () => invoke('open_blur_settings'),
     async updateSetting(key, value) {
       if (key === 'desktopNotifications') {
         await invoke('set_notifications', { enabled: value });

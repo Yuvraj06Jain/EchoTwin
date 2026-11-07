@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0 http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+  <kcfgfile name=""/>
+  <group name="General">
+    <entry name="backgroundOpacity" type="Int">
+      <label>Popup background opacity in percent (blur behind follows KDE's Blur effect)</label>
+      <default>75</default>
+      <min>30</min>
+      <max>100</max>
+    </entry>
+  </group>
+</kcfg>

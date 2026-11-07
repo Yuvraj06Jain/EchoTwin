@@ -1046,6 +1046,29 @@
       <button type="button" class="switch-btn" role="switch" aria-checked="${checked}" aria-label="${esc(label)}" data-action="${action}" ${extra}><span class="switch" aria-hidden="true"></span></button></div>`;
   }
 
+  // ------------------------------------------------------------------ appearance (this window)
+  // Saved in this app only. Opacity applies to backgrounds; text always stays solid.
+  const appearance = {
+    opacity: Math.min(100, Math.max(30, Number(localStorage.getItem('phonelink.opacity')) || 85)),
+    blur: localStorage.getItem('phonelink.blur') !== 'off',
+  };
+  function applyAppearance(sendBlur) {
+    document.documentElement.style.setProperty('--alpha', String(appearance.opacity / 100));
+    if (sendBlur && api.setBlur) api.setBlur(appearance.blur).catch(() => {});
+  }
+  if (api.setBlur) applyAppearance(true); // only inside the desktop app
+
+  function appearanceSection() {
+    if (!api.setBlur) return '';
+    return `<div class="sheet-section"><p class="section-label">Appearance</p>
+        <div class="row"><div class="grow"><div>Window opacity</div><div class="row-desc">Text stays fully solid; only the background lets the wallpaper through.</div></div>
+          <label class="opacity-ctl"><input type="range" min="30" max="100" step="5" value="${appearance.opacity}" style="--pct:${(((appearance.opacity - 30) * 100) / 70).toFixed(1)}%" data-opacity aria-label="Window opacity"><span class="tnum" data-opacity-value>${appearance.opacity}%</span></label></div>
+        ${switchRow('Blur behind', 'Blur the wallpaper behind the window (KDE).', 'toggle-blur', appearance.blur)}
+        ${api.openBlurSettings ? `<div class="row"><div class="grow"><div>Blur strength</div><div class="row-desc">Set in KDE for all windows (Desktop Effects → Blur).</div></div>
+          <button type="button" class="btn btn-sm" data-action="open-blur-settings">Open KDE blur settings…</button></div>` : ''}
+      </div>`;
+  }
+
   function settingsBody() {
     const s = state.settings || { apps: [] };
     const deviceRow = state.devices.length
@@ -1076,7 +1099,8 @@
         ${caps.lockFromPhone ? switchRow('Let your phone lock this computer', 'Adds a Lock computer button to your phone. It can only lock, never unlock.', 'toggle-setting', !!s.allowLock, 'data-key="allowLock"') : ''}
         ${caps.bluetooth ? switchRow('Bluetooth backup', s.bluetoothBackup && s.bluetoothStatus ? `Not available right now: ${s.bluetoothStatus}.` : 'When Wi-Fi is gone, your phone stays connected over Bluetooth (pair the two in the system Bluetooth settings first). Same encryption as Wi-Fi.', 'toggle-setting', !!s.bluetoothBackup, 'data-key="bluetoothBackup"') : ''}
         ${caps.discoveryToggle ? switchRow('Find my phone on this network', 'Anonymous: nothing that identifies you is broadcast.', 'toggle-setting', !!s.discovery, 'data-key="discovery"') : ''}
-      </div>`;
+      </div>
+      ${appearanceSection()}`;
   }
 
   async function openSettings() {
@@ -1437,6 +1461,15 @@
         renderNotifications();
         return renderTabs();
       }
+      case 'toggle-blur': {
+        appearance.blur = !appearance.blur;
+        localStorage.setItem('phonelink.blur', appearance.blur ? 'on' : 'off');
+        setSwitch(a, appearance.blur);
+        applyAppearance(true);
+        return undefined;
+      }
+      case 'open-blur-settings':
+        return api.openBlurSettings();
       case 'toggle-setting': {
         const key = a.dataset.key;
         const on = !state.settings[key];
@@ -1469,6 +1502,18 @@
     e.preventDefault(); // nothing in this app is a real HTML form submission
     if (form === el.composer) sendSmsSafe();
     else if (submitHandlers[form.dataset.form]) submitHandlers[form.dataset.form](form);
+  });
+
+  // Window opacity: live while dragging.
+  document.addEventListener('input', (e) => {
+    const t = e.target;
+    if (!(t.matches && t.matches('[data-opacity]'))) return;
+    appearance.opacity = Number(t.value);
+    localStorage.setItem('phonelink.opacity', String(appearance.opacity));
+    t.style.setProperty('--pct', `${(((appearance.opacity - 30) * 100) / 70).toFixed(1)}%`);
+    const v = t.parentElement.querySelector('[data-opacity-value]');
+    if (v) v.textContent = `${appearance.opacity}%`;
+    applyAppearance(false);
   });
 
   // Phone volume: follow the slider while dragging, send once it is let go.

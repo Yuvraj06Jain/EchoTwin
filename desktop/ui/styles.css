@@ -127,6 +127,17 @@ svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none;
 /* Inside the desktop app the window *is* the viewport (transparent, frameless). */
 body.in-app, body.in-app .desktop { background: transparent; padding: 0; }
 body.in-app .preview-bar { display: none; }
+/* Translucent window (Settings → Appearance sets --alpha); text keeps full opacity. */
+:root { --alpha: 1; }
+body.in-app .window {
+  --win: rgba(22, 24, 27, var(--alpha));
+  --panel: rgba(26, 29, 33, calc(var(--alpha) * 0.85));
+  --raised: rgba(33, 36, 41, calc(var(--alpha) * 0.85));
+  --raised-2: rgba(39, 43, 49, calc(var(--alpha) * 0.9));
+}
+body.in-app .sheet { background: #1a1d21; }
+.opacity-ctl { display: flex; align-items: center; gap: 10px; }
+.opacity-ctl input { width: 150px; flex: none; }
 body.in-app .window { width: 100vw; height: 100vh; max-height: none; min-width: 0; min-height: 0; box-shadow: none; }
 body.in-app.maximized .window { border-radius: 0; border: 0; }
 
@@ -272,23 +283,23 @@ body.in-app:not(.maximized) .resize-handle { display: block; }
 .np-controls .icon-btn svg.i { fill: currentColor; }
 .np-volume { display: flex; align-items: center; gap: 8px; color: var(--text-3); }
 /* Drawn by hand so it looks the same in WebKitGTK (the app) and Chromium (the preview). */
-.np-volume input {
+.np-volume input, .opacity-ctl input {
   -webkit-appearance: none; appearance: none;
   flex: 1; min-width: 0; height: 16px; margin: 0;
   background: transparent; cursor: pointer;
 }
-.np-volume input::-webkit-slider-runnable-track {
+.np-volume input::-webkit-slider-runnable-track, .opacity-ctl input::-webkit-slider-runnable-track {
   height: 4px; border-radius: 2px;
   background: linear-gradient(to right, var(--accent-text) var(--pct, 0%), var(--border-strong) var(--pct, 0%));
 }
-.np-volume input::-webkit-slider-thumb {
+.np-volume input::-webkit-slider-thumb, .opacity-ctl input::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
   width: 12px; height: 12px; margin-top: -4px;
   border-radius: 50%; border: 0;
   background: #e6e8eb;
 }
-.np-volume input:focus-visible { outline: none; }
-.np-volume input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent-line); }
+.np-volume input:focus-visible, .opacity-ctl input:focus-visible { outline: none; }
+.np-volume input:focus-visible::-webkit-slider-thumb, .opacity-ctl input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent-line); }
 /* Short windows: the phone drawing gives way so the controls stay in view. */
 @media (max-height: 720px) {
   .device-panel.has-media .phone-art { display: none; }

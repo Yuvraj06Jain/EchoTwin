@@ -29,6 +29,10 @@ tauri-plugin-dialog = "2"
 # window take focus.
 gtk = "0.18"
 libc = "0.2"
+# Blur behind the window on KDE Wayland (KWin's blur protocol, on GTK's own connection).
+wayland-client = "0.31"
+wayland-backend = { version = "0.3", features = ["client_system"] }
+wayland-protocols-plasma = { version = "0.3", features = ["client"] }
 
 [features]
 # Embed the UI in the binary and serve it over Tauri's own protocol (no dev server, no

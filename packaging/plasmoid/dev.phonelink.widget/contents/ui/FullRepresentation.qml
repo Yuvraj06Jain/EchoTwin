@@ -6,28 +6,47 @@ import QtQuick.Dialogs
 import org.kde.plasma.components as PlasmaComponents
 import org.kde.plasma.extras as PlasmaExtras
 import org.kde.kirigami as Kirigami
+import org.kde.plasma.plasmoid
 
 import "shell.js" as Shell
 
 PlasmaExtras.Representation {
     id: full
 
-    Layout.preferredWidth: Kirigami.Units.gridUnit * 22
-    Layout.preferredHeight: Kirigami.Units.gridUnit * 30
-    Layout.minimumWidth: Kirigami.Units.gridUnit * 18
-    Layout.minimumHeight: Kirigami.Units.gridUnit * 20
+    Layout.preferredWidth: Kirigami.Units.gridUnit * 26
+    Layout.preferredHeight: Kirigami.Units.gridUnit * 20
+    Layout.minimumWidth: Kirigami.Units.gridUnit * 22
+    Layout.minimumHeight: Kirigami.Units.gridUnit * 16
 
     readonly property var media: root.st.media
     collapseMarginsHint: true
 
+    // Translucent popup: fade the theme's popup background (KDE still blurs behind it when
+    // its Blur effect is on). The background is the window's themed frame item.
+    readonly property real backgroundOpacity: Plasmoid.configuration.backgroundOpacity / 100
+    function applyOpacity() {
+        var w = full.Window.window;
+        if (!w || !w.contentItem) return;
+        var kids = w.contentItem.children;
+        for (var i = 0; i < kids.length; i++) {
+            if (kids[i].imagePath !== undefined) kids[i].opacity = backgroundOpacity;
+        }
+    }
+    onBackgroundOpacityChanged: applyOpacity()
+    onVisibleChanged: if (visible) applyOpacity()
+    Window.onWindowChanged: applyOpacity()
+    Component.onCompleted: applyOpacity()
+
     header: PlasmaExtras.PlasmoidHeading {
         RowLayout {
             anchors.fill: parent
-            spacing: Kirigami.Units.smallSpacing
+            spacing: Kirigami.Units.largeSpacing
 
             Rectangle {
-                Layout.preferredWidth: Kirigami.Units.iconSizes.small * 0.62
-                Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.alignment: Qt.AlignVCenter
+                Layout.preferredWidth: 13
+                Layout.preferredHeight: 20
                 radius: width * 0.22
                 color: "transparent"
                 border.width: 1.5
@@ -54,9 +73,10 @@ PlasmaExtras.Representation {
                         var p = [];
                         var s = root.status;
                         if (s && s.battery !== null && s.battery !== undefined)
-                            p.push("Battery " + s.battery + "%" + (s.charging ? " (charging)" : ""));
-                        if (s && s.network) p.push(s.network + (s.network !== "Wi-Fi" && s.signal > 0 ? " " + "▮".repeat(s.signal) : ""));
-                        p.push(root.phone.via === "bluetooth" ? "via Bluetooth" : "via Wi-Fi");
+                            p.push(s.battery + "%" + (s.charging ? " charging" : ""));
+                        if (s && s.network && s.network !== "Wi-Fi")
+                            p.push(s.network + (s.signal > 0 ? " " + "▮".repeat(s.signal) : ""));
+                        p.push(root.phone.via === "bluetooth" ? "Bluetooth" : "Wi-Fi");
                         return p.join("  ·  ");
                     }
                 }
@@ -186,9 +206,8 @@ PlasmaExtras.Representation {
                     model: root.st.notifications || []
                     spacing: Kirigami.Units.smallSpacing
                     clip: true
-                    PlasmaExtras.PlaceholderMessage {
+                    Empty {
                         anchors.centerIn: parent
-                        width: parent.width - Kirigami.Units.gridUnit * 2
                         visible: notifList.count === 0
                         iconName: "notifications"
                         text: root.online ? "No notifications" : "Your phone is offline"
@@ -238,9 +257,8 @@ PlasmaExtras.Representation {
                     id: smsList
                     model: root.st.sms || []
                     clip: true
-                    PlasmaExtras.PlaceholderMessage {
+                    Empty {
                         anchors.centerIn: parent
-                        width: parent.width - Kirigami.Units.gridUnit * 2
                         visible: smsList.count === 0
                         iconName: "mail-message"
                         text: "No conversations"
@@ -353,12 +371,13 @@ PlasmaExtras.Representation {
         }
 
         PlasmaComponents.Label {
-            visible: root.note !== ""
             Layout.fillWidth: true
-            horizontalAlignment: Text.AlignHCenter
+            horizontalAlignment: root.note !== "" ? Text.AlignHCenter : Text.AlignLeft
             wrapMode: Text.Wrap
-            color: root.green
-            text: root.note
+            font: Kirigami.Theme.smallFont
+            color: root.note !== "" ? root.green : Kirigami.Theme.textColor
+            opacity: root.note !== "" ? 1 : 0.55
+            text: root.note !== "" ? root.note : "Drop files on the phone icon to send them"
         }
     }
 

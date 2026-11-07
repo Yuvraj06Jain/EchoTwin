@@ -216,6 +216,9 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 50 | Drag a file from Dolphin onto the outline (phone offline, then online) | "Queued 1 file…"; it's sent when the phone connects |
 | 51 | Phone app → Finish setup → **Phone status** → Allow | the laptop shows *5G* (or *4G*) with signal bars, in the widget and the desktop app |
 | 52 | Look at the phone app's Home | it shows the laptop's battery, e.g. "Computer battery 76% · charging" |
+| 53 | `git pull`, `./packaging/install.sh`, then `plasmashell --replace & disown` | the panel icon is smaller (a bit below the round icons); the popup is wider and shorter, translucent with blur; empty tabs show a small green icon |
+| 54 | Right-click the widget → Configure PhoneLink… → Appearance | an opacity slider (30–100%) changes the popup's background; "Open KDE blur settings…" opens the Blur effect |
+| 55 | PhoneLink app → Settings → Appearance | window opacity slider applies live (text stays solid); Blur behind on/off; it's remembered after restarting the app |
 
 When something fails, include:
 - the step number

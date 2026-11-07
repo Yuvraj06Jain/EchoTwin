@@ -20,6 +20,9 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::oneshot;
 
+#[cfg(target_os = "linux")]
+mod blur;
+
 /// Error string the UI recognises as "the background service is not running".
 const DAEMON_DOWN: &str = "daemon-down";
 
@@ -471,6 +474,43 @@ fn launch_request(args: &[String]) -> LaunchRequest {
     req
 }
 
+/// Blur behind this window on KDE (Settings → Appearance). Errors are shown to nobody: the
+/// window just stays translucent without blur.
+#[tauri::command]
+async fn set_blur(window: tauri::WebviewWindow, on: bool) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let (tx, rx) = oneshot::channel();
+        let w = window.clone();
+        window
+            .run_on_main_thread(move || {
+                let r = blur::set(&w, on);
+                if let Err(e) = &r {
+                    eprintln!("phonelink-app: blur: {e}");
+                }
+                let _ = tx.send(r);
+            })
+            .map_err(|e| e.to_string())?;
+        rx.await.map_err(|e| e.to_string())?
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (window, on);
+        Ok(())
+    }
+}
+
+/// KDE's Blur effect settings (strength is system-wide).
+#[tauri::command]
+async fn open_blur_settings() -> Result<(), String> {
+    for cmd in ["kcmshell6", "systemsettings"] {
+        if std::process::Command::new(cmd).arg("kcm_kwin_effects").spawn().is_ok() {
+            return Ok(());
+        }
+    }
+    Err("KDE System Settings not found".into())
+}
+
 /// Hand an activation token to GTK before presenting, so the compositor lets the window
 /// take focus (KDE on Wayland otherwise only highlights it in the taskbar). Looked up at
 /// run time, so a GTK built without one of the backends still starts.
@@ -551,6 +591,8 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
+            set_blur,
+            open_blur_settings,
             status,
             send_note,
             unpair,

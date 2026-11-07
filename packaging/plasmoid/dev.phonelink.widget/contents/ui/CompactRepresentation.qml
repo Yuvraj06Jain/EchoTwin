@@ -19,16 +19,17 @@ MouseArea {
     }
 
     Layout.minimumWidth: Kirigami.Units.iconSizes.small
-    Layout.preferredWidth: height * 0.62
+    Layout.preferredWidth: height * 0.6
 
     Rectangle {
         id: body
         anchors.centerIn: parent
-        height: Math.round(Math.min(parent.height, parent.width / 0.55) * 0.86)
-        width: Math.round(height * 0.55)
-        radius: width * 0.22
+        // A bit smaller than a tray icon (~20 px in a 44 px panel), shape "A" from the preview.
+        height: Math.max(12, Math.round(Math.min(parent.height * 0.46, parent.width / 0.7 * 0.9)))
+        width: Math.round(height * 0.7)
+        radius: width * 0.26
         color: compact.dropping ? Qt.rgba(0.24, 0.73, 0.51, 0.18) : "transparent"
-        border.width: Math.max(1.5, height / 14)
+        border.width: 1.5
         border.color: compact.lineColor
         opacity: compact.containsMouse || root.expanded ? 1 : 0.92
 
@@ -47,7 +48,7 @@ MouseArea {
     // Something new (notification or unread SMS) since you last opened the popup.
     Rectangle {
         visible: root.unread && root.online && !root.expanded
-        width: Math.max(5, body.width * 0.36)
+        width: Math.max(5, Math.round(body.width * 0.42))
         height: width
         radius: width / 2
         color: root.green

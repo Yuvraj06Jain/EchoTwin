@@ -149,6 +149,9 @@ pub struct DeviceInfo {
     /// "wifi" or "bluetooth" while connected.
     #[serde(default)]
     pub via: Option<String>,
+    /// The phone's battery and network while connected (if it reports them).
+    #[serde(default)]
+    pub status: Option<phonelink_core::PhoneStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -205,6 +208,10 @@ pub enum WatchEvent {
     },
     /// What's playing on this phone changed (or it stopped / disconnected): ask `Media`.
     MediaChanged {
+        id: String,
+    },
+    /// The phone's battery or network changed (see `DeviceInfo::status`).
+    PhoneStatusChanged {
         id: String,
     },
     TransferChanged {

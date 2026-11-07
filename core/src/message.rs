@@ -26,6 +26,21 @@ pub const CAP_SMS: &str = "sms/1";
 /// Conversations the phone shares (most recent first) and messages per conversation.
 pub const SMS_MAX_THREADS: usize = 30;
 pub const SMS_MAX_MESSAGES: usize = 30;
+/// Battery and network status in both directions (never queued: only "right now" matters).
+pub const CAP_STATUS: &str = "status/1";
+
+/// Phone battery and mobile network, for the computer's status display.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PhoneStatus {
+    /// 0–100, or `None` if unknown.
+    pub battery: Option<u8>,
+    pub charging: bool,
+    /// "5G", "4G", "3G", "2G", "Mobile data", "Wi-Fi" or "" (no network).
+    pub network: String,
+    /// Mobile signal 0–4 (0 also when on Wi-Fi only).
+    pub signal: u8,
+}
+
 /// Longest SMS text carried (bytes); longer ones are cut with "…".
 pub const SMS_MAX_BODY: usize = 4000;
 
@@ -249,6 +264,10 @@ pub enum AppMessage {
         state: SmsState,
         message: String,
     },
+    /// Phone → computer: battery and network (`CAP_STATUS`).
+    PhoneStatus(PhoneStatus),
+    /// Computer → phone: its battery; `None` on a computer without one (`CAP_STATUS`).
+    ComputerStatus { battery: Option<u8>, charging: bool },
 }
 
 /// Album art must be a small JPEG or PNG.
@@ -302,6 +321,24 @@ mod tests {
             posted_ms: 1_762_350_000_000,
             can_reply: true,
             actions: vec!["Mark as read".into()],
+        }
+    }
+
+    #[test]
+    fn status_messages_roundtrip() {
+        for m in [
+            AppMessage::PhoneStatus(PhoneStatus {
+                battery: Some(82),
+                charging: true,
+                network: "5G".into(),
+                signal: 3,
+            }),
+            AppMessage::ComputerStatus {
+                battery: None,
+                charging: false,
+            },
+        ] {
+            assert_eq!(AppMessage::decode(&m.encode().unwrap()), m);
         }
     }
 

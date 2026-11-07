@@ -26,8 +26,8 @@ pub mod wire;
 pub use error::{Error, Result};
 pub use identity::{Fingerprint, Identity};
 pub use message::{
-    AppMessage, MediaAction, NowPlaying, PhoneNotification, SmsMessage, SmsState, SmsThread,
-    CAP_CLIPBOARD, CAP_LOCK, CAP_MEDIA, CAP_NOTIFICATIONS, CAP_SMS,
+    AppMessage, MediaAction, NowPlaying, PhoneNotification, PhoneStatus, SmsMessage, SmsState,
+    SmsThread, CAP_CLIPBOARD, CAP_LOCK, CAP_MEDIA, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS,
 };
 pub use node::{Event, Node, NodeConfig, Transport};
 pub use pairing::PairingOffer;

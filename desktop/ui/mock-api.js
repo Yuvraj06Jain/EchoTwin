@@ -20,7 +20,8 @@
     id: '9C21-7E04-B3A8-51DF',
     name: 'Galaxy S24 FE',
     model: 'Samsung · Android 15',
-    network: 'Home-5G',
+    network: '5G',
+    signal: 3,
     battery: 76,
     charging: false,
   };

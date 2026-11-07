@@ -26,7 +26,7 @@ use phonelink_core::{
     transfer::{Direction, SourceOpener, TransferConfig, TransferInfo, Transfers, CAP_FILES},
     AppMessage, Event, Fingerprint, MediaAction, Node, NodeConfig, NowPlaying, PairingOffer,
     PeerRecord, PhoneNotification, SmsMessage, SmsState, SmsThread, CAP_CLIPBOARD, CAP_LOCK,
-    CAP_MEDIA, CAP_NOTIFICATIONS, CAP_SMS,
+    CAP_MEDIA, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS,
 };
 use tokio::{runtime::Runtime, task::JoinHandle};
 
@@ -61,6 +61,9 @@ pub struct Device {
     pub via: String,
     /// The computer's Bluetooth address for the backup link (it tells us), if it has one.
     pub bluetooth: Option<String>,
+    /// The computer's battery (0–100) while connected, if it has one and said so.
+    pub battery: Option<u8>,
+    pub charging: bool,
 }
 
 /// What a scanned QR code says, shown before the user confirms pairing.
@@ -108,6 +111,12 @@ pub enum LinkEvent {
         id: String,
         key: String,
         index: u32,
+    },
+    /// The computer's battery changed (refresh `devices()`).
+    ComputerStatus {
+        id: String,
+        battery: Option<u8>,
+        charging: bool,
     },
     /// Text copied on the computer: put it on this phone's clipboard (if sharing is on).
     ClipboardReceived {
@@ -379,6 +388,7 @@ pub struct PhoneLink {
     lan: Mutex<Option<Lan>>,
     keepers: Arc<Mutex<HashMap<Fingerprint, JoinHandle<()>>>>,
     caps: Caps,
+    power: Power,
     files: Transfers,
     /// Queue notifications for offline computers (off: only connected ones get them).
     queue_notifications: AtomicBool,
@@ -386,6 +396,9 @@ pub struct PhoneLink {
 
 /// What each connected computer supports (from its Hello).
 type Caps = Arc<Mutex<HashMap<Fingerprint, Vec<String>>>>;
+
+/// Each connected computer's battery (level, charging), as it last reported.
+type Power = Arc<Mutex<HashMap<Fingerprint, (Option<u8>, bool)>>>;
 
 fn has_cap(caps: &Caps, fp: &Fingerprint, cap: &str) -> bool {
     caps.lock()
@@ -413,8 +426,15 @@ fn keep_connected(
     k.insert(fp, node.maintain(fp, vec![]));
 }
 
-fn device(node: &Node, caps: &Caps, p: &PeerRecord) -> Device {
+fn device(node: &Node, caps: &Caps, power: &Power, p: &PeerRecord) -> Device {
     let connected = node.is_connected(&p.fingerprint);
+    let (battery, charging) = power
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&p.fingerprint)
+        .copied()
+        .filter(|_| connected)
+        .unwrap_or((None, false));
     Device {
         id: p.fingerprint.short(),
         name: p.name.clone(),
@@ -424,6 +444,8 @@ fn device(node: &Node, caps: &Caps, p: &PeerRecord) -> Device {
         can_clipboard: connected && has_cap(caps, &p.fingerprint, CAP_CLIPBOARD),
         via: via(node.transport(&p.fingerprint)),
         bluetooth: p.bluetooth.clone(),
+        battery,
+        charging,
     }
 }
 
@@ -516,8 +538,16 @@ impl PhoneLink {
                 ] {
                     let mut cfg = NodeConfig::new(device_name.clone(), Some(dir.clone()), bind);
                     cfg.capabilities.extend(
-                        [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, CAP_MEDIA, CAP_FILES, CAP_SMS]
-                            .map(String::from),
+                        [
+                            CAP_NOTIFICATIONS,
+                            CAP_LOCK,
+                            CAP_CLIPBOARD,
+                            CAP_MEDIA,
+                            CAP_FILES,
+                            CAP_SMS,
+                            CAP_STATUS,
+                        ]
+                        .map(String::from),
                     );
                     match Node::start(cfg).await {
                         Ok((node, events)) => {
@@ -570,6 +600,8 @@ impl PhoneLink {
             })
             .map_err(|e| LinkError::Failed(e.to_string()))?;
         let caps: Caps = Arc::new(Mutex::new(HashMap::new()));
+        let power: Power = Arc::new(Mutex::new(HashMap::new()));
+        let pump_power = power.clone();
         let (pump_node, pump_keepers, pump_caps) = (node.clone(), keepers.clone(), caps.clone());
         let pump_files = transfers.clone();
         let (file_tx, file_node) = (tx.clone(), node.clone());
@@ -615,6 +647,10 @@ impl PhoneLink {
                     }
                     Event::PeerDisconnected { peer } => {
                         pump_caps
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .remove(&peer);
+                        pump_power
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
                             .remove(&peer);
@@ -680,6 +716,18 @@ impl PhoneLink {
                             thread,
                             before_ms,
                         },
+                        AppMessage::ComputerStatus { battery, charging } => {
+                            let battery = battery.filter(|b| *b <= 100);
+                            pump_power
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .insert(peer, (battery, charging));
+                            LinkEvent::ComputerStatus {
+                                id: peer.short(),
+                                battery,
+                                charging,
+                            }
+                        }
                         AppMessage::MediaControl { action } => LinkEvent::MediaControlRequested {
                             id: peer.short(),
                             command: action.into(),
@@ -707,6 +755,7 @@ impl PhoneLink {
             lan: Mutex::new(None),
             keepers,
             caps,
+            power,
             files: transfers,
             queue_notifications: AtomicBool::new(false),
         }))
@@ -746,7 +795,7 @@ impl PhoneLink {
         self.node
             .peers()
             .iter()
-            .map(|p| device(&self.node, &self.caps, p))
+            .map(|p| device(&self.node, &self.caps, &self.power, p))
             .collect()
     }
 
@@ -776,7 +825,7 @@ impl PhoneLink {
             let _guard = self.rt.enter();
             keep_connected(&self.node, &self.keepers, rec.fingerprint);
         }
-        Ok(device(&self.node, &self.caps, &rec))
+        Ok(device(&self.node, &self.caps, &self.power, &rec))
     }
 
     /// Queue a text for `device_id` (or the only paired device). Returns true if the
@@ -926,6 +975,25 @@ impl PhoneLink {
             self.node.send(fp, body.clone())?;
         }
         Ok(targets.len() as u32)
+    }
+
+    /// This phone's battery and network, for connected computers that show it. Not queued;
+    /// call on `Connected` and whenever something changes. `network`: "5G", "4G", "3G",
+    /// "2G", "Mobile data", "Wi-Fi" or "" (none); `signal` 0–4. Returns how many got it.
+    pub fn send_phone_status(
+        &self,
+        battery: Option<u8>,
+        charging: bool,
+        network: String,
+        signal: u8,
+    ) -> Result<u32, LinkError> {
+        let status = phonelink_core::PhoneStatus {
+            battery: battery.filter(|b| *b <= 100),
+            charging,
+            network: truncate_text(&network, 16),
+            signal: signal.min(4),
+        };
+        self.send_connected(CAP_STATUS, AppMessage::PhoneStatus(status))
     }
 
     /// What is playing now (`None`: nothing), for connected computers that show music.
@@ -1275,6 +1343,78 @@ mod tests {
         assert!(phone.devices().is_empty());
         phone.shutdown();
         rt.block_on(laptop.shutdown());
+    }
+
+    /// Battery and network: phone → computer when it supports it, and the computer's battery
+    /// shows on the phone's device card.
+    #[test]
+    fn status_both_ways() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let (laptop, mut lrx) = rt
+            .block_on(Node::start({
+                let mut c = NodeConfig::new("Kubuntu", None, "127.0.0.1:0".parse().unwrap());
+                c.capabilities.push(CAP_STATUS.into());
+                c
+            }))
+            .unwrap();
+        let uri = laptop
+            .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
+            .to_uri();
+        let dir = tempfile::tempdir().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let phone = PhoneLink::start(
+            dir.path().to_string_lossy().into(),
+            "S24".into(),
+            Arc::new(Collect(Mutex::new(tx))),
+            Arc::new(Paths),
+        )
+        .unwrap();
+        phone.pair(uri).unwrap();
+        wait(&rx, |e| matches!(e, LinkEvent::Connected { .. }));
+
+        let n = phone
+            .send_phone_status(Some(250), true, "5G".into(), 9)
+            .unwrap();
+        assert_eq!(n, 1);
+        let got = rt.block_on(async {
+            loop {
+                if let Some(Event::Message { body, .. }) = lrx.recv().await {
+                    return AppMessage::decode(&body);
+                }
+            }
+        });
+        assert_eq!(
+            got,
+            AppMessage::PhoneStatus(phonelink_core::PhoneStatus {
+                battery: None,
+                charging: true,
+                network: "5G".into(),
+                signal: 4
+            }),
+            "out-of-range values are dropped or clamped"
+        );
+
+        assert_eq!(phone.devices()[0].battery, None);
+        let phone_fp = laptop.peers()[0].fingerprint;
+        laptop
+            .send(
+                &phone_fp,
+                AppMessage::ComputerStatus {
+                    battery: Some(76),
+                    charging: true,
+                }
+                .encode()
+                .unwrap(),
+            )
+            .unwrap();
+        wait(&rx, |e| matches!(e, LinkEvent::ComputerStatus { battery: Some(76), .. }));
+        let d = &phone.devices()[0];
+        assert_eq!((d.battery, d.charging), (Some(76), true));
+
+        rt.block_on(laptop.shutdown());
+        wait(&rx, |e| matches!(e, LinkEvent::Disconnected { .. }));
+        assert_eq!(phone.devices()[0].battery, None, "forgotten when it goes offline");
+        phone.shutdown();
     }
 
     /// The calls MirrorService makes, against a real laptop node.

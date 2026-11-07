@@ -29,6 +29,9 @@ pub struct Config {
     pub download_dir: Option<String>,
     /// Let the phone connect over Bluetooth when Wi-Fi is gone.
     pub bluetooth_backup: bool,
+    /// Where batteries are read from (tests only). Default: `/sys/class/power_supply`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub power_supply_dir: Option<String>,
 }
 
 impl Default for Config {
@@ -44,6 +47,7 @@ impl Default for Config {
             allow_lock: true,
             download_dir: None,
             bluetooth_backup: true,
+            power_supply_dir: None,
         }
     }
 }

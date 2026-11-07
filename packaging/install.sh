@@ -63,6 +63,16 @@ for dir in "$DATA/kio/servicemenus" "$DATA/kservices5/ServiceMenus"; do
   chmod 755 "$dir/phonelink-send.desktop"
 done
 
+# The panel widget (Plasma 6): right-click the panel → Add Widgets → PhoneLink.
+WIDGET_OK=0
+if command -v kpackagetool6 >/dev/null; then
+  if kpackagetool6 -t Plasma/Applet -l 2>/dev/null | grep -qx dev.phonelink.widget; then
+    kpackagetool6 -t Plasma/Applet -u packaging/plasmoid/dev.phonelink.widget >/dev/null && WIDGET_OK=1
+  else
+    kpackagetool6 -t Plasma/Applet -i packaging/plasmoid/dev.phonelink.widget >/dev/null && WIDGET_OK=1
+  fi
+fi
+
 # ---------------------------------------------------------------- desktop window
 APP_OK=0
 if prebuilt_ok phonelink-app; then
@@ -112,5 +122,9 @@ if [ "$APP_OK" = 1 ]; then
   echo "Open \"PhoneLink\" from your application menu to pair your phone."
 else
   echo "Pair your phone from a terminal with: phonelink pair"
+fi
+if [ "$WIDGET_OK" = 1 ]; then
+  echo "Panel widget installed: right-click the panel → Add Widgets… → search \"PhoneLink\"."
+  echo "(After an update, restart the panel to load it: plasmashell --replace & disown)"
 fi
 case ":$PATH:" in *":$BIN:"*) ;; *) echo "Note: add ~/.local/bin to your PATH (log out and back in on Kubuntu).";; esac

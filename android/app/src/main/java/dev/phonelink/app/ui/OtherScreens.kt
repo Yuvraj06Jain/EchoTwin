@@ -199,6 +199,12 @@ fun SetupScreen(access: Access, actions: Actions, onDone: () -> Unit, modifier: 
                 "Bluetooth backup when Wi-Fi is gone. Only your paired computer: no scanning, no location.",
                 access.bluetooth, actions::allowBluetooth,
             )
+            Step(
+                "Phone status",
+                "Show 4G/5G and signal on the computer next to the battery. Only the network type " +
+                    "and signal are read; nothing is sent anywhere else.",
+                access.phoneStatus, actions::allowPhoneStatus,
+            )
         }
         Panel(color = Pl.WarnSoft, border = Pl.Warn.copy(alpha = 0.4f)) {
             Text("Switch greyed out?", fontWeight = FontWeight.Medium)

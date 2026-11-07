@@ -209,6 +209,13 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 43 | New phone app: open it | dark screens with **Home · Files · Settings** at the bottom; *Finish setup* appears only while a permission is missing |
 | 44 | Laptop off (or away), get a WhatsApp message, then reconnect | default: no late popup for it on the laptop (Settings → *Queue notifications while disconnected* is off) |
 | 45 | Turn that switch **on**, repeat 44 | the notification is delivered when the laptop reconnects |
+| 46 | Re-run `./packaging/install.sh`, then right-click the panel → **Add Widgets…** → *PhoneLink* | a small phone outline appears in the panel: green when connected, grey offline |
+| 47 | Get a WhatsApp message | a green dot appears on the outline; it goes away when you open the popup |
+| 48 | Click the outline | popup with battery, 5G/4G and signal; tabs Notifications · Messages · Files |
+| 49 | Play music on the phone, open the popup | a music card on top: previous / play-pause / next and volume work |
+| 50 | Drag a file from Dolphin onto the outline (phone offline, then online) | "Queued 1 file…"; it's sent when the phone connects |
+| 51 | Phone app → Finish setup → **Phone status** → Allow | the laptop shows *5G* (or *4G*) with signal bars, in the widget and the desktop app |
+| 52 | Look at the phone app's Home | it shows the laptop's battery, e.g. "Computer battery 76% · charging" |
 
 When something fails, include:
 - the step number

@@ -163,6 +163,9 @@ private fun ComputerCard(d: Device, state: UiState, actions: Actions, onNote: ()
             }
             if (!d.connected) TextButton(onClick = actions::reconnect) { Text("Reconnect", color = Pl.AccentText) }
         }
+        d.battery?.let { level ->
+            Hint("Computer battery $level%" + if (d.charging) " · charging" else "", color = if (level.toInt() < 20 && !d.charging) Pl.Warn else Pl.Muted)
+        }
         when {
             bluetooth -> Hint("Wi-Fi can't reach the computer right now.")
             !d.connected -> Hint(

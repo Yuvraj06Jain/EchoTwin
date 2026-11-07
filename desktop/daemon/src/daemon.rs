@@ -21,7 +21,7 @@ use phonelink_core::{
         MAX_NOTIFICATION_TEXT,
     },
     AppMessage, Event, Fingerprint, Node, NodeConfig, PeerRecord, CAP_CLIPBOARD, CAP_LOCK,
-    CAP_MEDIA, CAP_NOTIFICATIONS, CAP_SMS,
+    CAP_MEDIA, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS, PhoneStatus,
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -92,6 +92,9 @@ struct State {
     /// Why the Bluetooth backup isn't ready (empty: ready).
     bt_status: Mutex<String>,
     bt_wake: Arc<Notify>,
+    /// Each connected phone's battery and network.
+    phone_status: Mutex<HashMap<Fingerprint, PhoneStatus>>,
+    battery_root: PathBuf,
 }
 
 /// Run until `shutdown` resolves.
@@ -140,6 +143,13 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         sms: Mutex::new(SmsStore::default()),
         bt_status: Mutex::new("starting".into()),
         bt_wake: Arc::new(Notify::new()),
+        phone_status: Mutex::new(HashMap::new()),
+        battery_root: opts
+            .config
+            .power_supply_dir
+            .clone()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(crate::battery::DEFAULT_ROOT)),
     });
     info!(
         name = %opts.config.device_name(),
@@ -172,6 +182,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
     tokio::spawn(share_copies(state.clone(), copies));
     tokio::spawn(transfer_updates(state.clone(), transfer_events));
     tokio::spawn(bluetooth_backup(state.clone()));
+    tokio::spawn(battery_watch(state.clone()));
     let server = tokio::spawn(serve(state.clone(), listener));
 
     shutdown.await;
@@ -198,7 +209,7 @@ async fn start_node(
     ] {
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
         cfg.capabilities.extend(
-            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, CAP_MEDIA, CAP_FILES, CAP_SMS]
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS]
                 .map(String::from),
         );
         match Node::start(cfg).await {
@@ -274,7 +285,12 @@ async fn serve(state: Arc<State>, listener: UnixListener) {
     }
 }
 
-fn device_info(node: &Node, p: &PeerRecord, capabilities: Vec<String>) -> DeviceInfo {
+fn device_info(
+    node: &Node,
+    p: &PeerRecord,
+    capabilities: Vec<String>,
+    status: Option<PhoneStatus>,
+) -> DeviceInfo {
     DeviceInfo {
         id: p.fingerprint.short(),
         fingerprint: p.fingerprint.to_hex(),
@@ -284,6 +300,7 @@ fn device_info(node: &Node, p: &PeerRecord, capabilities: Vec<String>) -> Device
         last_addrs: p.last_addrs.iter().map(|a| a.to_string()).collect(),
         capabilities,
         via: via(node.transport(&p.fingerprint)),
+        status,
     }
 }
 
@@ -442,7 +459,8 @@ impl State {
             .get(&p.fingerprint)
             .cloned()
             .unwrap_or_default();
-        device_info(&self.node, p, caps)
+        let status = lock(&self.phone_status).get(&p.fingerprint).cloned();
+        device_info(&self.node, p, caps, status)
     }
 
     fn clipboard_on(&self) -> bool {
@@ -450,6 +468,17 @@ impl State {
     }
 
     /// Connected devices that support `cap`.
+    /// Tell a phone this computer's battery (not queued: only "now" matters).
+    fn send_battery(&self, peer: &Fingerprint, battery: Option<(u8, bool)>) {
+        let msg = AppMessage::ComputerStatus {
+            battery: battery.map(|b| b.0),
+            charging: battery.is_some_and(|b| b.1),
+        };
+        if let Ok(body) = msg.encode() {
+            let _ = self.node.send(peer, body);
+        }
+    }
+
     fn connected_with(&self, cap: &str) -> Vec<Fingerprint> {
         lock(&self.caps)
             .iter()
@@ -715,7 +744,11 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                 transport,
                 ..
             } => {
+                let wants_status = capabilities.iter().any(|c| c == CAP_STATUS);
                 lock(&state.caps).insert(peer, capabilities);
+                if wants_status {
+                    state.send_battery(&peer, crate::battery::read(&state.battery_root));
+                }
                 state.transfers.nudge(); // files waiting for this phone go now
                 let blip = last_disconnect
                     .get(&peer)
@@ -735,6 +768,7 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
             Event::PeerDisconnected { peer } => {
                 last_disconnect.insert(peer, std::time::Instant::now());
                 lock(&state.caps).remove(&peer);
+                lock(&state.phone_status).remove(&peer);
                 if lock(&state.media).forget(&peer) {
                     state.broadcast(WatchEvent::MediaChanged { id: peer.short() });
                 }
@@ -899,8 +933,17 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     }
                     WatchEvent::MediaChanged { id: peer.short() }
                 }
+                AppMessage::PhoneStatus(mut s) => {
+                    s.battery = s.battery.filter(|b| *b <= 100);
+                    s.signal = s.signal.min(4);
+                    s.network = phonelink_core::message::truncate_text(&s.network, 16);
+                    if lock(&state.phone_status).insert(peer, s.clone()) == Some(s) {
+                        continue;
+                    }
+                    WatchEvent::PhoneStatusChanged { id: peer.short() }
+                }
                 // Only ever computer → phone.
-                AppMessage::MediaControl { .. } => continue,
+                AppMessage::MediaControl { .. } | AppMessage::ComputerStatus { .. } => continue,
                 AppMessage::Unsupported => {
                     debug!("message type not supported by this version; ignored");
                     continue;
@@ -913,6 +956,21 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
 
 /// Keeps the PhoneLink Bluetooth profile registered with BlueZ while the backup is on (and
 /// Bluetooth exists), tells phones where to find this computer, and serves the connections.
+/// Re-reads this computer's battery every 30 s and tells connected phones when it changed.
+async fn battery_watch(state: Arc<State>) {
+    let mut last = crate::battery::read(&state.battery_root);
+    loop {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        let now = crate::battery::read(&state.battery_root);
+        if now != last {
+            for peer in state.connected_with(CAP_STATUS) {
+                state.send_battery(&peer, now);
+            }
+            last = now;
+        }
+    }
+}
+
 async fn bluetooth_backup(state: Arc<State>) {
     use crate::bluetooth;
     let (tx, mut incoming) = tokio::sync::mpsc::unbounded_channel::<bluetooth::Incoming>();

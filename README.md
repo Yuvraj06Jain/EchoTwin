@@ -24,6 +24,8 @@ No accounts, no cloud, LAN only (v1).
 | Resumable file transfer both ways (drag and drop, Dolphin menu, Android share sheet) | **done**; laptop side tested, phone side compiled in CI |
 | SMS in the Messages tab (read, reply, older messages, send status) | **done**; laptop side tested, phone side compiled in CI |
 | Bluetooth backup link (same encrypted session over RFCOMM, back to Wi-Fi automatically) | **done**; laptop side tested against a stand-in BlueZ, phone side compiled in CI |
+| KDE panel widget (Plasma 6): phone outline, popup with music, notifications, SMS, files; drop files on it | **done**; data command and shell quoting tested, QML parse-checked; the look needs your real-panel test |
+| Battery and 4G/5G both ways (phone in the widget and app, laptop battery on the phone) | **done**; laptop side tested, phone side compiled in CI |
 | Packaging (Flatpak, .deb, AUR) | |
 
 ## Layout

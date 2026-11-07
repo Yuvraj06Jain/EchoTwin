@@ -216,6 +216,11 @@ object LinkManager {
     fun sendNowPlaying(media: PhoneMedia?) = onIo { it.sendNowPlaying(media) }
     fun sendMediaArt(key: String, image: ByteArray) = onIo { it.sendMediaArt(key, image) }
 
+    /** Battery and network for connected computers (not queued). */
+    fun sendPhoneStatus(battery: Int?, charging: Boolean, network: String, signal: Int) = onIo {
+        it.sendPhoneStatus(battery?.toUByte(), charging, network, signal.toUByte())
+    }
+
     /** The listener (re)connected: give the computer the full picture. */
     fun onMirrorReady() = sendSnapshot()
 
@@ -250,6 +255,7 @@ object LinkManager {
                     BluetoothBackup.onConnected()
                     sendSnapshot()
                     MediaWatcher.resend()
+                    StatusWatcher.send(force = true)
                     sendSmsSnapshot()
                 }
                 is LinkEvent.SmsSendRequested -> smsSend(event.id, event.clientId, event.address, event.body)

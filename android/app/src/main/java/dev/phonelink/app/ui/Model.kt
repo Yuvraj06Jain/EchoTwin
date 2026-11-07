@@ -9,8 +9,9 @@ data class Access(
     val battery: Boolean,
     val sms: Boolean,
     val bluetooth: Boolean,
+    val phoneStatus: Boolean,
 ) {
-    val missing: Int get() = listOf(notifications, battery, sms, bluetooth).count { !it }
+    val missing: Int get() = listOf(notifications, battery, sms, bluetooth, phoneStatus).count { !it }
 }
 
 data class UiState(
@@ -42,6 +43,7 @@ interface Actions {
     fun allowBattery()
     fun allowSms()
     fun allowBluetooth()
+    fun allowPhoneStatus()
     fun openAppInfo()
     fun unpair(device: Device)
 }

@@ -98,8 +98,11 @@
     connected: d.connected,
     via: d.via || null,
     pending: d.pending,
-    network: null,
-    battery: null,
+    // Battery and network as the phone reports them (only while connected).
+    network: (d.status && d.status.network) || null,
+    signal: d.status ? d.status.signal : null,
+    battery: d.status && typeof d.status.battery === 'number' ? d.status.battery : null,
+    charging: !!(d.status && d.status.charging),
     lastSeen: null,
   });
 

@@ -58,6 +58,7 @@ class LinkService : LifecycleService() {
             }
             acquireMulticastLock()
             SmsSync.start()
+            StatusWatcher.start(this@LinkService)
             runCatching { link.startDiscovery() }
             watchNetwork(link)
         }

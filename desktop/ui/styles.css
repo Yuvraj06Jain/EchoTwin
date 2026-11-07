@@ -231,6 +231,9 @@ body.in-app:not(.maximized) .resize-handle { display: block; }
 .battery::after { content: ""; position: absolute; right: -4px; top: 2px; width: 2px; height: 3px; background: var(--text-3); border-radius: 0 1px 1px 0; }
 .battery > i { position: absolute; left: 1px; top: 1px; bottom: 1px; border-radius: 1px; background: var(--text-2); }
 .battery.low > i { background: var(--danger); }
+.bars { display: inline-flex; align-items: flex-end; gap: 2px; width: 18px; height: 10px; flex: none; }
+.bars > i { width: 3px; border-radius: 1px; background: var(--border-strong, #3a3f45); }
+.bars > i.on { background: var(--text-2); }
 
 /* Now playing on the phone */
 .now-playing {

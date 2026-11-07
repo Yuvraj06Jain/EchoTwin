@@ -74,6 +74,76 @@ enum Cmd {
         action: Option<String>,
         level: Option<u32>,
     },
+    /// Everything the KDE panel widget shows, as one JSON object.
+    Widget,
+    /// Dismiss a mirrored notification (id from `notifications --json`).
+    Dismiss { id: String },
+    /// Mark an SMS conversation as read here (id from the widget/app).
+    SmsRead { thread: String },
+}
+
+/// One JSON object for the panel widget: phone status, music, notifications, SMS, files.
+async fn widget_state(c: &mut Client) -> anyhow::Result<serde_json::Value> {
+    use serde_json::json;
+    let status = c.request(&Request::Status).await?;
+    fail_on_error(&status)?;
+    let Reply::Status { devices, .. } = status else {
+        bail!("unexpected reply from phonelinkd")
+    };
+    let phone = devices.iter().find(|d| d.connected).or(devices.first());
+    let media = match c.request(&Request::Media).await? {
+        Reply::Media { items } => items.into_iter().next(),
+        _ => None,
+    };
+    let notifications: Vec<_> = match c.request(&Request::Notifications).await? {
+        Reply::Notifications { items, .. } => items
+            .into_iter()
+            .filter(|n| !n.removed_on_phone)
+            .take(30)
+            .map(|n| {
+                json!({ "id": n.id, "app": n.app, "package": n.package, "title": n.title,
+                        "text": n.text, "posted_ms": n.posted_ms })
+            })
+            .collect(),
+        _ => vec![],
+    };
+    let sms: Vec<_> = match c.request(&Request::SmsThreads).await? {
+        Reply::SmsThreads { threads, .. } => threads
+            .into_iter()
+            .take(20)
+            .map(|t| {
+                let last = t.messages.last();
+                json!({ "id": t.id, "name": if t.name.is_empty() { &t.address } else { &t.name },
+                        "unread": t.unread,
+                        "text": last.map(|m| m.body.as_str()).unwrap_or(""),
+                        "from_me": last.is_some_and(|m| m.from_me),
+                        "date_ms": last.map(|m| m.date_ms).unwrap_or(0) })
+            })
+            .collect(),
+        _ => vec![],
+    };
+    let transfers: Vec<_> = match c.request(&Request::Transfers).await? {
+        Reply::Transfers { items } => items
+            .into_iter()
+            .take(15)
+            .map(|t| {
+                json!({ "id": t.id, "name": t.name, "size": t.size, "done": t.done,
+                        "outgoing": matches!(t.direction, Direction::Outgoing),
+                        "state": t.state, "message": t.message, "path": t.path })
+            })
+            .collect(),
+        _ => vec![],
+    };
+    Ok(json!({
+        "paired": phone.is_some(),
+        "phone": phone.map(|d| json!({
+            "id": d.id, "name": d.name, "connected": d.connected, "via": d.via, "status": d.status,
+        })),
+        "media": media,
+        "notifications": notifications,
+        "sms": sms,
+        "transfers": transfers,
+    }))
 }
 
 fn media_action(action: &str, level: Option<u32>) -> anyhow::Result<MediaAction> {
@@ -179,6 +249,7 @@ fn print_event(e: &WatchEvent) {
         }
         WatchEvent::LockedByPhone { id, name } => println!("lock          {id}  {name} asked to lock"),
         WatchEvent::MediaChanged { id } => println!("media         {id}  playing state changed"),
+        WatchEvent::PhoneStatusChanged { id } => println!("status        {id}  battery/network changed"),
         WatchEvent::SmsChanged { thread } => {
             println!("sms           {}", thread.as_deref().unwrap_or("conversations changed"))
         }
@@ -411,6 +482,20 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                     );
                 }
             }
+        }
+        Cmd::Widget => {
+            // Always JSON: this is for the panel widget.
+            println!("{}", widget_state(&mut c).await?);
+        }
+        Cmd::Dismiss { id } => {
+            let r = c.request(&Request::DismissNotification { id }).await?;
+            fail_on_error(&r)?;
+            show(&r);
+        }
+        Cmd::SmsRead { thread } => {
+            let r = c.request(&Request::SmsMarkRead { thread }).await?;
+            fail_on_error(&r)?;
+            show(&r);
         }
         Cmd::Watch => {
             c.send(&Request::Watch).await?;

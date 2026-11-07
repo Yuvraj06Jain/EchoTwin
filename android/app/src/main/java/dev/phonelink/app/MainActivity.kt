@@ -87,6 +87,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var phoneStatusOn by mutableStateOf(true)
+    private val askPhoneStatus = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        phoneStatusOn = ok
+        if (ok) StatusWatcher.start(this)
+        notice = if (ok) "Your computer will show 4G/5G" else "Without it, the computer shows only Wi-Fi or Mobile data"
+    }
+
     private var bluetoothOn by mutableStateOf(true)
     private val askBluetooth = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         bluetoothOn = ok
@@ -122,7 +129,7 @@ class MainActivity : ComponentActivity() {
                     devices = devices,
                     transfers = transfers,
                     notes = notes,
-                    access = Access(mirrorOn, batteryOk, smsOn, bluetoothOn),
+                    access = Access(mirrorOn, batteryOk, smsOn, bluetoothOn, phoneStatusOn),
                     clipboardOn = clipboardOn,
                     queueOn = queueOn,
                     busy = busy,
@@ -185,6 +192,7 @@ class MainActivity : ComponentActivity() {
         override fun allowBattery() = fixBattery()
         override fun allowSms() = askSms.launch(SmsSync.permissions)
         override fun allowBluetooth() = askBluetooth.launch(BluetoothBackup.permission)
+        override fun allowPhoneStatus() = askPhoneStatus.launch(StatusWatcher.PHONE_PERMISSION)
         override fun openAppInfo() = this@MainActivity.openAppInfo()
         override fun unpair(device: Device) = this@MainActivity.unpair(device)
     }
@@ -198,6 +206,7 @@ class MainActivity : ComponentActivity() {
         pairedOnDisk = LinkManager.hasPairedDevice(this)
         smsOn = SmsSync.canRead()
         bluetoothOn = BluetoothBackup.allowed()
+        phoneStatusOn = StatusWatcher.allowed(this)
         lifecycleScope.launch(Dispatchers.IO) { runCatching { LinkManager.link() }; LinkManager.refresh() }
         LinkManager.nudge() // opening the app = "connect now", no waiting for the next retry
     }

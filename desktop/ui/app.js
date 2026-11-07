@@ -303,6 +303,12 @@
     }
   }
 
+  /** Four mobile signal bars, `level` (0–4) of them lit. */
+  function signalBars(level) {
+    const lit = Math.max(0, Math.min(4, Math.round(level)));
+    return `<span class="bars" aria-label="Signal ${lit} of 4">${[1, 2, 3, 4].map((i) => `<i class="${i <= lit ? 'on' : ''}" style="height:${2 + i * 2}px"></i>`).join('')}</span>`;
+  }
+
   function renderDevice() {
     const d = state.device;
     if (!d) {
@@ -316,7 +322,7 @@
     const statusRows = d.connected
       ? `<li class="stat"><span class="dot ok"></span><span>${d.via === 'bluetooth' ? 'Connected over Bluetooth' : 'Connected'}</span></li>
          ${d.via === 'bluetooth' ? `<li class="stat faint">${icon('bluetooth')}<span title="Wi-Fi is not available; files wait for it">Backup link · files wait for Wi-Fi</span></li>` : ''}
-         ${d.network ? `<li class="stat">${icon('wifi')}<span>${esc(d.network)}</span></li>` : ''}
+         ${d.network ? `<li class="stat">${d.network === 'Wi-Fi' || typeof d.signal !== 'number' ? icon('wifi') : signalBars(d.signal)}<span>${esc(d.network)}</span></li>` : ''}
          ${hasBattery ? `<li class="stat"><span class="battery${d.battery < 20 ? ' low' : ''}" aria-hidden="true"><i style="width:${battWidth}px"></i></span><span class="tnum">${d.battery}%${d.charging ? ' · charging' : ''}</span></li>` : ''}
          ${d.pending ? `<li class="stat faint">${icon('send')}<span>${esc(plural(d.pending, 'message', 'messages'))} sending…</span></li>` : ''}`
       : `<li class="stat"><span class="dot warn"></span><span>Offline${d.lastSeen ? ` · last seen <span data-ts="${d.lastSeen}" data-rel="ago">${esc(relTime(d.lastSeen))}</span>` : ''}</span></li>

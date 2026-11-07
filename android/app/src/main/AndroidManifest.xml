@@ -25,6 +25,8 @@
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- 4G/5G label for the computer's status display, asked for in the setup checklist. -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <!-- Bluetooth backup: connect to the already-paired computer only. No scanning (no

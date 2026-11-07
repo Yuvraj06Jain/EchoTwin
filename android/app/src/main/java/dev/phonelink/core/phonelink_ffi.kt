@@ -791,6 +791,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_text(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_set_queue_notifications(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_shutdown(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_sms_older(
@@ -904,6 +906,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_text(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_set_queue_notifications(`ptr`: Long,`on`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_shutdown(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_sms_older(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`thread`: Long,`messages`: RustBuffer.ByValue,`hasOlder`: Byte,uniffi_out_err: UniffiRustCallStatus, 
@@ -1123,6 +1127,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_text() and 0xFFFF) != 3677) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_set_queue_notifications() and 0xFFFF) != 50598) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_shutdown() and 0xFFFF) != 7840) {
@@ -2397,6 +2404,12 @@ public interface PhoneLinkInterface {
      */
     fun `sendText`(`deviceId`: kotlin.String?, `text`: kotlin.String): kotlin.Boolean
     
+    /**
+     * Whether notifications are queued for computers that are offline (default off:
+     * you were with your phone, so you already saw them).
+     */
+    fun `setQueueNotifications`(`on`: kotlin.Boolean)
+    
     fun `shutdown`()
     
     /**
@@ -2901,6 +2914,23 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
     }
     )
     }
+    
+
+    
+    /**
+     * Whether notifications are queued for computers that are offline (default off:
+     * you were with your phone, so you already saw them).
+     */override fun `setQueueNotifications`(`on`: kotlin.Boolean)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_set_queue_notifications(
+        it,
+        
+        FfiConverterBoolean.lower(`on`),_status)
+}
+    }
+    
     
 
     override fun `shutdown`()

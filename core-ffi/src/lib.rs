@@ -10,7 +10,10 @@ use std::{
     collections::HashMap,
     net::SocketAddr,
     path::PathBuf,
-    sync::{mpsc as std_mpsc, Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc as std_mpsc, Arc, Mutex,
+    },
     time::Duration,
 };
 
@@ -377,6 +380,8 @@ pub struct PhoneLink {
     keepers: Arc<Mutex<HashMap<Fingerprint, JoinHandle<()>>>>,
     caps: Caps,
     files: Transfers,
+    /// Queue notifications for offline computers (off: only connected ones get them).
+    queue_notifications: AtomicBool,
 }
 
 /// What each connected computer supports (from its Hello).
@@ -703,6 +708,7 @@ impl PhoneLink {
             keepers,
             caps,
             files: transfers,
+            queue_notifications: AtomicBool::new(false),
         }))
     }
 
@@ -839,12 +845,18 @@ impl PhoneLink {
 
     /// Mirror a new or updated notification to every paired computer.
     pub fn post_notification(&self, notification: MirroredNotification) -> Result<(), LinkError> {
-        self.send_all(AppMessage::NotificationPosted(notification.into_wire()))
+        self.send_notification(AppMessage::NotificationPosted(notification.into_wire()))
+    }
+
+    /// Whether notifications are queued for computers that are offline (default off:
+    /// you were with your phone, so you already saw them).
+    pub fn set_queue_notifications(&self, on: bool) {
+        self.queue_notifications.store(on, Ordering::Relaxed);
     }
 
     /// The notification was cleared on the phone.
     pub fn remove_notification(&self, key: String) -> Result<(), LinkError> {
-        self.send_all(AppMessage::NotificationRemoved { key })
+        self.send_notification(AppMessage::NotificationRemoved { key })
     }
 
     /// Everything currently shown; call when a computer (re)connects.
@@ -859,7 +871,7 @@ impl PhoneLink {
 
     /// An app's icon as a small PNG (sent once per app).
     pub fn send_app_icon(&self, package: String, png: Vec<u8>) -> Result<(), LinkError> {
-        self.send_all(AppMessage::AppIcon { package, png })
+        self.send_notification(AppMessage::AppIcon { package, png })
     }
 
     /// Tell the computer `device_id` how its request about `key` went.
@@ -1067,6 +1079,15 @@ impl PhoneLink {
         Ok(())
     }
 
+    /// Notification traffic: queued, or only to connected computers, per the setting.
+    fn send_notification(&self, msg: AppMessage) -> Result<(), LinkError> {
+        if self.queue_notifications.load(Ordering::Relaxed) {
+            self.send_all(msg)
+        } else {
+            self.send_connected(CAP_NOTIFICATIONS, msg).map(|_| ())
+        }
+    }
+
     /// Send to every connected computer supporting `cap`; returns how many.
     fn send_connected(&self, cap: &str, msg: AppMessage) -> Result<u32, LinkError> {
         let body = msg.encode()?;
@@ -1261,11 +1282,11 @@ mod tests {
     fn notification_mirroring_call_sequence() {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let (laptop, mut lrx) = rt
-            .block_on(Node::start(NodeConfig::new(
-                "Kubuntu",
-                None,
-                "127.0.0.1:0".parse().unwrap(),
-            )))
+            .block_on(Node::start({
+                let mut c = NodeConfig::new("Kubuntu", None, "127.0.0.1:0".parse().unwrap());
+                c.capabilities.push(CAP_NOTIFICATIONS.into());
+                c
+            }))
             .unwrap();
         let uri = laptop
             .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
@@ -1392,8 +1413,36 @@ mod tests {
             LinkEvent::ActionRequested { index: 1, .. }
         ));
 
-        phone.shutdown();
+        // Laptop away: with the default setting nothing is queued for it.
+        let laptop_fp = laptop.fingerprint();
         rt.block_on(laptop.shutdown());
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while phone.node.is_connected(&laptop_fp) {
+            assert!(std::time::Instant::now() < deadline, "phone saw the disconnect");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let queued = || phone.node.pending_count(&laptop_fp).unwrap();
+        let before = queued();
+        let note = |key: &str| MirroredNotification {
+            key: key.into(),
+            package: "com.whatsapp".into(),
+            app: "WhatsApp".into(),
+            title: "Away".into(),
+            text: "seen on the phone".into(),
+            posted_ms: 2,
+            can_reply: false,
+            actions: vec![],
+        };
+        phone.post_notification(note("k2")).unwrap();
+        phone.remove_notification("k2".into()).unwrap();
+        phone.send_app_icon("com.x".into(), vec![1]).unwrap();
+        assert_eq!(queued(), before, "nothing queued while the setting is off");
+        phone.set_queue_notifications(true);
+        phone.post_notification(note("k3")).unwrap();
+        phone.remove_notification("k3".into()).unwrap();
+        assert_eq!(queued(), before + 2, "queued when the setting is on");
+
+        phone.shutdown();
     }
 
     /// After the app restarts, the phone listens where the laptop remembers it.

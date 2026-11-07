@@ -63,6 +63,7 @@ object LinkManager {
         link?.let { return it }
         val dir = dataDir(app).apply { mkdirs() }
         val started = PhoneLink.start(dir.path, deviceName(), listener, FileShare)
+        started.setQueueNotifications(Prefs.queueNotifications(app))
         link = started
         _myId.value = started.id()
         refresh()
@@ -103,6 +104,13 @@ object LinkManager {
     }
 
     fun cancelTransfer(id: String) = onIo { it.cancelTransfer(id) }
+
+    fun clearTransfers() = onIo { it.clearTransfers(); refresh() }
+
+    fun setQueueNotifications(on: Boolean) {
+        Prefs.setQueueNotifications(app, on)
+        onIo { it.setQueueNotifications(on) }
+    }
 
     private val _transfers = MutableStateFlow<List<dev.phonelink.core.FileTransfer>>(emptyList())
     val transfers: StateFlow<List<dev.phonelink.core.FileTransfer>> = _transfers

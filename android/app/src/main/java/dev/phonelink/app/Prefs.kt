@@ -6,6 +6,7 @@ import android.content.Context
 object Prefs {
     private const val FILE = "settings"
     private const val CLIPBOARD = "clipboard_sharing"
+    private const val QUEUE = "queue_notifications"
 
     private fun prefs(context: Context) = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
@@ -14,4 +15,10 @@ object Prefs {
 
     fun setClipboardSharing(context: Context, on: Boolean) =
         prefs(context).edit().putBoolean(CLIPBOARD, on).apply()
+
+    /** Keep notifications for a computer that's away and send them later (off by default). */
+    fun queueNotifications(context: Context): Boolean = prefs(context).getBoolean(QUEUE, false)
+
+    fun setQueueNotifications(context: Context, on: Boolean) =
+        prefs(context).edit().putBoolean(QUEUE, on).apply()
 }

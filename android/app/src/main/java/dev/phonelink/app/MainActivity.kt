@@ -12,51 +12,47 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import dev.phonelink.app.ui.Access
+import dev.phonelink.app.ui.Actions
+import dev.phonelink.app.ui.ConfirmPairDialog
+import dev.phonelink.app.ui.FilesScreen
+import dev.phonelink.app.ui.HomeScreen
+import dev.phonelink.app.ui.PairScreen
+import dev.phonelink.app.ui.PhoneLinkTheme
+import dev.phonelink.app.ui.Pl
+import dev.phonelink.app.ui.SettingsScreen
+import dev.phonelink.app.ui.SetupScreen
+import dev.phonelink.app.ui.UiState
 import dev.phonelink.core.Device
 import dev.phonelink.core.PairingCode
 import kotlinx.coroutines.Dispatchers
@@ -70,6 +66,8 @@ class MainActivity : ComponentActivity() {
     private var batteryOk by mutableStateOf(true)
     private var mirrorOn by mutableStateOf(true)
     private var clipboardOn by mutableStateOf(true)
+    private var queueOn by mutableStateOf(false)
+    private var pairedOnDisk by mutableStateOf(false)
 
     private val scan = registerForActivityResult(ScanContract()) { result ->
         result.contents?.let { onScanned(it) }
@@ -114,43 +112,46 @@ class MainActivity : ComponentActivity() {
         ContextCompat.startForegroundService(this, Intent(this, LinkService::class.java))
 
         setContent {
-            MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
+            PhoneLinkTheme {
                 val devices by LinkManager.devices.collectAsStateWithLifecycle()
-                val messages by LinkManager.messages.collectAsStateWithLifecycle()
+                val notes by LinkManager.messages.collectAsStateWithLifecycle()
                 val myId by LinkManager.myId.collectAsStateWithLifecycle()
                 val transfers by LinkManager.transfers.collectAsStateWithLifecycle()
+                val state = UiState(
+                    myId = myId,
+                    devices = devices,
+                    transfers = transfers,
+                    notes = notes,
+                    access = Access(mirrorOn, batteryOk, smsOn, bluetoothOn),
+                    clipboardOn = clipboardOn,
+                    queueOn = queueOn,
+                    busy = busy,
+                    bluetoothProblem = BluetoothBackup.problem,
+                )
                 val snackbar = remember { SnackbarHostState() }
                 LaunchedEffect(notice) {
                     notice?.let { snackbar.showSnackbar(it); notice = null }
                 }
-                Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
-                    HomeScreen(
-                        modifier = Modifier.padding(padding),
-                        myId = myId,
-                        devices = devices,
-                        messages = messages,
-                        busy = busy,
-                        batteryOk = batteryOk,
-                        mirrorOn = mirrorOn,
-                        onAllowMirror = ::openNotificationAccess,
-                        onOpenAppInfo = ::openAppInfo,
-                        onPair = ::startScan,
-                        onSend = ::sendText,
-                        onUnpair = ::unpair,
-                        onReconnect = { LinkManager.nudge(); notice = "Looking for your computer on this network…" },
-                        onFixBattery = ::fixBattery,
-                        clipboardOn = clipboardOn,
-                        onClipboardSharing = ::setClipboardSharing,
-                        onLock = { LinkManager.lockComputer() },
-                        onSendClipboard = ::sendClipboard,
-                        transfers = transfers,
-                        onSendFiles = { pickFiles.launch(arrayOf("*/*")) },
-                        onCancelTransfer = { LinkManager.cancelTransfer(it) },
-                        smsOn = smsOn,
-                        onAllowSms = { askSms.launch(SmsSync.permissions) },
-                        bluetoothOn = bluetoothOn,
-                        onAllowBluetooth = { askBluetooth.launch(BluetoothBackup.permission) },
-                    )
+                var tab by rememberSaveable { mutableIntStateOf(0) }
+                var setupOpen by rememberSaveable { mutableStateOf(false) }
+                BackHandler(enabled = setupOpen || tab != 0) { if (setupOpen) setupOpen = false else tab = 0 }
+                // Until the core has started, trust the saved pairing file (no flash of the pair screen).
+                val paired = if (myId.isNotEmpty()) devices.isNotEmpty() else pairedOnDisk
+                Scaffold(
+                    containerColor = Pl.Bg,
+                    snackbarHost = { SnackbarHost(snackbar) },
+                    bottomBar = {
+                        if (paired && !setupOpen) BottomBar(tab) { tab = it }
+                    },
+                ) { padding ->
+                    val m = Modifier.padding(padding)
+                    when {
+                        !paired -> PairScreen(busy, ::startScan, m)
+                        setupOpen -> SetupScreen(state.access, actions, { setupOpen = false }, m)
+                        tab == 1 -> FilesScreen(state, actions, m)
+                        tab == 2 -> SettingsScreen(state, actions, { setupOpen = true }, m)
+                        else -> HomeScreen(state, actions, { setupOpen = true }, m)
+                    }
                     pendingPair?.let { (uri, code) ->
                         ConfirmPairDialog(
                             code = code,
@@ -163,11 +164,38 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val actions = object : Actions {
+        override fun pair() = startScan()
+        override fun reconnect() {
+            LinkManager.nudge()
+            notice = "Looking for your computer on this network…"
+        }
+        override fun lock() = LinkManager.lockComputer()
+        override fun sendClipboard() = this@MainActivity.sendClipboard()
+        override fun sendFiles() = pickFiles.launch(arrayOf("*/*"))
+        override fun sendNote(text: String) = sendText(text)
+        override fun cancelTransfer(id: String) = LinkManager.cancelTransfer(id)
+        override fun clearTransfers() = LinkManager.clearTransfers()
+        override fun setClipboard(on: Boolean) = setClipboardSharing(on)
+        override fun setQueue(on: Boolean) {
+            LinkManager.setQueueNotifications(on)
+            queueOn = on
+        }
+        override fun allowNotifications() = openNotificationAccess()
+        override fun allowBattery() = fixBattery()
+        override fun allowSms() = askSms.launch(SmsSync.permissions)
+        override fun allowBluetooth() = askBluetooth.launch(BluetoothBackup.permission)
+        override fun openAppInfo() = this@MainActivity.openAppInfo()
+        override fun unpair(device: Device) = this@MainActivity.unpair(device)
+    }
+
     override fun onResume() {
         super.onResume()
         batteryOk = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
         mirrorOn = LinkManager.mirrorEnabled(this)
         clipboardOn = Prefs.clipboardSharing(this)
+        queueOn = Prefs.queueNotifications(this)
+        pairedOnDisk = LinkManager.hasPairedDevice(this)
         smsOn = SmsSync.canRead()
         bluetoothOn = BluetoothBackup.allowed()
         lifecycleScope.launch(Dispatchers.IO) { runCatching { LinkManager.link() }; LinkManager.refresh() }
@@ -285,254 +313,27 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun HomeScreen(
-    modifier: Modifier,
-    myId: String,
-    devices: List<Device>,
-    messages: List<String>,
-    busy: Boolean,
-    batteryOk: Boolean,
-    mirrorOn: Boolean,
-    onAllowMirror: () -> Unit,
-    onOpenAppInfo: () -> Unit,
-    onPair: () -> Unit,
-    onSend: (String) -> Unit,
-    onUnpair: (Device) -> Unit,
-    onReconnect: () -> Unit,
-    onFixBattery: () -> Unit,
-    clipboardOn: Boolean,
-    onClipboardSharing: (Boolean) -> Unit,
-    onLock: () -> Unit,
-    onSendClipboard: () -> Unit,
-    transfers: List<dev.phonelink.core.FileTransfer>,
-    onSendFiles: () -> Unit,
-    onCancelTransfer: (String) -> Unit,
-    smsOn: Boolean,
-    onAllowSms: () -> Unit,
-    bluetoothOn: Boolean,
-    onAllowBluetooth: () -> Unit,
-) {
-    var draft by remember { mutableStateOf("") }
-    var confirmUnpair by remember { mutableStateOf<Device?>(null) }
-
-    LazyColumn(
-        modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Spacer(Modifier.padding(top = 8.dp))
-            Text("PhoneLink", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("This phone's id: $myId", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-        }
-
-        if (devices.isNotEmpty() && !mirrorOn) {
-            item {
-                Card {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Show this phone's notifications on your computer", fontWeight = FontWeight.Bold)
-                        Text(
-                            "Allow PhoneLink to read notifications. They go only to your paired computer, " +
-                                "encrypted, and nothing from the computer is shown here."
-                        )
-                        Button(onClick = onAllowMirror) { Text("Allow notification access") }
-                        Text(
-                            "Switch greyed out? Android blocks this for apps installed from a file. Open App info, " +
-                                "tap ⋮ (top right) → Allow restricted settings, then try again.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        OutlinedButton(onClick = onOpenAppInfo) { Text("Open App info") }
-                    }
-                }
-            }
-        }
-
-        if (devices.isNotEmpty() && !bluetoothOn) {
-            item {
-                Card {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Stay connected over Bluetooth", fontWeight = FontWeight.Bold)
-                        Text(
-                            "When Wi-Fi is gone, PhoneLink can reach your computer over Bluetooth (pair them in " +
-                                "Bluetooth settings first). It only connects to your paired computer: no scanning, " +
-                                "no location."
-                        )
-                        Button(onClick = onAllowBluetooth) { Text("Allow Nearby devices") }
-                    }
-                }
-            }
-        }
-
-        if (devices.isNotEmpty() && !smsOn) {
-            item {
-                Card {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Read and send SMS from your computer", fontWeight = FontWeight.Bold)
-                        Text(
-                            "Allow PhoneLink to read SMS, send SMS and see contact names. Conversations go only to " +
-                                "your paired computer, encrypted, and are not stored there. RCS chats can't be shown."
-                        )
-                        Button(onClick = onAllowSms) { Text("Allow SMS access") }
-                    }
-                }
-            }
-        }
-
-        if (!batteryOk) {
-            item {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Keep PhoneLink connected", fontWeight = FontWeight.Bold)
-                        Text(
-                            "Samsung phones stop background apps. Allow PhoneLink to run unrestricted, then also add " +
-                                "it under Settings → Battery → Background usage limits → Never sleeping apps."
-                        )
-                        Button(onClick = onFixBattery) { Text("Allow background use") }
-                    }
-                }
-            }
-        }
-
-        item { Text("Computers", style = MaterialTheme.typography.titleMedium) }
-        if (devices.isEmpty()) {
-            item { Text("No computer paired yet. On your computer run `phonelink pair`, then tap the button below.") }
-        }
-        items(devices, key = { it.id }) { d ->
-            Card(Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(d.name, fontWeight = FontWeight.Bold)
-                        Text(d.id, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                        val state = when {
-                            d.connected && d.via == "bluetooth" -> "Connected over Bluetooth"
-                            d.connected -> "Connected"
-                            else -> BluetoothBackup.problem?.let { "Offline · $it" } ?: "Offline"
-                        }
-                        val queued = if (d.pending > 0uL) " · ${d.pending} queued" else ""
-                        Text(state + queued, color = if (d.connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
-                    }
-                    if (!d.connected) TextButton(onClick = onReconnect) { Text("Reconnect") }
-                    TextButton(onClick = { confirmUnpair = d }) { Text("Unpair") }
-                }
-            }
-        }
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = onPair, enabled = !busy) { Text("Pair a computer") }
-                if (busy) {
-                    Spacer(Modifier.width(12.dp))
-                    CircularProgressIndicator()
-                }
-            }
-        }
-
-        if (devices.isNotEmpty()) {
-            val canLock = devices.any { it.canLock }
-            val canClip = devices.any { it.canClipboard }
-            item {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Your computer", fontWeight = FontWeight.Bold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = onLock, enabled = canLock) { Text("Lock computer") }
-                            OutlinedButton(onClick = onSendClipboard, enabled = canClip && clipboardOn) {
-                                Text("Send clipboard")
-                            }
-                        }
-                        OutlinedButton(onClick = onSendFiles) { Text("Send files") }
-                        Text(
-                            "Or use Share → Send to computer in any app. Files from the computer are saved in Download/PhoneLink.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("Share clipboard")
-                                Text(
-                                    "Text you copy on the computer can be pasted here. To send text from " +
-                                        "here, tap Send clipboard (also on the PhoneLink notification and as a " +
-                                        "Quick Settings tile).",
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                            Switch(checked = clipboardOn, onCheckedChange = onClipboardSharing)
-                        }
-                        if (!canLock && devices.any { it.connected }) {
-                            Text(
-                                "Update PhoneLink on the computer to lock it and share the clipboard from here.",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                    }
-                }
-            }
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Test message", style = MaterialTheme.typography.titleMedium)
-                    OutlinedTextField(
-                        value = draft,
-                        onValueChange = { draft = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Hello from my phone") },
-                        singleLine = true,
-                    )
-                    Button(onClick = { onSend(draft.ifBlank { "Hello from my phone" }); draft = "" }) { Text("Send to computer") }
-                }
-            }
-        }
-
-        if (transfers.isNotEmpty()) {
-            item { Text("Files", style = MaterialTheme.typography.titleMedium) }
-            items(transfers.take(10), key = { "t-" + it.id }) { t ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text((if (t.outgoing) "↑ " else "↓ ") + t.name, fontWeight = FontWeight.Bold, maxLines = 1)
-                        val pct = if (t.size > 0uL) (t.done * 100uL / t.size).toInt() else 100
-                        val status = when (t.state) {
-                            "done" -> if (t.outgoing) "Sent" else "Saved in Download/PhoneLink"
-                            "active" -> "$pct%"
-                            "queued" -> "Queued"
-                            "waiting" -> (if (pct > 0) "$pct% · " else "") + t.message.ifBlank { "Waiting" }
-                            "failed" -> "Failed: " + t.message
-                            else -> t.message.ifBlank { "Cancelled" }
-                        }
-                        Text(status, style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                    }
-                    if (t.state == "active" || t.state == "waiting" || t.state == "queued") {
-                        TextButton(onClick = { onCancelTransfer(t.id) }) { Text("Cancel") }
-                    }
-                }
-            }
-        }
-
-        if (messages.isNotEmpty()) {
-            item { Text("Received", style = MaterialTheme.typography.titleMedium) }
-            items(messages) { m -> Text(m) }
-        }
-        item { Spacer(Modifier.padding(bottom = 24.dp)) }
-    }
-
-    confirmUnpair?.let { d ->
-        AlertDialog(
-            onDismissRequest = { confirmUnpair = null },
-            title = { Text("Unpair ${d.name}?") },
-            text = { Text("It will no longer be able to connect. You can pair again later with a new QR code.") },
-            confirmButton = { TextButton(onClick = { confirmUnpair = null; onUnpair(d) }) { Text("Unpair") } },
-            dismissButton = { TextButton(onClick = { confirmUnpair = null }) { Text("Cancel") } },
-        )
-    }
-}
-
-@Composable
-private fun ConfirmPairDialog(code: PairingCode, onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Pair with ${code.name}?") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Check that your computer's terminal shows exactly this id:")
-                Text(code.id, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
-            }
-        },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Pair") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+private fun BottomBar(selected: Int, onSelect: (Int) -> Unit) {
+    val items = listOf(
+        "Home" to Icons.Filled.Home,
+        "Files" to Icons.AutoMirrored.Filled.List,
+        "Settings" to Icons.Filled.Settings,
     )
+    NavigationBar(containerColor = Pl.Panel) {
+        items.forEachIndexed { i, (label, icon) ->
+            NavigationBarItem(
+                selected = selected == i,
+                onClick = { onSelect(i) },
+                icon = { Icon(icon, contentDescription = null) },
+                label = { Text(label) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = Pl.AccentText,
+                    selectedTextColor = Pl.AccentText,
+                    indicatorColor = Pl.AccentSoft,
+                    unselectedIconColor = Pl.Muted,
+                    unselectedTextColor = Pl.Muted,
+                ),
+            )
+        }
+    }
 }

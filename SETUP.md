@@ -206,6 +206,9 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 40 | Turn on airplane mode on the phone (Wi-Fi off), reply from the laptop | refused with a reason; nothing is sent later by surprise |
 | 41 | Pair phone and laptop in Bluetooth settings, allow Nearby devices; then turn **Wi-Fi/hotspot off** | within ~20 s the laptop app shows *Connected · Bluetooth*; a WhatsApp notification still pops up |
 | 42 | Turn Wi-Fi/hotspot back on | back to *Connected* (Wi-Fi) within a minute, without touching anything |
+| 43 | New phone app: open it | dark screens with **Home · Files · Settings** at the bottom; *Finish setup* appears only while a permission is missing |
+| 44 | Laptop off (or away), get a WhatsApp message, then reconnect | default: no late popup for it on the laptop (Settings → *Queue notifications while disconnected* is off) |
+| 45 | Turn that switch **on**, repeat 44 | the notification is delivered when the laptop reconnects |
 
 When something fails, include:
 - the step number

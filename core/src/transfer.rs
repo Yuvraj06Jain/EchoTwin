@@ -203,6 +203,9 @@ struct Inner {
     wake: Notify,
     /// Speed of each transfer that is moving right now.
     speeds: Mutex<HashMap<String, Speed>>,
+    /// How often the sender looked for transfers to start.
+    #[cfg(test)]
+    passes: std::sync::atomic::AtomicU64,
 }
 
 /// The transfer engine. Cheap to clone.
@@ -363,6 +366,8 @@ impl Transfers {
                 receiving: Mutex::new(HashMap::new()),
                 speeds: Mutex::new(HashMap::new()),
                 wake: Notify::new(),
+                #[cfg(test)]
+                passes: Default::default(),
             }),
         };
         tokio::spawn(t.clone().sender_loop());
@@ -454,7 +459,11 @@ impl Transfers {
             if r.info.state != TransferState::Active {
                 self.inner.speeds.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
             }
+            let finished = r.info.state.finished();
             let _ = self.inner.events.send(r.info);
+            if finished {
+                self.prune_finished();
+            }
         }
     }
 
@@ -628,15 +637,34 @@ impl Transfers {
 
     // ------------------------------------------------------------------ sending
 
+    /// Looks for transfers to start only when something can have changed: a file was
+    /// queued or finished, a device connected or disconnected, a nudge, or a retry is due.
+    /// Idle, it sleeps without a timer (no periodic disk reads).
     async fn sender_loop(self) {
+        let mut links = self.inner.node.link_changes();
+        self.prune_finished();
         loop {
+            self.start_due();
+            let retry = self.next_retry();
             tokio::select! {
                 _ = self.inner.wake.notified() => {}
-                _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+                _ = links.changed() => {}
+                _ = tokio::time::sleep_until(retry.unwrap_or_else(Instant::now).into()), if retry.is_some() => {}
             }
-            self.start_due();
-            self.prune_finished();
         }
+    }
+
+    /// The earliest retry still in the future (past ones wait for a connection or a wake).
+    fn next_retry(&self) -> Option<Instant> {
+        let now = Instant::now();
+        self.inner
+            .retry_at
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .map(|(at, _)| *at)
+            .filter(|at| *at > now)
+            .min()
     }
 
     fn prune_finished(&self) {
@@ -648,6 +676,8 @@ impl Transfers {
     }
 
     fn start_due(&self) {
+        #[cfg(test)]
+        self.inner.passes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let pending: Vec<Row> = {
             let db = self.db();
             let Ok(mut stmt) = db.prepare(
@@ -1212,6 +1242,33 @@ mod tests {
         let r = reserve_unique(d.path(), "README").unwrap();
         let r2 = reserve_unique(d.path(), "README").unwrap();
         assert_eq!((n(&r), n(&r2)), ("README".into(), "README (2)".into()));
+    }
+
+    #[tokio::test]
+    async fn the_sender_sleeps_while_idle_and_wakes_for_retries() {
+        let addr = "127.0.0.1:0".parse().unwrap();
+        let (node, _events) = Node::start(crate::NodeConfig::new("Laptop", None, addr)).await.unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = TransferConfig {
+            db_path: None,
+            incoming_dir: dir.path().into(),
+            reserve_bytes: 0,
+        };
+        let (t, _updates) = Transfers::start(node, cfg, Arc::new(PathOpener)).unwrap();
+        let passes = || t.inner.passes.load(std::sync::atomic::Ordering::Relaxed);
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        assert_eq!(passes(), 1, "one look at start, then no ticking");
+
+        // A retry deadline wakes it once, then it sleeps again.
+        let retry = (Instant::now() + Duration::from_millis(300), RETRY_MIN);
+        t.inner.retry_at.lock().unwrap().insert("x".into(), retry);
+        t.inner.wake.notify_one();
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        assert_eq!(passes(), 3, "woken, then once more at the deadline");
+
+        t.nudge();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(passes(), 4);
     }
 
     #[test]

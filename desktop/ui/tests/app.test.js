@@ -17,6 +17,20 @@ const check = (cond, what) => {
 
 // Runs in the page before any app script.
 function fakeTauri() {
+  // Track live intervals (ms each), to check that timers only run while needed.
+  const intervals = new Map();
+  const setI = window.setInterval.bind(window);
+  const clearI = window.clearInterval.bind(window);
+  window.setInterval = (fn, ms, ...a) => {
+    const id = setI(fn, ms, ...a);
+    intervals.set(id, ms);
+    return id;
+  };
+  window.clearInterval = (id) => {
+    intervals.delete(id);
+    clearI(id);
+  };
+  window.__intervals = (ms) => [...intervals.values()].filter((v) => v === ms).length;
   const calls = [];
   const listeners = {};
   const fake = {
@@ -63,7 +77,7 @@ function fakeTauri() {
         if (!fake.daemonUp) throw 'daemon-down';
         switch (cmd) {
           case 'status':
-            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66' }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, devices: fake.devices };
+            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66' }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, battery_saver: fake.saver !== false, devices: fake.devices };
           case 'notifications':
             if (fake.slowNext) {
               // Snapshot the data now, answer late (like a reload that started before news arrived).
@@ -125,6 +139,9 @@ function fakeTauri() {
           case 'set_connection':
             fake.connection = args.on;
             if (!args.on) fake.devices = fake.devices.map((d) => ({ ...d, connected: false }));
+            return null;
+          case 'set_battery_saver':
+            fake.saver = args.on;
             return null;
           case 'set_bluetooth_backup':
             fake.bt = args.enabled;
@@ -200,6 +217,7 @@ function fakeTauri() {
   check((await page.$$eval('[data-action="cancel-pairing"]', (b) => b.length)) === 0, 'no Cancel when nothing is paired');
   check((await page.$$eval('[data-action="simulate-pair"]', (b) => b.length)) === 0, 'no preview-only "Simulate" button in the app');
   check((await page.evaluate(() => window.__fake.pairingCount)) === 1, 'exactly one pairing request');
+  check((await page.evaluate(() => window.__intervals(1000))) === 1, 'the 1 s countdown runs while pairing shows');
   await page.evaluate(() => window.__emit('phonelink://event', { kind: 'disconnected', id: 'x', name: 'x' }));
   await page.waitForTimeout(400);
   check((await page.evaluate(() => window.__fake.pairingCount)) === 1, 'reloads do not restart pairing (the QR stays valid)');
@@ -218,6 +236,7 @@ function fakeTauri() {
   });
   await page.waitForTimeout(400);
   check(await visible('#main-body'), 'paired event switches to the main view');
+  check((await page.evaluate(() => window.__intervals(1000))) === 0, 'no 1 s timer once paired (nothing playing)');
   check((await toast()) === 'Paired with Galaxy S24 FE', 'paired toast');
   check((await txt('#conn-pill')).includes('Galaxy S24 FE · Connected'), 'pill shows the connected phone');
 
@@ -392,10 +411,17 @@ function fakeTauri() {
   await page.waitForTimeout(150);
   const setN = await lastCall('set_notifications');
   check(setN && setN[1].enabled === false, 'switch calls set_notifications(false)');
-  check(!!(await lastCall('set_blur')) && (await lastCall('set_blur'))[1].on === true, 'blur requested at startup (default on)');
+  const blurCalls = () => page.evaluate(() => window.__calls.filter((c) => c[0] === 'set_blur').map((c) => c[1].on));
+  check(JSON.stringify(await blurCalls()) === '[false]', 'no blur at startup (default off): ' + JSON.stringify(await blurCalls()));
   const alpha = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--alpha').trim());
-  check((await alpha()) === '0.85', 'default window opacity 85%: ' + (await alpha()));
+  check((await alpha()) === '1', 'default window opacity 100%: ' + (await alpha()));
+  check((await page.getAttribute('.sheet [data-action="toggle-blur"]', 'aria-checked')) === 'false', 'blur switch off by default');
+  await page.click('.sheet [data-action="toggle-blur"]');
+  await page.waitForTimeout(100);
+  check((await blurCalls()).length === 1, 'blur on but the window solid: still no blur requested');
+  check(await page.evaluate(() => localStorage.getItem('phonelink.blur') === 'on'), 'blur choice remembered');
   await page.$eval('.sheet [data-opacity]', (el) => { el.value = '60'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+  check((await lastCall('set_blur'))[1].on === true, 'translucent with blur on: blur requested');
   check((await alpha()) === '0.6', 'opacity slider applies live');
   check((await txt('.sheet [data-opacity-value]')) === '60%', 'shows the value');
   check(await page.evaluate(() => localStorage.getItem('phonelink.opacity') === '60'), 'opacity remembered');
@@ -406,14 +432,27 @@ function fakeTauri() {
   await page.click('.sheet [data-action="toggle-blur"]');
   await page.waitForTimeout(100);
   check((await lastCall('set_blur'))[1].on === false, 'blur switch turns it off');
-  check(await page.evaluate(() => localStorage.getItem('phonelink.blur') === 'off'), 'blur choice remembered');
+  check(await page.evaluate(() => localStorage.getItem('phonelink.blur') === 'off'), 'blur off remembered');
+  await page.click('.sheet [data-action="toggle-blur"]');
+  await page.$eval('.sheet [data-opacity]', (el) => { el.value = '100'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+  check((await lastCall('set_blur'))[1].on === false, 'back to solid: blur dropped although the switch is on');
   await page.click('.sheet [data-action="open-blur-settings"]');
   await page.waitForTimeout(100);
   check(!!(await lastCall('open_blur_settings')), 'opens KDE blur settings');
   await page.$eval('.sheet-body', (el) => { el.scrollTop = el.scrollHeight; });
   await page.screenshot({ path: `${OUT}/app-5b-appearance.png` });
-  await page.click('.sheet [data-action="toggle-blur"]');
-  await page.$eval('.sheet [data-opacity]', (el) => { el.value = '85'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+  await page.click('.sheet [data-action="toggle-blur"]'); // back to the defaults
+  check(await page.evaluate(() => localStorage.getItem('phonelink.blur') === 'off'), 'blur switched off again');
+  const saver = '.sheet [data-key="batterySaver"]';
+  check((await page.getAttribute(saver, 'aria-checked')) === 'true', 'battery saver switch on (from the service)');
+  check((await txt('.sheet')).includes('notices that the phone left ~10 s later'), 'battery saver explained');
+  await page.click(saver);
+  await page.waitForTimeout(150);
+  check((await lastCall('set_battery_saver'))[1].on === false, 'switch calls set_battery_saver(false)');
+  check((await page.getAttribute(saver, 'aria-checked')) === 'false', 'switch shows off');
+  await page.click(saver);
+  await page.waitForTimeout(150);
+  check((await lastCall('set_battery_saver'))[1].on === true && (await page.evaluate(() => window.__fake.saver)) === true, 'and back on');
   await page.screenshot({ path: `${OUT}/app-5-settings.png` });
   await page.keyboard.press('Escape');
 
@@ -609,6 +648,8 @@ function fakeTauri() {
 
   console.log('Phone battery and network');
   check(!(await txt('#device-panel .stats')).includes('%'), 'no battery shown before the phone reports it');
+  const callCount = (name) => page.evaluate((n) => window.__calls.filter((c) => c[0] === n).length, name);
+  const before = [await callCount('status'), await callCount('notifications'), await callCount('transfers'), await callCount('sms_threads')];
   await page.evaluate(() => {
     window.__fake.devices = window.__fake.devices.map((d) => ({ ...d, status: { battery: 82, charging: true, network: '5G', signal: 3 } }));
     window.__emit('phonelink://event', { kind: 'phone_status_changed', id: '9C21-7E04-B3A8-51DF' });
@@ -617,6 +658,8 @@ function fakeTauri() {
   const stats = await txt('#device-panel .stats');
   check(stats.includes('82% · charging') && stats.includes('5G'), 'battery and 5G shown: ' + stats.replace(/\s+/g, ' '));
   check((await page.$$eval('#device-panel .bars > i.on', (e) => e.length)) === 3, 'three of four signal bars lit');
+  const after = [await callCount('status'), await callCount('notifications'), await callCount('transfers'), await callCount('sms_threads')];
+  check(after[0] === before[0] + 1 && after.slice(1).join() === before.slice(1).join(), `a status change reloads only the device (${before} -> ${after})`);
   await page.evaluate(() => {
     window.__fake.devices = window.__fake.devices.map((d) => ({ ...d, status: { battery: 12, charging: false, network: 'Wi-Fi', signal: 0 } }));
     window.__emit('phonelink://event', { kind: 'phone_status_changed', id: '9C21-7E04-B3A8-51DF' });
@@ -656,6 +699,29 @@ function fakeTauri() {
   await page.waitForTimeout(300);
   check(await visible('.now-playing'), 'card appears when the phone starts a player');
   check((await txt('.np-sub')) === 'YouTube Music', 'no stray separator without an artist');
+  check((await page.evaluate(() => window.__intervals(1000))) === 0, 'no progress tick for a paused live stream');
+  await page.evaluate(() => {
+    window.__fake.media = [{ ...window.__fake.media[0], duration_ms: 200000, position_ms: 1000, playing: true }];
+    window.__emit('phonelink://event', { kind: 'media_changed', id: '9C21-7E04-B3A8-51DF' });
+  });
+  await page.waitForTimeout(300);
+  check((await page.evaluate(() => window.__intervals(1000))) === 1, 'progress ticks while a song plays');
+  const setHidden = (hidden) => page.evaluate((h) => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (h ? 'hidden' : 'visible') });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, hidden);
+  await setHidden(true);
+  check((await page.evaluate(() => window.__intervals(1000))) === 0, 'no tick while the window is hidden');
+  await page.evaluate(() => { document.querySelector('[data-np-pos]').textContent = 'stale'; });
+  await setHidden(false);
+  check((await page.evaluate(() => window.__intervals(1000))) === 1, 'ticks again when shown');
+  check((await txt('[data-np-pos]')) !== 'stale', 'position caught up at once when shown');
+  await page.evaluate(() => {
+    window.__fake.media = [{ ...window.__fake.media[0], duration_ms: 0, position_ms: 0, playing: false }];
+    window.__emit('phonelink://event', { kind: 'media_changed', id: '9C21-7E04-B3A8-51DF' });
+  });
+  await page.waitForTimeout(300);
+  check((await page.evaluate(() => window.__intervals(1000))) === 0, 'tick stops when the music stops');
   check((await page.$$eval('.np-progress', (e) => e.length)) === 0, 'no progress bar for unknown length (live stream)');
   check(await page.$eval('[data-media="previous"]', (b) => b.disabled), 'Previous disabled when the player has none');
   check((await page.$$eval('.np-art svg', (e) => e.length)) === 1, 'placeholder icon without art');

@@ -92,6 +92,12 @@ impl Lan {
         refresh: Arc<tokio::sync::Notify>,
     ) -> JoinHandle<()> {
         let daemon = self.daemon.clone();
+        // Look for changed interface addresses every 30 s instead of 5 s: fewer wake-ups on
+        // the laptop, whose own network watch nudges reconnects anyway. (The phone only
+        // browses and keeps the default.)
+        if let Err(e) = daemon.set_ip_check_interval(30) {
+            debug!("mdns ip check interval: {e}");
+        }
         tokio::spawn(async move {
             let mut current: Option<String> = None;
             loop {

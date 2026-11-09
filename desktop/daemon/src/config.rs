@@ -31,6 +31,9 @@ pub struct Config {
     pub bluetooth_backup: bool,
     /// The connection switch: off = no searching, no connecting, nothing in the background.
     pub connection: bool,
+    /// Fewer background wake-ups: slower keep-alive, and a phone that is away is looked
+    /// for less often.
+    pub battery_saver: bool,
     /// Where batteries are read from (tests only). Default: `/sys/class/power_supply`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub power_supply_dir: Option<String>,
@@ -50,6 +53,7 @@ impl Default for Config {
             download_dir: None,
             bluetooth_backup: true,
             connection: true,
+            battery_saver: true,
             power_supply_dir: None,
         }
     }

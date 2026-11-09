@@ -41,7 +41,7 @@ phonelink/
 | `.gitignore` | Keeps build output (`target/`, Android `build/`, `jniLibs/`), SQLite files and keystores out of git. |
 | `README.md` | Repo front page: what EchoTwin is, security in brief, features, screenshots. |
 | `LICENSE` | GPL-3.0 license text. |
-| `SETUP.md` | Install guide for the laptop and phone, the numbered device test checklist (rows 1–55), troubleshooting. |
+| `SETUP.md` | Install guide for the laptop and phone, the numbered device test checklist (rows 1–60), troubleshooting. |
 | `docs/` | File map (this file), features, protocol, developer guide; `docs/img/` screenshots. |
 
 ## core/ (shared Rust library)
@@ -56,7 +56,7 @@ The same code runs on the laptop (inside `phonelinkd`) and on the phone (inside 
 | `core/src/identity.rs` | This device's long-term Ed25519 key + self-signed certificate; peers are identified by the SHA-256 fingerprint of the certificate. Files `identity.cert.pem` / `identity.key.pem`. | `Identity::load_or_create`, `Fingerprint::{of, short, to_hex}` |
 | `core/src/pairing.rs` | QR pairing: the offer in the QR code (`phonelink://pair?...`), HMAC proofs both ways, HKDF-derived `pair_key`. | `PairingOffer::{to_uri, from_uri}`, `client_proof`, `server_proof`, `derive_pair_key` |
 | `core/src/trust.rs` | Who may connect: pinned peers (`peers.json`, with last addresses and Bluetooth address) and the pairing window (one-time secret, TTL). | `TrustStore`, `PeerRecord`, `AccessGate::{admit, open_pairing, consume_pairing}` |
-| `core/src/tls.rs` | Mutual TLS 1.3 with fingerprint pinning instead of certificate authorities. QUIC config (ALPN `phonelink/1`) and byte-stream config for Bluetooth (ALPN `phonelink-stream/1`, pairing never allowed). Keep-alive 4 s, idle timeout 20 s. | `PinnedServerVerifier`, `PinnedClientVerifier`, `server_config`, `client_config`, `stream_server_config`, `stream_client_config` |
+| `core/src/tls.rs` | Mutual TLS 1.3 with fingerprint pinning instead of certificate authorities. QUIC config (ALPN `phonelink/1`) and byte-stream config for Bluetooth (ALPN `phonelink-stream/1`, pairing never allowed). Keep-alive 4 s, idle timeout 20 s by default (`transport`; the laptop's battery saver uses 10 s / 30 s). | `PinnedServerVerifier`, `PinnedClientVerifier`, `server_config`, `client_config`, `stream_server_config`, `stream_client_config` |
 | `core/src/wire.rs` | Framing `[u32 length][postcard]` on any byte stream; the `Control` enum (Hello, Deliver, Ack, pairing, Ping, Links, file stream frames). Append-only. | `Control`, `Frame`, `MsgId`, `read_frame`, `write_frame`, `MAX_FRAME_LEN` |
 | `core/src/message.rs` | Application messages carried inside `Deliver` (notifications, SMS, media, clipboard, lock, status, …), capability strings, size limits, freshness rules. Append-only. | `AppMessage`, `PhoneNotification`, `NowPlaying`, `SmsThread`, `PhoneStatus`, `CAP_*`, `is_fresh`, `truncate_text` |
 | `core/src/node.rs` | The heart: one QUIC endpoint that listens and dials, sessions (QUIC or Bluetooth stream), Hello/capabilities, durable delivery with acks, reconnect loop with backoff, address probing, pairing on the wire, data streams for files. | `Node::{start, send, maintain, nudge, pair_with, start_pairing, connect_stream, accept_stream, open_data, data_streams, peer_supports, transport, unpair, shutdown}`, `Event`, `Transport` |
@@ -94,7 +94,7 @@ widget) talks to it over a private Unix socket with line-delimited JSON.
 | File | What it does | Key items |
 |---|---|---|
 | `src/bin/phonelinkd.rs` | Service entry point: loads config, starts `daemon::run`, stops on SIGTERM/Ctrl-C. | `main` |
-| `src/bin/phonelink.rs` | The CLI (`phonelink status/devices/pair/unpair/send-text/watch/notifications/reconnect/send-file/transfers/cancel-transfer/media/widget/dismiss/sms-read`, `--json`). `widget` prints the one JSON object the KDE widget polls. | `Cmd`, `run`, `widget_state`, `print_event` |
+| `src/bin/phonelink.rs` | The CLI (`phonelink status/devices/pair/unpair/send-text/watch/notifications/reconnect/send-file/transfers/cancel-transfer/media/widget/dismiss/sms-read/on/off/saver`, `--json`). `widget` prints the one JSON object the KDE widget reads; `widget --wait <hash>` waits until it changes. | `Cmd`, `run`, `widget_state`, `widget_wait`, `print_event` |
 | `src/lib.rs` | Module list. | |
 | `src/daemon.rs` | The service: `State`, node start (capabilities), event pump (every incoming `AppMessage` handled here), IPC request handler, background tasks (network watch, clipboard, transfers, Bluetooth backup, battery). | `run`, `event_pump`, `handle_client`, `State::{send_files, send_sms, lock_requested, maybe_popup, send_battery, connected_with}`, `battery_watch`, `bluetooth_backup`, `network_watch`, `share_copies`, `transfer_updates` |
 | `src/ipc.rs` | The local protocol types: `Request` (what clients can ask), `Reply`, `WatchEvent` (pushed to `Watch` subscribers), `DeviceInfo`, `TransferView`. | |
@@ -195,7 +195,7 @@ Package `dev.phonelink.app` in `android/app/src/main/java/dev/phonelink/app/`.
 | `desktop/phonelink.desktop.in` | Application menu entry for the window. |
 | `dolphin/phonelink-send.desktop.in` | Dolphin right-click → "Send to phone" (`phonelink send-file --notify %F`). |
 | `plasmoid/dev.phonelink.widget/metadata.json` | Plasma 6 widget package metadata (id `dev.phonelink.widget`). |
-| `…/contents/ui/main.qml` | Widget root: polls `phonelink widget` (2 s open / 5 s closed) through Plasma's executable data source, runs actions, unread logic, tooltip. |
+| `…/contents/ui/main.qml` | Widget root: keeps one `phonelink widget --wait <hash>` running through Plasma's executable data source (output only on change), runs actions, unread logic, tooltip. |
 | `…/contents/ui/CompactRepresentation.qml` | The panel icon: green phone outline, unread dot, click/middle-click, drop files. |
 | `…/contents/ui/FullRepresentation.qml` | The popup: header status, music card, tabs Notifications/Messages/Files, file picker, drop area, translucent background. |
 | `…/contents/ui/Empty.qml` | Small green empty-state. |

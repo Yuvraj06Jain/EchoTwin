@@ -46,7 +46,10 @@ impl Outbox {
             std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
         }
         db.pragma_update(None, "journal_mode", "WAL")?;
-        db.pragma_update(None, "synchronous", "FULL")?;
+        // NORMAL, not FULL: with WAL this skips an fsync per commit (every message and
+        // ack) yet the database stays consistent even if the app crashes; only a power
+        // cut can lose the last few commits.
+        db.pragma_update(None, "synchronous", "NORMAL")?;
         Self::init(db)
     }
 

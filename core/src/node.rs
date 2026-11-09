@@ -93,6 +93,69 @@ pub struct NodeConfig {
     pub stream_ping_every: Duration,
     /// …and drop a link that has been silent this long.
     pub stream_silence_limit: Duration,
+    /// Keep-alive, reconnect and search timers; changeable later with [`Node::set_timings`].
+    pub timings: Timings,
+}
+
+/// Timers that trade how quickly a lost or returning peer is noticed against how often
+/// this device wakes up. The defaults are what the phone always uses; the laptop's battery
+/// saver switches to [`Timings::battery_saver`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Timings {
+    /// QUIC keep-alive ping interval…
+    pub keep_alive: Duration,
+    /// …and how long a silent connection lives. QUIC uses the smaller of both sides'
+    /// values, so raising it here never makes the peer wait longer than it wants to.
+    pub idle_timeout: Duration,
+    /// Longest wait between reconnect attempts while the peer is unreachable.
+    pub backoff_max: Duration,
+    /// Search the local subnet this often while the peer stays unreachable; the gap
+    /// doubles after each search up to `probe_interval_max`.
+    pub probe_interval: Duration,
+    pub probe_interval_max: Duration,
+}
+
+impl Default for Timings {
+    fn default() -> Self {
+        Self {
+            keep_alive: tls::KEEP_ALIVE,
+            idle_timeout: tls::IDLE_TIMEOUT,
+            backoff_max: BACKOFF_MAX,
+            probe_interval: PROBE_INTERVAL,
+            probe_interval_max: PROBE_INTERVAL,
+        }
+    }
+}
+
+impl Timings {
+    /// Fewer wake-ups: a lost phone is noticed ~10 s later and an absent one is looked
+    /// for less often (subnet search 3, 6, 12, 24, then every 30 min).
+    pub fn battery_saver() -> Self {
+        Self {
+            keep_alive: Duration::from_secs(10),
+            idle_timeout: Duration::from_secs(30),
+            backoff_max: Duration::from_secs(60),
+            probe_interval: PROBE_INTERVAL,
+            probe_interval_max: Duration::from_secs(30 * 60),
+        }
+    }
+
+    /// The gap before the next subnet search, after one that waited `gap`.
+    fn next_probe_gap(&self, gap: Duration) -> Duration {
+        (gap * 2).min(self.probe_interval_max).max(self.probe_interval)
+    }
+
+    fn quic_transport(&self) -> Arc<quinn::TransportConfig> {
+        tls::transport(self.keep_alive, self.idle_timeout)
+    }
+}
+
+/// When the subnet was last searched, and the current gap between searches (`None`: the
+/// starting interval).
+#[derive(Default)]
+struct ProbeClock {
+    last: Option<std::time::Instant>,
+    gap: Option<Duration>,
 }
 
 /// How [`Node::maintain`] looks for a peer whose remembered addresses stopped working.
@@ -117,7 +180,7 @@ impl Default for ProbeConfig {
 
 /// Search the whole subnet after this many failed rounds…
 const PROBE_AFTER_FAILURES: u32 = 2;
-/// …and again this often while still disconnected.
+/// …and again this often while still disconnected (default [`Timings`]).
 const PROBE_INTERVAL: Duration = Duration::from_secs(180);
 /// After a nudge (network change, phone unlocked, "Reconnect now") search at most this often.
 const PROBE_AFTER_NUDGE_MIN_GAP: Duration = Duration::from_secs(20);
@@ -138,6 +201,7 @@ impl NodeConfig {
             probe: ProbeConfig::default(),
             stream_ping_every: STREAM_PING_EVERY,
             stream_silence_limit: STREAM_SILENCE_LIMIT,
+            timings: Timings::default(),
         }
     }
 }
@@ -297,6 +361,10 @@ struct Inner {
     peers_paused: Mutex<HashSet<Fingerprint>>,
     /// Bumped when `peers_paused` loses an entry, so waiting reconnect loops look again.
     peers_paused_changed: watch::Sender<u64>,
+    /// Current timers (starts as `config.timings`).
+    timings: Mutex<Timings>,
+    /// Bumped whenever a session starts or ends, for whoever waits on links changing.
+    links_changed: watch::Sender<u64>,
 }
 
 #[derive(Clone)]
@@ -333,10 +401,16 @@ impl Node {
         };
         let provider = tls::crypto_provider();
         let gate = Arc::new(AccessGate::new(trust));
-        let server_config = tls::server_config(&identity, gate.clone(), provider.clone())?;
+        let server_config = tls::server_config(
+            &identity,
+            gate.clone(),
+            provider.clone(),
+            config.timings.quic_transport(),
+        )?;
         let endpoint = Endpoint::server(server_config, config.bind)?;
         let (events, rx) = mpsc::unbounded_channel();
         let (data_tx, data_rx) = mpsc::unbounded_channel();
+        let timings = Mutex::new(config.timings);
         let node = Node {
             inner: Arc::new(Inner {
                 identity,
@@ -359,6 +433,8 @@ impl Node {
                 paused: watch::channel(false).0,
                 peers_paused: Mutex::new(HashSet::new()),
                 peers_paused_changed: watch::channel(0).0,
+                timings,
+                links_changed: watch::channel(0).0,
             }),
         };
         info!(fingerprint = %node.fingerprint().short(), addr = ?node.local_addr(), "node started");
@@ -398,6 +474,36 @@ impl Node {
 
     pub fn is_paused(&self) -> bool {
         *self.inner.paused.borrow()
+    }
+
+    pub fn timings(&self) -> Timings {
+        *self.inner.timings.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Change the timers while running. Keep-alive and idle timeout apply to connections
+    /// made from now on (a running one keeps its values until it reconnects); backoff and
+    /// search intervals from the next reconnect round.
+    pub fn set_timings(&self, timings: Timings) -> Result<()> {
+        let old = std::mem::replace(
+            &mut *self.inner.timings.lock().unwrap_or_else(|e| e.into_inner()),
+            timings,
+        );
+        if (old.keep_alive, old.idle_timeout) != (timings.keep_alive, timings.idle_timeout) {
+            let cfg = tls::server_config(
+                &self.inner.identity,
+                self.inner.gate.clone(),
+                self.inner.provider.clone(),
+                timings.quic_transport(),
+            )?;
+            self.inner.endpoint.set_server_config(Some(cfg));
+        }
+        Ok(())
+    }
+
+    /// Changes whenever a session starts or ends (connected, disconnected, moved between
+    /// Wi-Fi and Bluetooth).
+    pub(crate) fn link_changes(&self) -> watch::Receiver<u64> {
+        self.inner.links_changed.subscribe()
     }
 
     /// Did `fp` switch its connection off (and has not connected since)?
@@ -702,7 +808,12 @@ impl Node {
         if self.is_paused() {
             return Err(Error::Protocol(PAUSED_REASON.into()));
         }
-        let cfg = tls::client_config(&self.inner.identity, expected, self.inner.provider.clone())?;
+        let cfg = tls::client_config(
+            &self.inner.identity,
+            expected,
+            self.inner.provider.clone(),
+            self.timings().quic_transport(),
+        )?;
         let connecting = self
             .inner
             .endpoint
@@ -980,6 +1091,7 @@ impl Node {
             }
         }
         self.clear_peer_paused(&peer);
+        self.inner.links_changed.send_modify(|n| *n = n.wrapping_add(1));
         info!(peer = %peer.short(), ?addr, ?transport, version = hello.version.min(PROTOCOL_VERSION), "connected");
         self.emit(Event::PeerConnected {
             peer,
@@ -1121,6 +1233,7 @@ impl Node {
             }
         };
         if removed {
+            self.inner.links_changed.send_modify(|n| *n = n.wrapping_add(1));
             info!(peer = %peer.short(), "disconnected");
             self.emit(Event::PeerDisconnected { peer });
         }
@@ -1377,7 +1490,7 @@ impl Node {
             let mut backoff = BACKOFF_MIN;
             let mut failures: u32 = 0;
             let mut nudged = false;
-            let mut last_probe: Option<std::time::Instant> = None;
+            let mut probe = ProbeClock::default();
             let mut offline_since: Option<std::time::Instant> = None;
             let mut last_log: Option<std::time::Instant> = None;
             let mut paused_rx = node.inner.paused.subscribe();
@@ -1419,7 +1532,7 @@ impl Node {
                     Some(link) if link.transport() == Transport::Quic => {
                         backoff = BACKOFF_MIN;
                         failures = 0;
-                        last_probe = None;
+                        probe = ProbeClock::default();
                         offline_since = None;
                         tokio::select! {
                             _ = link.closed() => continue,
@@ -1440,7 +1553,7 @@ impl Node {
                     &extra_addrs,
                     failures,
                     nudged,
-                    &mut last_probe,
+                    &mut probe,
                 );
                 nudged = false;
                 let tried = addrs.len();
@@ -1475,6 +1588,7 @@ impl Node {
                     _ = nudges.changed() => {
                         backoff = BACKOFF_MIN;
                         nudged = true;
+                        probe.gap = None;
                         continue;
                     }
                     _ = shutdown.changed() => return,
@@ -1482,11 +1596,12 @@ impl Node {
                 let jitter = 0.8 + rand::random::<f64>() * 0.4;
                 tokio::select! {
                     _ = tokio::time::sleep(backoff.mul_f64(jitter)) => {
-                        backoff = (backoff * 2).min(BACKOFF_MAX);
+                        backoff = (backoff * 2).min(node.timings().backoff_max);
                     }
                     _ = nudges.changed() => {
                         backoff = BACKOFF_MIN;
                         nudged = true;
+                        probe.gap = None;
                     }
                     _ = shutdown.changed() => return,
                 }
@@ -1502,7 +1617,7 @@ impl Node {
         extra: &[SocketAddr],
         failures: u32,
         nudged: bool,
-        last_probe: &mut Option<std::time::Instant>,
+        probe: &mut ProbeClock,
     ) -> Vec<SocketAddr> {
         let mut addrs = self.candidate_addrs(rec, extra);
         let cfg = &self.inner.config.probe;
@@ -1523,9 +1638,11 @@ impl Node {
                 addrs.push(sa);
             }
         }
-        let since = last_probe.map(|t| t.elapsed());
-        let due = (failures >= PROBE_AFTER_FAILURES && since.is_none_or(|d| d >= PROBE_INTERVAL))
-            || (nudged && since.is_none_or(|d| d >= PROBE_AFTER_NUDGE_MIN_GAP));
+        let timings = self.timings();
+        let gap = probe.gap.unwrap_or(timings.probe_interval);
+        let since = probe.last.map(|t| t.elapsed());
+        let periodic = failures >= PROBE_AFTER_FAILURES && since.is_none_or(|d| d >= gap);
+        let due = periodic || (nudged && since.is_none_or(|d| d >= PROBE_AFTER_NUDGE_MIN_GAP));
         if due {
             let subnets = cfg
                 .subnets
@@ -1534,7 +1651,12 @@ impl Node {
             let found = crate::probe::subnet_candidates(&subnets, port);
             if !found.is_empty() {
                 debug!(peer = %rec.fingerprint.short(), count = found.len(), "searching the local network");
-                *last_probe = Some(std::time::Instant::now());
+                // A repeat search that is not prompted by new information waits longer
+                // next time (only with the battery saver's growing interval).
+                if periodic && !nudged && since.is_some() {
+                    probe.gap = Some(timings.next_probe_gap(gap));
+                }
+                probe.last = Some(std::time::Instant::now());
                 for sa in found {
                     if !addrs.contains(&sa) {
                         addrs.push(sa);
@@ -1556,5 +1678,25 @@ impl Node {
             .endpoint
             .close(VarInt::from_u32(close_code::SHUTDOWN), b"shutdown");
         let _ = timeout(Duration::from_secs(2), self.inner.endpoint.wait_idle()).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn subnet_search_slows_down_only_with_the_battery_saver() {
+        let gaps = |t: Timings| {
+            let mut gap = t.probe_interval;
+            let mut out = vec![gap.as_secs() / 60];
+            for _ in 0..5 {
+                gap = t.next_probe_gap(gap);
+                out.push(gap.as_secs() / 60);
+            }
+            out
+        };
+        assert_eq!(gaps(Timings::battery_saver()), [3, 6, 12, 24, 30, 30]);
+        assert_eq!(gaps(Timings::default()), [3, 3, 3, 3, 3, 3]);
     }
 }

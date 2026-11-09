@@ -221,3 +221,154 @@ async fn the_connection_switch() {
     assert!(devices[0].paused_by_peer && !devices[0].connected);
     let _ = pfp;
 }
+
+/// How many `PhoneStatusChanged` events arrive within `d`.
+async fn status_events(watch: &mut Client, d: Duration) -> usize {
+    let mut n = 0;
+    let end = tokio::time::Instant::now() + d;
+    while let Ok(r) = tokio::time::timeout_at(end, watch.next()).await {
+        if let Some(Reply::Event { event: WatchEvent::PhoneStatusChanged { .. } }) = r.unwrap() {
+            n += 1;
+        }
+    }
+    n
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn wobbling_signal_bars_are_announced_rarely() {
+    let mut rig = setup(&[CAP_STATUS]).await;
+    let status = |battery: u8, signal: u8| PhoneStatus {
+        battery: Some(battery),
+        charging: false,
+        network: "5G".into(),
+        signal,
+    };
+    let send = |s: PhoneStatus| rig.phone.send(&rig.laptop, AppMessage::PhoneStatus(s).encode().unwrap()).unwrap();
+    send(status(80, 1));
+    assert_eq!(status_events(&mut rig.watch, Duration::from_secs(1)).await, 1, "first status at once");
+
+    // Only the bars move: stored (the next status request shows them), not announced yet.
+    for signal in [2, 3, 2] {
+        send(status(80, signal));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(status_events(&mut rig.watch, Duration::from_millis(1500)).await, 0);
+    let mut c = Client::connect(&rig.socket).await.unwrap();
+    let Reply::Devices { devices } = c.request(&Request::Devices).await.unwrap() else { panic!() };
+    assert_eq!(devices[0].status.as_ref().map(|s| s.signal), Some(2));
+
+    // A battery change goes out immediately (and covers the held-back bars).
+    send(status(79, 2));
+    assert_eq!(status_events(&mut rig.watch, Duration::from_secs(1)).await, 1);
+
+    // Bars alone again: announced once, when the 10 s quiet time ends.
+    send(status(79, 4));
+    assert_eq!(status_events(&mut rig.watch, Duration::from_secs(6)).await, 0, "held back");
+    assert_eq!(status_events(&mut rig.watch, Duration::from_secs(6)).await, 1, "then announced");
+}
+
+fn widget(socket: &std::path::Path, args: &[&str]) -> std::process::Command {
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_phonelink"));
+    cmd.arg("widget").args(args).env("PHONELINK_SOCKET", socket);
+    cmd
+}
+
+async fn widget_json(mut cmd: std::process::Command) -> serde_json::Value {
+    let out = tokio::task::spawn_blocking(move || cmd.output().unwrap()).await.unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    serde_json::from_slice(&out.stdout).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_widget_waits_for_changes() {
+    let rig = setup(&[CAP_STATUS]).await;
+    let first = widget_json(widget(&rig.socket, &[])).await;
+    let hash = first["hash"].as_str().unwrap().to_string();
+    assert_eq!(hash.len(), 16);
+
+    // A different hash than the current state: printed at once.
+    let started = std::time::Instant::now();
+    let v = widget_json(widget(&rig.socket, &["--wait", "0000000000000000"])).await;
+    assert_eq!(v["hash"], hash.as_str(), "nothing changed: same hash");
+    assert!(started.elapsed() < Duration::from_secs(3));
+
+    // The current hash: blocks until something changes…
+    let mut child = widget(&rig.socket, &["--wait", &hash])
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(child.try_wait().unwrap().is_none(), "still waiting");
+    let status = PhoneStatus { battery: Some(64), charging: true, network: "Wi-Fi".into(), signal: 4 };
+    rig.phone.send(&rig.laptop, AppMessage::PhoneStatus(status).encode().unwrap()).unwrap();
+    let out = timeout(WAIT, tokio::task::spawn_blocking(move || child.wait_with_output().unwrap()))
+        .await
+        .expect("printed after the change")
+        .unwrap();
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_ne!(v["hash"], hash.as_str());
+    assert_eq!(v["phone"]["status"]["battery"], 64);
+
+    // …or until the timeout, then prints the unchanged state anyway.
+    let hash = v["hash"].as_str().unwrap().to_string();
+    let started = std::time::Instant::now();
+    let v = widget_json(widget(&rig.socket, &["--wait", &hash, "--timeout", "2"])).await;
+    let waited = started.elapsed();
+    assert_eq!(v["hash"], hash.as_str());
+    assert!(waited >= Duration::from_secs(2) && waited < Duration::from_secs(6), "{waited:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_battery_saver_switch_is_saved() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("pl.sock");
+    let config_path = dir.path().join("config.toml");
+    let opts = DaemonOptions {
+        data_dir: dir.path().join("data"),
+        socket: socket.clone(),
+        config: Config { port: 0, discovery: false, ..Config::default() },
+        config_path: Some(config_path.clone()),
+        popups: Some(Popups::recording().0),
+        buses: Buses::unreachable(),
+        download_dir: dir.path().join("downloads"),
+    };
+    let (_stop, stop_rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(run(opts, async move {
+        let _ = stop_rx.await;
+    }));
+    let mut c = timeout(WAIT, async {
+        loop {
+            if let Ok(c) = Client::connect(&socket).await {
+                return c;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let saver = |r: Reply| match r {
+        Reply::Status { battery_saver, .. } => battery_saver,
+        other => panic!("{other:?}"),
+    };
+    assert!(saver(c.request(&Request::Status).await.unwrap()), "on by default");
+
+    // Through the real CLI.
+    let sock = socket.clone();
+    let out = tokio::task::spawn_blocking(move || {
+        std::process::Command::new(env!("CARGO_BIN_EXE_phonelink"))
+            .args(["saver", "off"])
+            .env("PHONELINK_SOCKET", sock)
+            .output()
+            .unwrap()
+    })
+    .await
+    .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(!saver(c.request(&Request::Status).await.unwrap()));
+    assert!(!Config::load(&config_path).unwrap().battery_saver, "saved");
+
+    assert!(matches!(c.request(&Request::SetBatterySaver { on: true }).await.unwrap(), Reply::Done));
+    assert!(saver(c.request(&Request::Status).await.unwrap()));
+    assert!(Config::load(&config_path).unwrap().battery_saver);
+}

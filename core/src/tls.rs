@@ -34,6 +34,7 @@ pub const STREAM_ALPN: &[u8] = b"phonelink-stream/1";
 /// We never use DNS names; this constant only satisfies the API.
 pub const SERVER_NAME: &str = "phonelink";
 
+/// Default QUIC keep-alive and idle timeout (see [`crate::node::Timings`]).
 pub const KEEP_ALIVE: Duration = Duration::from_secs(4);
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -49,11 +50,12 @@ fn tls12_refused() -> rustls::Error {
     rustls::Error::General("TLS 1.2 is not supported".into())
 }
 
-fn transport() -> Arc<TransportConfig> {
+/// QUIC transport settings. The idle timeout in effect is the smaller of both sides'.
+pub fn transport(keep_alive: Duration, idle_timeout: Duration) -> Arc<TransportConfig> {
     let mut t = TransportConfig::default();
-    t.keep_alive_interval(Some(KEEP_ALIVE));
+    t.keep_alive_interval(Some(keep_alive));
     t.max_idle_timeout(Some(
-        IdleTimeout::try_from(IDLE_TIMEOUT).expect("valid idle timeout"),
+        IdleTimeout::try_from(idle_timeout).expect("valid idle timeout"),
     ));
     Arc::new(t)
 }
@@ -207,11 +209,12 @@ pub fn server_config(
     identity: &Identity,
     gate: Arc<AccessGate>,
     provider: Arc<CryptoProvider>,
+    transport: Arc<TransportConfig>,
 ) -> Result<quinn::ServerConfig> {
     let tls = rustls_server(identity, gate, provider, true, ALPN)?;
     let crypto = QuicServerConfig::try_from(tls).map_err(|e| Error::Protocol(e.to_string()))?;
     let mut cfg = quinn::ServerConfig::with_crypto(Arc::new(crypto));
-    cfg.transport_config(transport());
+    cfg.transport_config(transport);
     cfg.max_incoming(256);
     cfg.incoming_buffer_size(64 * 1024);
     cfg.incoming_buffer_size_total(4 * 1024 * 1024);
@@ -222,11 +225,12 @@ pub fn client_config(
     identity: &Identity,
     expected: Fingerprint,
     provider: Arc<CryptoProvider>,
+    transport: Arc<TransportConfig>,
 ) -> Result<quinn::ClientConfig> {
     let tls = rustls_client(identity, expected, provider, ALPN)?;
     let crypto = QuicClientConfig::try_from(tls).map_err(|e| Error::Protocol(e.to_string()))?;
     let mut cfg = quinn::ClientConfig::new(Arc::new(crypto));
-    cfg.transport_config(transport());
+    cfg.transport_config(transport);
     Ok(cfg)
 }
 

@@ -14,7 +14,8 @@ async fn raw_attempt(
     bind: &str,
 ) -> Result<(), String> {
     let me = Identity::generate().unwrap();
-    let cfg = tls::client_config(&me, target_fp, tls::crypto_provider()).unwrap();
+    let transport = tls::transport(tls::KEEP_ALIVE, tls::IDLE_TIMEOUT);
+    let cfg = tls::client_config(&me, target_fp, tls::crypto_provider(), transport).unwrap();
     let mut ep = quinn::Endpoint::client(bind.parse().unwrap()).map_err(|e| e.to_string())?;
     ep.set_default_client_config(cfg);
     let res = async {

@@ -20,6 +20,7 @@ use phonelink_core::{
         is_fresh, CLIPBOARD_MAX_AGE_MS, LOCK_MAX_AGE_MS, LOCK_RESULT_KEY, MAX_CLIPBOARD_TEXT,
         MAX_NOTIFICATION_TEXT,
     },
+    node::Timings,
     AppMessage, Event, Fingerprint, Node, NodeConfig, PeerRecord, CAP_CLIPBOARD, CAP_LOCK,
     CAP_MEDIA, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS, PhoneStatus,
 };
@@ -69,6 +70,26 @@ struct Settings {
     allow_lock: bool,
     bluetooth: bool,
     connection: bool,
+    battery_saver: bool,
+}
+
+/// Keep-alive and search timers for the battery saver switch.
+fn timings(battery_saver: bool) -> Timings {
+    if battery_saver {
+        Timings::battery_saver()
+    } else {
+        Timings::default()
+    }
+}
+
+/// A change in signal bars alone is announced at most this often per phone (they wobble
+/// constantly); battery, charging and network changes go out at once.
+const SIGNAL_QUIET: Duration = Duration::from_secs(10);
+
+/// When a phone's status was last announced, and whether a held-back change waits.
+struct StatusSent {
+    at: std::time::Instant,
+    held: bool,
 }
 
 struct State {
@@ -98,6 +119,7 @@ struct State {
     discovery: bool,
     /// Each connected phone's battery and network.
     phone_status: Mutex<HashMap<Fingerprint, PhoneStatus>>,
+    status_sent: Mutex<HashMap<Fingerprint, StatusSent>>,
     battery_root: PathBuf,
 }
 
@@ -133,6 +155,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
             allow_lock: opts.config.allow_lock,
             bluetooth: opts.config.bluetooth_backup,
             connection: opts.config.connection,
+            battery_saver: opts.config.battery_saver,
         }),
         store: Mutex::new(Store::default()),
         popups: opts.popups.clone().unwrap_or_else(Popups::start),
@@ -149,6 +172,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         bt_status: Mutex::new("starting".into()),
         bt_wake: Arc::new(Notify::new()),
         phone_status: Mutex::new(HashMap::new()),
+        status_sent: Mutex::new(HashMap::new()),
         lan: Mutex::new(None),
         discovery: opts.config.discovery,
         battery_root: opts
@@ -206,6 +230,7 @@ async fn start_node(
         SocketAddr::from(([0u8; 4], port)),
     ] {
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
+        cfg.timings = timings(opts.config.battery_saver);
         cfg.capabilities.extend(
             [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS]
                 .map(String::from),
@@ -487,6 +512,43 @@ impl State {
 
     fn clipboard_on(&self) -> bool {
         lock(&self.settings).clipboard
+    }
+
+    /// Whether to announce a phone's new status now. A signal-only change within
+    /// [`SIGNAL_QUIET`] of the last announcement is held back and announced when the quiet
+    /// time ends (unless a real change went out meanwhile).
+    fn announce_status(self: &Arc<Self>, peer: Fingerprint, signal_only: bool) -> bool {
+        let now = std::time::Instant::now();
+        let mut sent = lock(&self.status_sent);
+        if signal_only {
+            if let Some(s) = sent.get_mut(&peer).filter(|s| now < s.at + SIGNAL_QUIET) {
+                if !s.held {
+                    s.held = true;
+                    let (state, at) = (self.clone(), s.at + SIGNAL_QUIET);
+                    tokio::spawn(async move {
+                        tokio::time::sleep_until(at.into()).await;
+                        state.announce_held_status(peer);
+                    });
+                }
+                return false;
+            }
+        }
+        sent.insert(peer, StatusSent { at: now, held: false });
+        true
+    }
+
+    fn announce_held_status(&self, peer: Fingerprint) {
+        {
+            let mut sent = lock(&self.status_sent);
+            let Some(s) = sent.get_mut(&peer).filter(|s| s.held) else {
+                return;
+            };
+            *s = StatusSent {
+                at: std::time::Instant::now(),
+                held: false,
+            };
+        }
+        self.broadcast(WatchEvent::PhoneStatusChanged { id: peer.short() });
     }
 
     /// Connected devices that support `cap`.
@@ -797,6 +859,7 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                 last_disconnect.insert(peer, std::time::Instant::now());
                 lock(&state.caps).remove(&peer);
                 lock(&state.phone_status).remove(&peer);
+                lock(&state.status_sent).remove(&peer);
                 if lock(&state.media).forget(&peer) {
                     state.broadcast(WatchEvent::MediaChanged { id: peer.short() });
                 }
@@ -965,7 +1028,15 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     s.battery = s.battery.filter(|b| *b <= 100);
                     s.signal = s.signal.min(4);
                     s.network = phonelink_core::message::truncate_text(&s.network, 16);
-                    if lock(&state.phone_status).insert(peer, s.clone()) == Some(s) {
+                    // Always stored, so the next status request shows the latest bars.
+                    let prev = lock(&state.phone_status).insert(peer, s.clone());
+                    if prev.as_ref() == Some(&s) {
+                        continue;
+                    }
+                    let signal_only = prev.is_some_and(|p| {
+                        (p.battery, p.charging, &p.network) == (s.battery, s.charging, &s.network)
+                    });
+                    if !state.announce_status(peer, signal_only) {
                         continue;
                     }
                     WatchEvent::PhoneStatusChanged { id: peer.short() }
@@ -1135,13 +1206,14 @@ async fn share_copies(state: Arc<State>, mut copies: tokio::sync::mpsc::Unbounde
 }
 
 /// Retry at once when this computer's addresses change (new Wi-Fi, the phone's hotspot
-/// restarted) or it wakes from suspend.
+/// restarted) or it wakes from suspend. Every 10 s: suspend is still caught (wall clock
+/// vs monotonic clock), and an address change waits at most that long.
 async fn network_watch(state: Arc<State>) {
     let now = || (std::time::SystemTime::now(), std::time::Instant::now());
     let (wall, mono) = now();
     let mut watch = netaddrs::NetWatch::new(netaddrs::lan_addrs(state.port), wall, mono);
     loop {
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        tokio::time::sleep(Duration::from_secs(10)).await;
         let (wall, mono) = now();
         if watch.check(netaddrs::lan_addrs(state.port), wall, mono) {
             info!("network changed or woke from sleep; looking for paired devices now");
@@ -1234,6 +1306,16 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                 state.bt_wake.notify_one();
                 state.broadcast(WatchEvent::ConnectionChanged { on });
                 let reply = state.persist(|c| c.connection = on);
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::SetBatterySaver { on } => {
+                lock(&state.settings).battery_saver = on;
+                let reply = match state.node.set_timings(timings(on)) {
+                    Ok(()) => state.persist(|c| c.battery_saver = on),
+                    Err(e) => Reply::Error {
+                        message: e.to_string(),
+                    },
+                };
                 write_reply(&mut w, &reply).await?;
             }
             Request::SetAllowLock { enabled } => {
@@ -1507,9 +1589,9 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                 let node = &state.node;
                 // Read settings first: two `lock()` temporaries in one expression would
                 // deadlock (the first guard lives until the end of the statement).
-                let (allow_lock, bluetooth_backup) = {
+                let (allow_lock, bluetooth_backup, battery_saver) = {
                     let s = lock(&state.settings);
-                    (s.allow_lock, s.bluetooth)
+                    (s.allow_lock, s.bluetooth, s.battery_saver)
                 };
                 let bluetooth_status = lock(&state.bt_status).clone();
                 let reply = Reply::Status {
@@ -1525,6 +1607,7 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                     bluetooth_backup,
                     bluetooth_status,
                     connection: !node.is_paused(),
+                    battery_saver,
                 };
                 write_reply(&mut w, &reply).await?;
             }

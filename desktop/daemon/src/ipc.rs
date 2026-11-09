@@ -141,6 +141,10 @@ pub enum Request {
     SetConnection {
         on: bool,
     },
+    /// The battery saver switch (saved): slower keep-alive and searching.
+    SetBatterySaver {
+        on: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -277,6 +281,9 @@ pub enum Reply {
         /// The connection switch (absent from older daemons = on).
         #[serde(default = "yes")]
         connection: bool,
+        /// The battery saver switch (absent from older daemons = on).
+        #[serde(default = "yes")]
+        battery_saver: bool,
     },
     Notifications {
         items: Vec<NotificationInfo>,

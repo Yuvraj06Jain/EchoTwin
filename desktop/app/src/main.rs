@@ -48,6 +48,8 @@ struct StatusDto {
     allow_lock: bool,
     bluetooth_backup: bool,
     bluetooth_status: String,
+    connection: bool,
+    battery_saver: bool,
     devices: Vec<DeviceInfo>,
 }
 
@@ -123,6 +125,8 @@ async fn status() -> Result<StatusDto, String> {
             allow_lock,
             bluetooth_backup,
             bluetooth_status,
+            connection,
+            battery_saver,
             ..
         } => Ok(StatusDto {
             computer: Computer { name, id },
@@ -132,6 +136,8 @@ async fn status() -> Result<StatusDto, String> {
             allow_lock,
             bluetooth_backup,
             bluetooth_status,
+            connection,
+            battery_saver,
             devices,
         }),
         r => Err(unexpected(r)),
@@ -331,6 +337,12 @@ async fn set_bluetooth_backup(enabled: bool) -> Result<(), String> {
 #[tauri::command]
 async fn set_connection(on: bool) -> Result<(), String> {
     expect_done(Request::SetConnection { on }).await
+}
+
+/// Battery saver: slower keep-alive, and a phone that is away is searched for less often.
+#[tauri::command]
+async fn set_battery_saver(on: bool) -> Result<(), String> {
+    expect_done(Request::SetBatterySaver { on }).await
 }
 
 #[tauri::command]
@@ -600,6 +612,7 @@ fn main() {
             set_blur,
             open_blur_settings,
             set_connection,
+            set_battery_saver,
             status,
             send_note,
             unpair,

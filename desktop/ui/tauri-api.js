@@ -72,6 +72,7 @@
   let bluetoothBackup = false;
   let bluetoothStatus = '';
   let connection = true;
+  let batterySaver = true;
   let knownApps = []; // [{ package, app, muted }] from the service
 
   T.event.listen('phonelink://drop', ({ payload }) => listeners.drop.forEach((cb) => cb(payload)));
@@ -137,6 +138,7 @@
       bluetoothBackup = !!s.bluetooth_backup;
       bluetoothStatus = s.bluetooth_status || '';
       connection = s.connection !== false;
+      batterySaver = s.battery_saver !== false;
       const devices = s.devices.map(toDevice);
       const device = devices.find((d) => d.connected) || devices[0] || null;
       return {
@@ -235,6 +237,7 @@
         bluetoothBackup,
         bluetoothStatus,
         connection,
+        batterySaver,
         apps: knownApps.map((a) => ({ name: a.app, package: a.package, enabled: !a.muted })),
       };
     },
@@ -260,6 +263,9 @@
       } else if (key === 'bluetoothBackup') {
         await invoke('set_bluetooth_backup', { enabled: value });
         bluetoothBackup = value;
+      } else if (key === 'batterySaver') {
+        await invoke('set_battery_saver', { on: value });
+        batterySaver = value;
       }
     },
     async setAppMirrored(name, enabled) {

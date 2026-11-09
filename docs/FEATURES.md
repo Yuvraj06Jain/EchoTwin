@@ -101,6 +101,32 @@ back (rechecks every 10 min).
 **Tests:** `core/tests/sessions.rs` `switching_the_connection_off_and_on`,
 `desktop/daemon/tests/status.rs` `the_connection_switch`, FFI `status_both_ways`.
 
+### Battery saver (laptop)
+
+**What:** a laptop switch (Settings → General, `phonelink saver on|off`, config
+`battery_saver`, default on) for fewer background wake-ups. On: QUIC keep-alive 10 s / idle
+timeout 30 s instead of 4 s / 20 s (a phone that left is noticed ~10 s later), reconnect
+backoff up to 60 s instead of 30 s, and while the phone is away the /24 search runs after
+3, 6, 12, 24, then every 30 min (back to 3 min after any nudge or connection). The phone's
+own timers never change.
+
+**How:** `core/src/node.rs` `Timings` (`default`, `battery_saver`) in `NodeConfig.timings`;
+`Node::set_timings` swaps the endpoint's server config (new connections) and the reconnect
+loop reads backoff/search gaps each round (`ProbeClock`). The daemon applies it at start
+(`start_node`) and on `Request::SetBatterySaver`; `Status.battery_saver`. Window:
+`main.rs` `set_battery_saver`, `tauri-api.js` `batterySaver`.
+
+Always on, regardless of the switch: phone signal-bar-only changes are announced at most every
+10 s (`State::announce_status`); the window redraws only the device panel on
+`phone_status_changed`; the outbox uses `synchronous=NORMAL`; the transfer sender sleeps
+until woken (no 1 s tick); mDNS address check every 30 s on the laptop; network watch every
+10 s; clipboard thread sleeps 60 s while Klipper is connected; the widget waits for changes
+instead of polling; the window's 1 s timers run only while needed and visible.
+
+**Tests:** `status.rs` `the_battery_saver_switch_is_saved`, `wobbling_signal_bars_are_announced_rarely`;
+`node.rs` `subnet_search_slows_down_only_with_the_battery_saver`; `transfer.rs`
+`the_sender_sleeps_while_idle_and_wakes_for_retries`.
+
 ## 3. Bluetooth backup
 
 **What:** when Wi-Fi/hotspot is gone, the phone stays connected over Bluetooth; notifications,
@@ -326,24 +352,27 @@ things). Click: popup with phone status, music card, Notifications / Messages / 
 files on it to send (queued if offline). Middle-click opens the window. Configurable
 background opacity.
 
-**How:** pure QML, no compiled plugin. `main.qml` runs `phonelink widget` through Plasma's
-`executable` data source every 2 s (popup open) / 5 s (closed) and parses the JSON. Actions
+**How:** pure QML, no compiled plugin. `main.qml` runs `phonelink widget` once through
+Plasma's `executable` data source, then always keeps one `phonelink widget --wait <hash>`
+running: it subscribes to the service's events and prints the JSON only when its `hash`
+changes (or after 60 s), and the next call starts at once (at most one a second; 10 s
+retry while the service is down). Opening the popup and actions also read it once. Actions
 run `phonelink <args>` with every argument shell-quoted by `shell.js`. The popup's
 translucency fades Plasma's own popup background item (`applyOpacity`); KDE's Blur effect
 blurs behind it.
 
 | File | What to edit there |
 |---|---|
-| `plasmoid/…/ui/main.qml` | polling, `run`, `sendUrls`, `openApp`, unread logic (`seenMs`), tooltip |
+| `plasmoid/…/ui/main.qml` | waiting loop (`poll`, `apply`, `refresh`), `run`, `sendUrls`, `openApp`, unread logic (`seenMs`), tooltip |
 | `plasmoid/…/ui/CompactRepresentation.qml` | icon size/shape (`body`), unread dot, drop handling |
 | `plasmoid/…/ui/FullRepresentation.qml` | popup size (`Layout.preferred*`), header, music card, tabs, `applyOpacity` |
 | `plasmoid/…/ui/Empty.qml` | empty-state look |
 | `plasmoid/…/ui/shell.js` | `quote`, `command`, `localPath` (security-relevant) |
 | `plasmoid/…/ui/configAppearance.qml`, `config/main.xml`, `config/config.qml` | settings page and keys |
-| `desktop/daemon/src/bin/phonelink.rs` `widget_state` | the JSON the widget reads |
+| `desktop/daemon/src/bin/phonelink.rs` `widget_state`, `widget_with_hash`, `widget_wait` | the JSON the widget reads (no moving media position, so the hash is stable) |
 
 Install/update: `./packaging/install.sh` (uses `kpackagetool6`), then
-`plasmashell --replace & disown`. **Tests:** `desktop/daemon/tests/status.rs` (widget JSON);
+`plasmashell --replace & disown`. **Tests:** `desktop/daemon/tests/status.rs` (widget JSON, `the_widget_waits_for_changes`);
 the quoting was tested with hostile names; QML is parse-checked (`qmlformat`).
 
 ## 14. Desktop app window
@@ -365,7 +394,7 @@ in `desktop/app/src/main.rs` opens the socket, sends one `Request`, maps the `Re
 | A tab | `app.js` `renderNotifications` / `renderThreads` + `renderConversation` / `renderFiles` |
 | Settings sheet | `app.js` `settingsBody`, `appearanceSection`; click handling in the `onClick` switch (`case 'toggle-setting'` …) |
 | New backend call | command in `main.rs` (+ register in `generate_handler!`), method in `tauri-api.js`, fake in `mock-api.js` |
-| Opacity / blur | `app.js` `applyAppearance`; `styles.css` `body.in-app .window` (`--alpha`); `desktop/app/src/blur.rs` |
+| Opacity / blur (default 100 %, blur off; no blur requested while solid) | `app.js` `applyAppearance`; `styles.css` `body.in-app .window` (`--alpha`); `desktop/app/src/blur.rs` |
 | Window size/frame | `main.rs` `WebviewWindowBuilder` in `main` |
 
 **Tests:** UI suites (Playwright) in the session scratchpad (`test.js` preview, `test-app.js`
@@ -392,7 +421,8 @@ when nothing is paired.
 `desktop/daemon/src/bin/phonelink.rs`. Commands: `status`, `devices`, `pair [--ttl]`,
 `unpair <id>`, `send-text [--to] <text>`, `watch`, `notifications`, `reconnect`,
 `send-file [--to] [--notify] <files>`, `transfers`, `cancel-transfer <id>`,
-`media [action] [level]`, `widget`, `dismiss <id>`, `sms-read <thread>`. Add `--json` for raw
+`media [action] [level]`, `widget [--wait <hash>] [--timeout <s>]`, `dismiss <id>`,
+`sms-read <thread>`, `on`, `off`, `saver on|off`. Add `--json` for raw
 replies. To add one: a variant in `enum Cmd`, a match arm in `run`, usually one `Request`.
 
 ## 17. Privacy guard rails

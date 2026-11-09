@@ -64,18 +64,23 @@ PlasmoidItem {
         connectedSources: []
         onNewData: (source, data) => {
             disconnectSource(source);
-            if (source === root.pollCmd) {
-                if (data["exit code"] === 0) {
-                    try {
-                        root.st = JSON.parse(data["stdout"]);
-                        root.serviceUp = true;
-                        if (root.expanded) root.markSeen();
-                    } catch (e) {
-                        root.serviceUp = false;
-                    }
+            if (source === root.pollSource) {
+                // The waiting `widget` call answered: show it and wait for the next change.
+                root.pollSource = "";
+                if (root.apply(data)) {
+                    // Never more than one call a second, whatever happens.
+                    if (Date.now() - root.pollStarted < 1000)
+                        nextTimer.start();
+                    else
+                        root.poll();
                 } else {
-                    root.serviceUp = false;
+                    root.lastHash = "";
+                    retryTimer.start();
                 }
+                return;
+            }
+            if (source.indexOf(root.refreshCmd + " #") === 0) {
+                root.apply(data);
                 return;
             }
             var err = String(data["stderr"] || "").trim();
@@ -84,10 +89,46 @@ PlasmoidItem {
         }
     }
 
-    readonly property string pollCmd: Shell.command(["widget"])
+    readonly property string refreshCmd: Shell.command(["widget"])
     property int seq: 0
+    // Instead of polling, one `phonelink widget --wait <hash>` is always running: it
+    // prints when something changes (or after a minute), and the next one starts at once.
+    property string lastHash: ""
+    property string pollSource: ""
+    property real pollStarted: 0
 
-    function refresh() { exec.connectSource(pollCmd); }
+    // Show a `widget` result; false if the service is down or the output is unusable.
+    function apply(data) {
+        if (data["exit code"] !== 0) {
+            serviceUp = false;
+            return false;
+        }
+        try {
+            st = JSON.parse(data["stdout"]);
+        } catch (e) {
+            serviceUp = false;
+            return false;
+        }
+        lastHash = st.hash || "";
+        serviceUp = true;
+        if (expanded) markSeen();
+        return true;
+    }
+
+    function poll() {
+        seq += 1;
+        var args = lastHash === "" ? ["widget"] : ["widget", "--wait", lastHash];
+        // The counter keeps the engine from merging this with an earlier, identical call.
+        pollSource = Shell.command(args) + " #" + seq;
+        pollStarted = Date.now();
+        exec.connectSource(pollSource);
+    }
+
+    // Read the state once now (popup opened, after an action); the waiting call goes on.
+    function refresh() {
+        seq += 1;
+        exec.connectSource(refreshCmd + " #" + seq);
+    }
 
     // Run `phonelink <args…>`; the counter keeps identical commands from being merged.
     function run(args) {
@@ -119,13 +160,11 @@ PlasmoidItem {
     }
 
     Timer { id: noteTimer; interval: 4000; onTriggered: root.note = "" }
-    Timer {
-        interval: root.expanded ? 2000 : 5000
-        running: true
-        repeat: true
-        triggeredOnStart: true
-        onTriggered: root.refresh()
-    }
+    // The service was down (or the call failed): try again in a while.
+    Timer { id: retryTimer; interval: 10000; onTriggered: root.poll() }
+    Timer { id: nextTimer; interval: 1000; onTriggered: root.poll() }
+
+    Component.onCompleted: poll()
 
     compactRepresentation: CompactRepresentation {}
     fullRepresentation: FullRepresentation {}

@@ -272,6 +272,7 @@
     renderConversation();
     renderFiles();
     if (state.showPairing) renderPairing();
+    else syncPairingTimer();
   }
 
   /** The connection switch on this computer is off (saves battery: no searching). */
@@ -408,6 +409,7 @@
     if (!slot) return;
     const m = caps.media && state.device && state.device.connected ? state.media : null;
     el.device.classList.toggle('has-media', !!m);
+    syncMediaTimer();
     if (!m) {
       slot.innerHTML = '';
       return;
@@ -444,9 +446,21 @@
     else if (focused) $(`[data-media="${focused}"]`, slot)?.focus();
   }
 
+  /** The 1 s progress tick runs only while music plays and the window is visible. */
+  let mediaTimer = 0;
+  function syncMediaTimer() {
+    const m = state.media;
+    const want = !!(m && m.playing && m.duration_ms > 0 && document.visibilityState === 'visible');
+    if (want && !mediaTimer) mediaTimer = setInterval(tickMedia, 1000);
+    else if (!want && mediaTimer) {
+      clearInterval(mediaTimer);
+      mediaTimer = 0;
+    }
+  }
+
   function tickMedia() {
     const m = state.media;
-    if (!m || !m.playing || m.duration_ms <= 0) return;
+    if (!m || !m.playing || m.duration_ms <= 0 || document.visibilityState !== 'visible') return;
     const pos = mediaPosition(m);
     const bar = $('[data-np-bar]', el.device);
     const t = $('[data-np-pos]', el.device);
@@ -774,6 +788,7 @@
   }
 
   function renderPairing() {
+    syncPairingTimer();
     const p = state.pairing;
     if (!p) return;
     const left = p.loading || p.error ? 0 : Math.max(0, Math.ceil((p.expiresAt - Date.now()) / 1000));
@@ -1074,15 +1089,22 @@
 
   // ------------------------------------------------------------------ appearance (this window)
   // Saved in this app only. Opacity applies to backgrounds; text always stays solid.
+  // Defaults: solid and no blur, which costs the compositor (and battery) nothing.
   const appearance = {
-    opacity: Math.min(100, Math.max(30, Number(localStorage.getItem('phonelink.opacity')) || 85)),
-    blur: localStorage.getItem('phonelink.blur') !== 'off',
+    opacity: Math.min(100, Math.max(30, Number(localStorage.getItem('phonelink.opacity')) || 100)),
+    blur: localStorage.getItem('phonelink.blur') === 'on',
   };
-  function applyAppearance(sendBlur) {
+  let blurSent = null; // what the window was last told
+  function applyAppearance() {
     document.documentElement.style.setProperty('--alpha', String(appearance.opacity / 100));
-    if (sendBlur && api.setBlur) api.setBlur(appearance.blur).catch(() => {});
+    // Nothing shows through a solid window: blurring behind it would be wasted work.
+    const blur = appearance.blur && appearance.opacity < 100;
+    if (api.setBlur && blur !== blurSent) {
+      blurSent = blur;
+      api.setBlur(blur).catch(() => {});
+    }
   }
-  if (api.setBlur) applyAppearance(true); // only inside the desktop app
+  if (api.setBlur) applyAppearance(); // only inside the desktop app
 
   function appearanceSection() {
     if (!api.setBlur) return '';
@@ -1120,6 +1142,7 @@
       </div>` : ''}
       <div class="sheet-section"><p class="section-label">General</p>
         ${'connection' in s ? switchRow('Connection', 'Off: disconnect from your phone and stop searching for it (nothing runs in the background). Turn on to reconnect.', 'toggle-setting', s.connection !== false, 'data-key="connection"') : ''}
+        ${'batterySaver' in s ? switchRow('Battery saver', "Fewer background checks: notices that the phone left ~10 s later and searches less often while it's away.", 'toggle-setting', s.batterySaver !== false, 'data-key="batterySaver"') : ''}
         ${switchRow('Desktop notifications', 'Show messages from your phone as system notifications.', 'toggle-setting', !!s.desktopNotifications, 'data-key="desktopNotifications"')}
         ${caps.syncDismissals ? switchRow('Dismiss on both devices', 'Clearing a notification here also clears it on your phone, and the other way round.', 'toggle-setting', !!s.syncDismissals, 'data-key="syncDismissals"') : ''}
         ${caps.clipboard ? switchRow('Share clipboard with your phone', 'Text you copy here can be pasted on your phone. Passwords copied from a password manager are never sent.', 'toggle-setting', !!s.clipboardSync, 'data-key="clipboardSync"') : ''}
@@ -1179,6 +1202,7 @@
     pairingSeq++;
     state.showPairing = false;
     state.pairing = null;
+    syncPairingTimer();
     api.cancelPairing().catch(() => {});
     renderChrome();
   }
@@ -1232,6 +1256,23 @@
       80,
     );
   };
+  // Battery/network of the phone changed: only the device panel needs redrawing.
+  let deviceSeq = 0;
+  const refreshDevice = async () => {
+    const seq = ++deviceSeq;
+    let st;
+    try {
+      st = await api.status();
+    } catch (err) {
+      return scheduleLoad(); // e.g. the service stopped: the full load shows that
+    }
+    if (seq !== deviceSeq || state.serviceDown) return undefined;
+    state.device = st.device;
+    state.devices = st.devices || (st.device ? [st.device] : []);
+    renderDevice();
+    renderChrome();
+    return undefined;
+  };
   const NOTIFICATION_EVENTS = ['text', 'notification_posted', 'notification_removed', 'notifications_changed'];
   api.onEvent((ev) => {
     if (NOTIFICATION_EVENTS.includes(ev.kind)) return refreshNotifications();
@@ -1244,6 +1285,7 @@
       return undefined;
     }
     if (ev.kind === 'locked_by_phone') return undefined;
+    if (ev.kind === 'phone_status_changed') return refreshDevice();
     if (ev.kind === 'media_changed') return refreshMedia();
     if (ev.kind === 'transfer_changed') return ev.item && upsertTransfer(ev.item);
     if (ev.kind === 'sms_changed') return refreshThreads();
@@ -1499,7 +1541,7 @@
         appearance.blur = !appearance.blur;
         localStorage.setItem('phonelink.blur', appearance.blur ? 'on' : 'off');
         setSwitch(a, appearance.blur);
-        applyAppearance(true);
+        applyAppearance();
         return undefined;
       }
       case 'open-blur-settings':
@@ -1548,7 +1590,7 @@
     t.style.setProperty('--pct', `${(((appearance.opacity - 30) * 100) / 70).toFixed(1)}%`);
     const v = t.parentElement.querySelector('[data-opacity-value]');
     if (v) v.textContent = `${appearance.opacity}%`;
-    applyAppearance(false);
+    applyAppearance();
   });
 
   // Phone volume: follow the slider while dragging, send once it is let go.
@@ -1697,8 +1739,18 @@
 
   // ------------------------------------------------------------------ timers
 
-  setInterval(() => {
-    if (state.showPairing && state.pairing && !state.pairing.loading && !state.pairing.error) {
+  // Pairing countdown: a 1 s timer only while the pairing screen shows.
+  let pairingTimer = 0;
+  function syncPairingTimer() {
+    if (state.showPairing && !pairingTimer) pairingTimer = setInterval(tickPairing, 1000);
+    else if (!state.showPairing && pairingTimer) {
+      clearInterval(pairingTimer);
+      pairingTimer = 0;
+    }
+  }
+  function tickPairing() {
+    if (!state.showPairing) return syncPairingTimer();
+    if (state.pairing && !state.pairing.loading && !state.pairing.error) {
       const left = Math.max(0, Math.ceil((state.pairing.expiresAt - Date.now()) / 1000));
       const cd = $('[data-countdown]', el.pairing);
       if (left === 0 && !$('.qr-box.expired', el.pairing)) {
@@ -1709,15 +1761,25 @@
         cd.textContent = `Expires in ${Math.floor(left / 60)}:${pad(left % 60)} · single use`;
       }
     }
-  }, 1000);
+    return undefined;
+  }
 
-  setInterval(() => {
+  function tickClock() {
+    if (document.visibilityState !== 'visible') return;
     const c = $('[data-clock]', el.device);
     if (c) c.textContent = clock(Date.now());
     for (const t of document.querySelectorAll('[data-ts]')) t.textContent = relTime(Number(t.dataset.ts));
-  }, 30 * 1000);
+  }
+  setInterval(tickClock, 30 * 1000);
 
-  setInterval(tickMedia, 1000);
+  // Hidden (minimised, other desktop): the media tick stops; shown again: catch up at once.
+  document.addEventListener('visibilitychange', () => {
+    syncMediaTimer();
+    if (document.visibilityState === 'visible') {
+      tickClock();
+      tickMedia();
+    }
+  });
 
   // ------------------------------------------------------------------ start
 

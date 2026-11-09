@@ -202,6 +202,7 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 57 | Laptop: left panel **Connection** off (or `phonelink off`, or the widget's power button) | the phone shows *Switched off on the computer*; nothing reconnects until it's turned on |
 | 58 | Send a big file | both devices show the speed and "about … left" |
 | 59 | Phone home screen | the app is called **EchoTwin** with the green dot-and-ring icon |
+| 60 | EchoTwin app → Settings → **Battery saver** off and on (or `phonelink saver off/on`) | the switch is remembered after restarting the service; with it on, the phone still connects at once, and walking away is noticed within ~30 s |
 
 When something fails, include:
 - the step number

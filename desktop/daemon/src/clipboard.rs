@@ -21,7 +21,10 @@ use zbus::{
 const DEST: &str = "org.kde.klipper";
 const PATH: &str = "/klipper";
 const IFACE: &str = "org.kde.klipper.klipper";
+/// How often to look for Klipper while it is missing…
 const RETRY: Duration = Duration::from_secs(5);
+/// …and how long to sleep while connected, where its signals wake us anyway.
+const CONNECTED_WAIT: Duration = Duration::from_secs(60);
 
 enum Cmd {
     Set(String),
@@ -135,7 +138,8 @@ fn run(
                 Err(e) => debug!("no session bus for the clipboard: {e}"),
             }
         }
-        let cmd = match rx.recv_timeout(RETRY) {
+        let wait = if conn.is_some() { CONNECTED_WAIT } else { RETRY };
+        let cmd = match rx.recv_timeout(wait) {
             Ok(cmd) => cmd,
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => return,

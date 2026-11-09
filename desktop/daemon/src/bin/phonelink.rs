@@ -74,8 +74,16 @@ enum Cmd {
         action: Option<String>,
         level: Option<u32>,
     },
-    /// Everything the KDE panel widget shows, as one JSON object.
-    Widget,
+    /// Everything the KDE panel widget shows, as one JSON object with a "hash" of it.
+    Widget {
+        /// Print only once the state differs from this hash (or at the timeout), so the
+        /// widget waits for changes instead of polling.
+        #[arg(long)]
+        wait: Option<String>,
+        /// With --wait: print the state anyway after this many seconds.
+        #[arg(long, default_value_t = 60)]
+        timeout: u64,
+    },
     /// Dismiss a mirrored notification (id from `notifications --json`).
     Dismiss { id: String },
     /// Mark an SMS conversation as read here (id from the widget/app).
@@ -84,6 +92,12 @@ enum Cmd {
     On,
     /// Switch the connection off: disconnect and stop searching until `phonelink on`.
     Off,
+    /// Battery saver on or off: fewer background checks (a phone that left is noticed
+    /// ~10 s later and searched for less often).
+    Saver {
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
+    },
 }
 
 /// One JSON object for the panel widget: phone status, music, notifications, SMS, files.
@@ -142,6 +156,15 @@ async fn widget_state(c: &mut Client) -> anyhow::Result<serde_json::Value> {
             .collect(),
         _ => vec![],
     };
+    // No playback position: it moves every second, and the widget shows no progress.
+    let media = media.map(|m| {
+        let mut v = json!(m);
+        if let Some(o) = v.as_object_mut() {
+            o.remove("position_ms");
+            o.remove("duration_ms");
+        }
+        v
+    });
     Ok(json!({
         "paired": phone.is_some(),
         "connection": connection,
@@ -154,6 +177,45 @@ async fn widget_state(c: &mut Client) -> anyhow::Result<serde_json::Value> {
         "sms": sms,
         "transfers": transfers,
     }))
+}
+
+/// The widget state plus `"hash"`, a digest of everything else in it.
+async fn widget_with_hash(c: &mut Client) -> anyhow::Result<(serde_json::Value, String)> {
+    use std::hash::{Hash, Hasher};
+    let mut v = widget_state(c).await?;
+    // The same binary computes every hash it compares, so std's fixed-key hasher is fine.
+    let mut h = std::hash::DefaultHasher::new();
+    v.to_string().hash(&mut h);
+    let hash = format!("{:016x}", h.finish());
+    v["hash"] = hash.clone().into();
+    Ok((v, hash))
+}
+
+/// `phonelink widget --wait <hash>`: print the state as soon as it differs from `seen`,
+/// or after `limit` regardless.
+async fn widget_wait(c: &mut Client, seen: &str, limit: std::time::Duration) -> anyhow::Result<serde_json::Value> {
+    use tokio::time::{sleep, timeout_at, Instant};
+    // Subscribe before reading the state, so no change can slip in between.
+    let mut watch = Client::connect(&paths::socket_path()).await?;
+    watch.send(&Request::Watch).await?;
+    let deadline = Instant::now() + limit;
+    loop {
+        let (state, hash) = widget_with_hash(c).await?;
+        if hash != seen {
+            return Ok(state);
+        }
+        let event = match timeout_at(deadline, watch.next()).await {
+            Err(_) => return Ok(state),
+            Ok(r) => r?.ok_or_else(|| anyhow::anyhow!("phonelinkd stopped"))?,
+        };
+        // Let a burst of events settle (transfer progress: at most one update a second).
+        let progress = matches!(&event, Reply::Event { event: WatchEvent::TransferChanged { item } }
+            if item.state == TransferState::Active);
+        sleep(std::time::Duration::from_millis(if progress { 1000 } else { 250 })).await;
+        while let Ok(r) = tokio::time::timeout(std::time::Duration::ZERO, watch.next()).await {
+            r?.ok_or_else(|| anyhow::anyhow!("phonelinkd stopped"))?;
+        }
+    }
 }
 
 fn media_action(action: &str, level: Option<u32>) -> anyhow::Result<MediaAction> {
@@ -512,9 +574,13 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 }
             }
         }
-        Cmd::Widget => {
+        Cmd::Widget { wait, timeout } => {
             // Always JSON: this is for the panel widget.
-            println!("{}", widget_state(&mut c).await?);
+            let state = match wait {
+                Some(seen) => widget_wait(&mut c, &seen, std::time::Duration::from_secs(timeout)).await?,
+                None => widget_with_hash(&mut c).await?.0,
+            };
+            println!("{state}");
         }
         Cmd::Dismiss { id } => {
             let r = c.request(&Request::DismissNotification { id }).await?;
@@ -535,6 +601,15 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                         "Connection switched off. Turn it back on with: phonelink on"
                     }
                 );
+            }
+        }
+        Cmd::Saver { state } => {
+            let on = state == "on";
+            let r = c.request(&Request::SetBatterySaver { on }).await?;
+            fail_on_error(&r)?;
+            show(&r);
+            if !cli.json {
+                println!("Battery saver switched {state}.");
             }
         }
         Cmd::SmsRead { thread } => {

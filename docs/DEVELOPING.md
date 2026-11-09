@@ -56,7 +56,7 @@ Local build (needs Android SDK + NDK): `./scripts/build-android.sh`.
 | One test file | `cargo test -p phonelink-desktop --test sms` | |
 | Lint | `cargo clippy --workspace --all-targets` | keep it warning-free |
 | Kotlin bindings on the JVM | `./scripts/test-kotlin-bindings.sh` | |
-| <a id="ui-tests"></a>Window UI (preview + fake Tauri) | `cd desktop/ui/tests && npm install && npx playwright install chromium && npm test` | ~115 + ~148 checks, screenshots in `desktop/ui/tests/shots/` |
+| <a id="ui-tests"></a>Window UI (preview + fake Tauri) | `cd desktop/ui/tests && npm install && npx playwright install chromium && npm test` | ~115 + ~174 checks, screenshots in `desktop/ui/tests/shots/` |
 | Widget shell quoting | `node packaging/plasmoid/tests/shell.test.js` | hostile file names must stay names |
 | QML syntax | `qmlformat <file>.qml > /dev/null` (package `qt6-declarative-dev-tools`) | Plasma itself can't run in CI |
 
@@ -104,6 +104,7 @@ blur). Use the numbered checklist in [SETUP.md](../SETUP.md).
 | `download_dir` | `~/Downloads/EchoTwin` | where received files go |
 | `bluetooth_backup` | true | accept the Bluetooth backup link |
 | `connection` | true | the connection switch (`phonelink on/off`) |
+| `battery_saver` | true | fewer background wake-ups (`phonelink saver on/off`; see FEATURES.md "Battery saver") |
 | `power_supply_dir` | `/sys/class/power_supply` | tests only |
 
 Window appearance is stored by the page (`localStorage` keys `phonelink.opacity`,

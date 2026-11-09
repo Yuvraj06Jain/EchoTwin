@@ -85,6 +85,7 @@
       allowLock: true,
       bluetoothBackup: true,
       connection: true,
+      batterySaver: true,
       bluetoothStatus: '',
       apps: [
         { name: 'WhatsApp', enabled: true },

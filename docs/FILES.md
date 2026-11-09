@@ -1,8 +1,7 @@
 # File map
 
 Every file in the repository and what it is for. Use this to find *where* something lives;
-[FEATURES.md](FEATURES.md) explains *how* each feature works across these files, and
-[ARCHITECTURE.md](ARCHITECTURE.md) explains how the pieces fit together.
+[FEATURES.md](FEATURES.md) explains *how* each feature works across these files.
 
 Contents
 - [Top level](#top-level)
@@ -42,7 +41,7 @@ phonelink/
 | `.gitignore` | Keeps build output (`target/`, Android `build/`, `jniLibs/`), SQLite files and keystores out of git. |
 | `README.md` | Overview, quick start, links to these docs. |
 | `SETUP.md` | Install guide for the laptop and phone, the numbered device test checklist (rows 1–55), troubleshooting. |
-| `docs/` | Architecture, file map (this file), features, protocol, developer guide; `docs/img/` screenshots. |
+| `docs/` | File map (this file), features, protocol, developer guide; `docs/img/` screenshots. |
 
 ## core/ (shared Rust library)
 

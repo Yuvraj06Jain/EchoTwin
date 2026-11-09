@@ -6,8 +6,9 @@ change…** hints. Paths are relative to the repo root; `android/…/` means
 `android/app/src/main/java/dev/phonelink/app/`, `plasmoid/…/` means
 `packaging/plasmoid/dev.phonelink.widget/contents/`.
 
-Read [ARCHITECTURE.md](ARCHITECTURE.md) first for the common path every message takes, and
-[PROTOCOL.md](PROTOCOL.md) for the message list.
+Every message takes the same path: a watcher on one side → the shared Rust core (outbox,
+encrypted session) → the other side's handler → the UI. See [PROTOCOL.md](PROTOCOL.md) for
+the message list.
 
 Contents
 1. [Pairing](#1-pairing)
@@ -35,7 +36,7 @@ Contents
 **What:** the laptop shows a QR code; the phone scans it; both screens show the same id; from
 then on only these two devices can talk.
 
-**How:** see [ARCHITECTURE §3](ARCHITECTURE.md#3-connection-lifecycle). The QR holds the
+**How:** the QR holds the
 laptop's fingerprint, LAN addresses, name and a one-time secret; HMAC proofs both ways;
 both pin each other in `peers.json`.
 
@@ -60,8 +61,7 @@ both pin each other in `peers.json`.
 other again by themselves, usually within seconds.
 
 **How:** `Node::maintain` per peer, dialing remembered addresses + mDNS hints + gateway +
-/24 search, with backoff reset by nudges. Details in
-[ARCHITECTURE §5](ARCHITECTURE.md#5-finding-each-other-again-reconnect).
+/24 search, with backoff reset by nudges.
 
 | Layer | File | Functions |
 |---|---|---|
@@ -84,7 +84,7 @@ other again by themselves, usually within seconds.
 **What:** when Wi-Fi/hotspot is gone, the phone stays connected over Bluetooth; notifications,
 SMS, clipboard keep working; files wait for Wi-Fi.
 
-**How:** [ARCHITECTURE §6](ARCHITECTURE.md#6-the-bluetooth-backup-link).
+**How:** after 15 s without Wi-Fi the phone opens an RFCOMM socket to the bonded laptop and runs the same pinned-TLS session over it; QUIC takes over again when it returns.
 
 | Layer | File | Functions |
 |---|---|---|
@@ -106,7 +106,7 @@ SMS, clipboard keep working; files wait for Wi-Fi.
 You can reply, press buttons, dismiss. Optional "dismiss on both devices"; per-app mute;
 phone-side "Queue notifications while disconnected" (default off).
 
-**How:** full walkthrough in [ARCHITECTURE §2](ARCHITECTURE.md#2-life-of-a-message-a-whatsapp-notification).
+**How:** the phone's notification listener sends each one through the core; the laptop service stores it in memory, shows a popup and tells the window and widget.
 On every connect the phone sends a snapshot of what's currently shown, so the laptop list
 matches the phone after restarts.
 

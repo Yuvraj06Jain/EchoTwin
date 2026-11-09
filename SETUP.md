@@ -2,8 +2,8 @@
 
 This guide covers **version 1**: installing on the laptop and phone, pairing, the numbered
 test checklist, and troubleshooting. For what PhoneLink does see [README.md](README.md); for
-how it works inside and where each feature lives in the code see [docs/](docs/ARCHITECTURE.md)
-([architecture](docs/ARCHITECTURE.md), [features](docs/FEATURES.md), [files](docs/FILES.md),
+how it works inside and where each feature lives in the code see [docs/](docs/FEATURES.md)
+([features](docs/FEATURES.md), [files](docs/FILES.md),
 [protocol](docs/PROTOCOL.md), [developing](docs/DEVELOPING.md)).
 
 **Not in v1:** starting a brand-new SMS conversation from the laptop, MMS pictures, sending

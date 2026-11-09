@@ -1,4 +1,4 @@
-// PhoneLink panel widget (Plasma 6). Talks to phonelinkd through the `phonelink` CLI.
+// EchoTwin panel widget (Plasma 6). Talks to phonelinkd through the `phonelink` CLI.
 import QtQuick
 import org.kde.plasma.plasmoid
 import org.kde.plasma.core as PlasmaCore
@@ -21,6 +21,7 @@ PlasmoidItem {
 
     readonly property var phone: st.phone
     readonly property bool online: !!(phone && phone.connected)
+    readonly property bool switchedOff: st.connection === false
     readonly property var status: phone && phone.status ? phone.status : null
     readonly property bool unread: {
         var n = st.notifications || [];
@@ -31,8 +32,10 @@ PlasmoidItem {
     }
 
     function statusText() {
-        if (!serviceUp) return "PhoneLink isn't running";
+        if (!serviceUp) return "EchoTwin isn't running";
         if (!st.paired) return "No phone paired";
+        if (switchedOff) return phone.name + " · connection off";
+        if (!online && phone.paused_by_peer) return phone.name + " · switched off on the phone";
         if (!online) return phone.name + " · offline";
         var parts = [phone.name];
         if (status && status.battery !== null && status.battery !== undefined)
@@ -42,7 +45,7 @@ PlasmoidItem {
         return parts.join(" · ");
     }
 
-    toolTipMainText: "PhoneLink"
+    toolTipMainText: "EchoTwin"
     toolTipSubText: note !== "" ? note : statusText()
     Plasmoid.icon: "smartphone"
     Plasmoid.status: online && unread ? PlasmaCore.Types.ActiveStatus : PlasmaCore.Types.PassiveStatus

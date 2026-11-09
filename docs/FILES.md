@@ -20,7 +20,7 @@ phonelink/
 ├── core-ffi/             Rust → Kotlin bindings (UniFFI) used by the Android app
 ├── desktop/
 │   ├── daemon/           phonelinkd (background service) + phonelink (CLI), Rust
-│   ├── app/              PhoneLink window (Tauri 2), Rust shell around desktop/ui
+│   ├── app/              EchoTwin window (Tauri 2), Rust shell around desktop/ui
 │   └── ui/               the window's HTML/CSS/JS (no framework, no build step)
 ├── android/              phone app (Kotlin, Jetpack Compose)
 ├── packaging/            install.sh, systemd unit, KDE widget (plasmoid), Dolphin menu
@@ -107,7 +107,7 @@ widget) talks to it over a private Unix socket with line-delimited JSON.
 | `src/clipboard.rs` | KDE clipboard via Klipper D-Bus: watch copies, set text, never echo back. | `ClipboardSync::{start, set}` |
 | `src/media.rs` | What plays on each phone (memory only), position extrapolation, album art. | `MediaStore::{update, set_art, view}`, `MediaInfo` |
 | `src/sms.rs` | SMS conversations from the phone (memory only), pending sends, read marks. | `SmsStore`, `SmsThreadView`, `thread_key` |
-| `src/bluetooth.rs` | Registers the PhoneLink RFCOMM profile with BlueZ (`ProfileManager1`), gets each connection as a socket fd, reports the adapter address. UUID `7a1d5c3e-9b4f-4e8a-a2c6-5f0e3d1b8c94`. | `register`, `Registered`, `PROFILE_UUID` |
+| `src/bluetooth.rs` | Registers the EchoTwin RFCOMM profile with BlueZ (`ProfileManager1`), gets each connection as a socket fd, reports the adapter address. UUID `7a1d5c3e-9b4f-4e8a-a2c6-5f0e3d1b8c94`. | `register`, `Registered`, `PROFILE_UUID` |
 | `src/battery.rs` | This computer's battery from `/sys/class/power_supply` (ignores mouse/keyboard batteries). | `read` |
 | `src/netaddrs.rs` | Which LAN addresses go into the QR code; detects address changes to nudge reconnects. | `lan_addrs`, `NetWatch` |
 | `src/open.rs` | Open a received file or show it in the file manager (`FileManager1.ShowItems`), MIME guess. | `open_file`, `reveal_file`, `guess_mime` |
@@ -169,8 +169,8 @@ Package `dev.phonelink.app` in `android/app/src/main/java/dev/phonelink/app/`.
 | `MirrorService.kt` | `NotificationListenerService`: mirrors notifications (filters noise), snapshot on connect, performs reply/action/dismiss requested by the computer. |
 | `MediaWatcher.kt` | Active media sessions (via notification access) → now playing + album art; executes play/pause/next/previous/volume. |
 | `SmsSync.kt` | Reads conversations from `content://sms` (+ contact names), watches for changes, sends SMS (`SmsManager`, multipart, sent results). |
-| `FileShare.kt` | Opens files the core sends (content URI → fd), publishes received files to `Download/PhoneLink` (MediaStore), progress notification. |
-| `ShareActivity.kt` | "PhoneLink" in Android's Share menu (files → send; text → computer clipboard). |
+| `FileShare.kt` | Opens files the core sends (content URI → fd), publishes received files to `Download/EchoTwin` (MediaStore), progress notification. |
+| `ShareActivity.kt` | "EchoTwin" in Android's Share menu (files → send; text → computer clipboard). |
 | `ClipboardActivity.kt` | Invisible activity that reads the phone clipboard while focused and sends it. |
 | `Tiles.kt` | Quick Settings tiles: Lock computer, Send clipboard. |
 | `LockReceiver.kt` | "Lock computer" button on the status notification. |
@@ -212,4 +212,4 @@ Package `dev.phonelink.app` in `android/app/src/main/java/dev/phonelink/app/`.
 | `scripts/gen-kotlin-bindings.sh` | Regenerates `phonelink_ffi.kt` from `core-ffi`. Run after every FFI change. |
 | `scripts/test-kotlin-bindings.sh` | Runs `core-ffi/kotlin-test` (JVM) against the host library. |
 | `scripts/audit-apk-permissions.sh` | Fails if the built APK requests any permission outside the allow-list. |
-| `.github/workflows/android.yml` | CI: builds the APK on pushes touching `android/`, `core/`, `core-ffi/`, `Cargo.*` (or manual run), audits permissions, publishes release `latest-apk` (`PhoneLink-<sha>.apk`), writes `status.txt`/`build.log` to the `ci-logs` branch. Stable signing from repo secrets. |
+| `.github/workflows/android.yml` | CI: builds the APK on pushes touching `android/`, `core/`, `core-ffi/`, `Cargo.*` (or manual run), audits permissions, publishes release `latest-apk` (`EchoTwin-<sha>.apk`), writes `status.txt`/`build.log` to the `ci-logs` branch. Stable signing from repo secrets. |

@@ -1,4 +1,4 @@
-//! PhoneLink daemon. Normally started by systemd: `systemctl --user enable --now phonelinkd`.
+//! EchoTwin daemon. Normally started by systemd: `systemctl --user enable --now phonelinkd`.
 
 use phonelink_desktop::{
     config::Config,

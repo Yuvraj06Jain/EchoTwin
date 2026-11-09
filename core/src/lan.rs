@@ -1,7 +1,7 @@
 //! LAN discovery over mDNS/DNS-SD that reveals nothing about you.
 //!
 //! What a stranger on the network sees from us:
-//! * service type `_phonelink._udp` (that *some* PhoneLink exists here),
+//! * service type `_phonelink._udp` (that *some* EchoTwin exists here),
 //! * a random instance name and a random host name, both re-rolled every 10 minutes,
 //! * one opaque token per paired device: `HMAC(pair_key, window)`.
 //!

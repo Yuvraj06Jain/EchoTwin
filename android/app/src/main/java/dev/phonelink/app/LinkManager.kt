@@ -50,6 +50,7 @@ object LinkManager {
 
     fun init(context: Context) {
         app = context.applicationContext
+        _connectionOn.value = Prefs.connection(app)
         FileShare.init(app)
         SmsSync.init(app)
         BluetoothBackup.init(app)
@@ -64,6 +65,7 @@ object LinkManager {
         val dir = dataDir(app).apply { mkdirs() }
         val started = PhoneLink.start(dir.path, deviceName(), listener, FileShare)
         started.setQueueNotifications(Prefs.queueNotifications(app))
+        started.setPaused(!Prefs.connection(app))
         link = started
         _myId.value = started.id()
         refresh()
@@ -107,6 +109,25 @@ object LinkManager {
 
     fun clearTransfers() = onIo { it.clearTransfers(); refresh() }
 
+    private val _connectionOn = MutableStateFlow(true)
+    /** The connection switch, for the UI. */
+    val connectionOn: StateFlow<Boolean> = _connectionOn
+
+    /**
+     * Switch the connection on or off. Off: the computer is told and stops searching, the
+     * background service stops (no notification, nothing running), Bluetooth isn't tried.
+     */
+    fun setConnection(on: Boolean) {
+        Prefs.setConnection(app, on)
+        _connectionOn.value = on
+        io.execute {
+            runCatching { link().setPaused(!on) }
+            refresh()
+        }
+        val service = android.content.Intent(app, LinkService::class.java)
+        if (on) androidx.core.content.ContextCompat.startForegroundService(app, service) else app.stopService(service)
+    }
+
     fun setQueueNotifications(on: Boolean) {
         Prefs.setQueueNotifications(app, on)
         onIo { it.setQueueNotifications(on) }
@@ -134,6 +155,7 @@ object LinkManager {
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "phonelink-mirror") }
 
     private fun onIo(block: (PhoneLink) -> Unit) {
+        if (!Prefs.connection(app)) return // switched off: nothing is sent
         io.execute {
             try {
                 block(link())
@@ -151,7 +173,7 @@ object LinkManager {
     }
 
     /**
-     * Run a "right now" request. If PhoneLink was just started (from a tile or the
+     * Run a "right now" request. If EchoTwin was just started (from a tile or the
      * notification), give the connection a few seconds to come up before giving up.
      */
     private fun whenConnected(block: (PhoneLink) -> String) {
@@ -184,7 +206,7 @@ object LinkManager {
 
     /** Put `text` on the computer's clipboard. */
     fun sendClipboard(text: String) = whenConnected { link ->
-        if (!Prefs.clipboardSharing(app)) throw IllegalStateException("Clipboard sharing is off in PhoneLink")
+        if (!Prefs.clipboardSharing(app)) throw IllegalStateException("Clipboard sharing is off in EchoTwin")
         link.sendClipboard(text)
         "Copied to your computer"
     }
@@ -204,7 +226,7 @@ object LinkManager {
     /** Try to reach the computer right now (skip the back-off, search the network). */
     fun nudge() = onIo { it.onNetworkChanged() }
 
-    /** Has the user granted "Notification access" to PhoneLink? */
+    /** Has the user granted "Notification access" to EchoTwin? */
     fun mirrorEnabled(context: Context): Boolean =
         NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
 

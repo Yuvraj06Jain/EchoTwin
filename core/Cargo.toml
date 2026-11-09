@@ -1,6 +1,6 @@
 [package]
 name = "phonelink-core"
-description = "Shared protocol core for PhoneLink: identity, pairing, mutual-TLS QUIC transport, reliable delivery"
+description = "Shared protocol core for EchoTwin: identity, pairing, mutual-TLS QUIC transport, reliable delivery"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

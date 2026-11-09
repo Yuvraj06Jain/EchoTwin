@@ -25,10 +25,12 @@ pub struct Config {
     pub clipboard_sync: bool,
     /// Let the paired phone lock this computer's screen.
     pub allow_lock: bool,
-    /// Where files from the phone are saved. Default: `~/Downloads/PhoneLink`.
+    /// Where files from the phone are saved. Default: `~/Downloads/EchoTwin`.
     pub download_dir: Option<String>,
     /// Let the phone connect over Bluetooth when Wi-Fi is gone.
     pub bluetooth_backup: bool,
+    /// The connection switch: off = no searching, no connecting, nothing in the background.
+    pub connection: bool,
     /// Where batteries are read from (tests only). Default: `/sys/class/power_supply`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub power_supply_dir: Option<String>,
@@ -47,6 +49,7 @@ impl Default for Config {
             allow_lock: true,
             download_dir: None,
             bluetooth_backup: true,
+            connection: true,
             power_supply_dir: None,
         }
     }

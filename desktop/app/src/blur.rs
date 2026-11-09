@@ -1,4 +1,4 @@
-//! Blur behind the PhoneLink window on KDE (Settings → Appearance → Blur behind).
+//! Blur behind the EchoTwin window on KDE (Settings → Appearance → Blur behind).
 //!
 //! Wayland: KWin's `org_kde_kwin_blur` protocol, on the GTK window's own surface (through
 //! GTK's Wayland connection). X11: the `_KDE_NET_WM_BLUR_BEHIND_REGION` window property.

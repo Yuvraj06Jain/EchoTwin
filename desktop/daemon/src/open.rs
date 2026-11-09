@@ -117,8 +117,8 @@ mod tests {
     #[test]
     fn uris_and_types() {
         assert_eq!(
-            file_uri(Path::new("/home/y/Downloads/PhoneLink/My Photo #1.jpg")),
-            "file:///home/y/Downloads/PhoneLink/My%20Photo%20%231.jpg"
+            file_uri(Path::new("/home/y/Downloads/EchoTwin/My Photo #1.jpg")),
+            "file:///home/y/Downloads/EchoTwin/My%20Photo%20%231.jpg"
         );
         assert_eq!(file_uri(Path::new("/tmp/ä.txt")), "file:///tmp/%C3%A4.txt");
         assert_eq!(guess_mime("IMG_2026.JPG"), "image/jpeg");

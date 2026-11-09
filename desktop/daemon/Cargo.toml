@@ -1,6 +1,6 @@
 [package]
 name = "phonelink-desktop"
-description = "PhoneLink Linux daemon (phonelinkd) and command-line client (phonelink)"
+description = "EchoTwin Linux daemon (phonelinkd) and command-line client (phonelink)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

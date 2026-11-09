@@ -161,7 +161,7 @@ impl Rig {
         .ok()
     }
 
-    /// Popups for mirrored notifications (PhoneLink's own status popups are recorded in
+    /// Popups for mirrored notifications (EchoTwin's own status popups are recorded in
     /// `status_popups`).
     fn popups(&mut self) -> Vec<PopupCmd> {
         std::thread::sleep(Duration::from_millis(50));
@@ -212,7 +212,7 @@ async fn notifications_flow_from_phone_to_laptop() {
     );
     let id = item.id.clone();
     let shown = r.popups();
-    // PhoneLink's own popups use the same clickable path.
+    // EchoTwin's own popups use the same clickable path.
     assert!(
         r.status_popups.iter().any(|t| t.ends_with("connected")),
         "connection popup: {:?}",

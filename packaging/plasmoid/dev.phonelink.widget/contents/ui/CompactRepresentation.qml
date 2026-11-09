@@ -31,7 +31,7 @@ MouseArea {
         color: compact.dropping ? Qt.rgba(0.24, 0.73, 0.51, 0.18) : "transparent"
         border.width: 1.5
         border.color: compact.lineColor
-        opacity: compact.containsMouse || root.expanded ? 1 : 0.92
+        opacity: root.switchedOff ? 0.45 : (compact.containsMouse || root.expanded ? 1 : 0.92)
 
         // Camera.
         Rectangle {

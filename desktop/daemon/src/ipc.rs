@@ -27,6 +27,12 @@ pub struct TransferView {
     /// Received and saved: where.
     pub path: Option<String>,
     pub updated_ms: u64,
+    /// Bytes per second while moving (0 otherwise).
+    #[serde(default)]
+    pub rate: u64,
+    /// Seconds left at the current speed, when known.
+    #[serde(default)]
+    pub eta_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -131,6 +137,10 @@ pub enum Request {
     SetBluetoothBackup {
         enabled: bool,
     },
+    /// The connection switch (saved). Off: disconnect and stop searching.
+    SetConnection {
+        on: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -152,6 +162,9 @@ pub struct DeviceInfo {
     /// The phone's battery and network while connected (if it reports them).
     #[serde(default)]
     pub status: Option<phonelink_core::PhoneStatus>,
+    /// The phone switched its connection off (it reconnects when switched back on).
+    #[serde(default)]
+    pub paused_by_peer: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -214,6 +227,15 @@ pub enum WatchEvent {
     PhoneStatusChanged {
         id: String,
     },
+    /// The connection switch on this computer changed.
+    ConnectionChanged {
+        on: bool,
+    },
+    /// The phone switched its connection off.
+    PeerPaused {
+        id: String,
+        name: String,
+    },
     TransferChanged {
         item: TransferView,
     },
@@ -252,6 +274,9 @@ pub enum Reply {
         /// Empty when the backup is ready; otherwise why not ("off", no adapter, …).
         #[serde(default)]
         bluetooth_status: String,
+        /// The connection switch (absent from older daemons = on).
+        #[serde(default = "yes")]
+        connection: bool,
     },
     Notifications {
         items: Vec<NotificationInfo>,
@@ -299,4 +324,8 @@ pub enum Reply {
     Error {
         message: String,
     },
+}
+
+fn yes() -> bool {
+    true
 }

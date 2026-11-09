@@ -37,7 +37,7 @@ Unknown variants decode as `Frame::Unknown` and are skipped.
 | 2 | `Ack` | `id` | "Stored/processed `id`" → sender deletes it from its outbox |
 | 3 | `PairRequest` | `name, proof` | Phone → laptop during pairing (HMAC proof) |
 | 4 | `PairResponse` | `name, proof` | Laptop → phone during pairing |
-| 5 | `Reject` | `reason` | Session refused (e.g. protocol too old) |
+| 5 | `Reject` | `reason` | Session refused (e.g. protocol too old); reason `"paused"` = the connection was switched off there |
 | 6 | `Ping` | | Keep-alive on Bluetooth stream links (QUIC has its own) |
 | 7 | `Links` | `bluetooth: Option<String>` | Laptop → phone after Hello: Bluetooth adapter address for the backup |
 | 8 | `FileStart` | `id, name, size, mime` | First frame on a file data stream |

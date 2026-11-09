@@ -1,6 +1,6 @@
 [package]
 name = "phonelink-ffi"
-description = "UniFFI bindings exposing the PhoneLink core to Kotlin (Android)"
+description = "UniFFI bindings exposing the EchoTwin core to Kotlin (Android)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

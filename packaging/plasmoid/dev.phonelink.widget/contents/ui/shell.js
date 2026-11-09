@@ -36,3 +36,11 @@ function ago(ms) {
     if (s < 86400) return Math.floor(s / 3600) + " h";
     return Math.floor(s / 86400) + " d";
 }
+
+// " · 1 min left" (empty while the speed is unknown).
+function left(secs, rate) {
+    if (!rate || secs === null || secs === undefined) return "";
+    if (secs < 60) return " · " + Math.max(1, Math.round(secs)) + " s left";
+    if (secs < 3600) return " · " + Math.round(secs / 60) + " min left";
+    return " · " + Math.floor(secs / 3600) + " h " + Math.round((secs % 3600) / 60) + " min left";
+}

@@ -403,7 +403,7 @@ async function auditAllScreens(page, size) {
   check((await count(page, '[data-action="cancel-pairing"]')) === 0, 'no Cancel when nothing is paired');
   check((await text(page, '#conn-pill')) === 'No phone paired', 'pill says No phone paired');
 
-  // QR code must decode to a PhoneLink pairing URI pointing at the documentation address
+  // QR code must decode to a EchoTwin pairing URI pointing at the documentation address
   const qrPng = PNG.sync.read(await page.locator('.qr-box').screenshot());
   const decoded = jsQR(new Uint8ClampedArray(qrPng.data), qrPng.width, qrPng.height);
   check(!!decoded && decoded.data.startsWith('phonelink:pair?v=1&') && decoded.data.includes('a=192.0.2.1:47100'), `QR scans to a safe sample pairing URI (${decoded ? decoded.data.slice(0, 40) : 'unreadable'}…)`);

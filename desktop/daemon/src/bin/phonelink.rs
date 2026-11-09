@@ -1,4 +1,4 @@
-//! `phonelink`: command-line control of the PhoneLink daemon.
+//! `phonelink`: command-line control of the EchoTwin daemon.
 
 use std::process::ExitCode;
 
@@ -31,7 +31,7 @@ enum Cmd {
     Status,
     /// List paired devices.
     Devices,
-    /// Pair a new phone: shows a QR code to scan in the PhoneLink app.
+    /// Pair a new phone: shows a QR code to scan in the EchoTwin app.
     Pair {
         /// Seconds the code stays valid (10-300).
         #[arg(long, default_value_t = 120)]
@@ -80,6 +80,10 @@ enum Cmd {
     Dismiss { id: String },
     /// Mark an SMS conversation as read here (id from the widget/app).
     SmsRead { thread: String },
+    /// Switch the connection on (reconnect to your phone).
+    On,
+    /// Switch the connection off: disconnect and stop searching until `phonelink on`.
+    Off,
 }
 
 /// One JSON object for the panel widget: phone status, music, notifications, SMS, files.
@@ -87,7 +91,10 @@ async fn widget_state(c: &mut Client) -> anyhow::Result<serde_json::Value> {
     use serde_json::json;
     let status = c.request(&Request::Status).await?;
     fail_on_error(&status)?;
-    let Reply::Status { devices, .. } = status else {
+    let Reply::Status {
+        devices, connection, ..
+    } = status
+    else {
         bail!("unexpected reply from phonelinkd")
     };
     let phone = devices.iter().find(|d| d.connected).or(devices.first());
@@ -129,15 +136,18 @@ async fn widget_state(c: &mut Client) -> anyhow::Result<serde_json::Value> {
             .map(|t| {
                 json!({ "id": t.id, "name": t.name, "size": t.size, "done": t.done,
                         "outgoing": matches!(t.direction, Direction::Outgoing),
-                        "state": t.state, "message": t.message, "path": t.path })
+                        "state": t.state, "message": t.message, "path": t.path,
+                        "rate": t.rate, "eta_secs": t.eta_secs })
             })
             .collect(),
         _ => vec![],
     };
     Ok(json!({
         "paired": phone.is_some(),
+        "connection": connection,
         "phone": phone.map(|d| json!({
             "id": d.id, "name": d.name, "connected": d.connected, "via": d.via, "status": d.status,
+            "paused_by_peer": d.paused_by_peer,
         })),
         "media": media,
         "notifications": notifications,
@@ -185,12 +195,27 @@ fn transfer_state(t: &TransferView) -> String {
     let state = match t.state {
         TransferState::Queued => "queued".to_string(),
         TransferState::Waiting => format!("{pct}%, {}", t.message),
-        TransferState::Active => format!("{pct}%"),
+        TransferState::Active => match t.eta_secs {
+            Some(eta) if t.rate > 0 => {
+                format!("{pct}%, {}/s, {} left", fmt_size(t.rate), fmt_duration(eta))
+            }
+            _ => format!("{pct}%"),
+        },
         TransferState::Done => "done".to_string(),
         TransferState::Failed => format!("failed: {}", t.message),
         TransferState::Cancelled => "cancelled".to_string(),
     };
     format!("{arrow}  {state}")
+}
+
+/// "45 s", "3 min 20 s", "1 h 5 min".
+fn fmt_duration(secs: u64) -> String {
+    match secs {
+        0..=59 => format!("{secs} s"),
+        60..=3599 if secs.is_multiple_of(60) => format!("{} min", secs / 60),
+        60..=3599 => format!("{} min {} s", secs / 60, secs % 60),
+        _ => format!("{} h {} min", secs / 3600, secs % 3600 / 60),
+    }
 }
 
 fn mmss(ms: u64) -> String {
@@ -250,6 +275,10 @@ fn print_event(e: &WatchEvent) {
         WatchEvent::LockedByPhone { id, name } => println!("lock          {id}  {name} asked to lock"),
         WatchEvent::MediaChanged { id } => println!("media         {id}  playing state changed"),
         WatchEvent::PhoneStatusChanged { id } => println!("status        {id}  battery/network changed"),
+        WatchEvent::ConnectionChanged { on } => {
+            println!("connection    switched {}", if *on { "on" } else { "off" })
+        }
+        WatchEvent::PeerPaused { id, name } => println!("paused        {id}  {name} switched its connection off"),
         WatchEvent::SmsChanged { thread } => {
             println!("sms           {}", thread.as_deref().unwrap_or("conversations changed"))
         }
@@ -492,6 +521,22 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             fail_on_error(&r)?;
             show(&r);
         }
+        Cmd::On | Cmd::Off => {
+            let on = matches!(cli.cmd, Cmd::On);
+            let r = c.request(&Request::SetConnection { on }).await?;
+            fail_on_error(&r)?;
+            show(&r);
+            if !cli.json {
+                println!(
+                    "{}",
+                    if on {
+                        "Connection switched on; looking for your phone."
+                    } else {
+                        "Connection switched off. Turn it back on with: phonelink on"
+                    }
+                );
+            }
+        }
         Cmd::SmsRead { thread } => {
             let r = c.request(&Request::SmsMarkRead { thread }).await?;
             fail_on_error(&r)?;
@@ -525,7 +570,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                         expires_in_secs,
                     } => {
                         println!("{}", qr(&uri)?);
-                        println!("Scan this with the PhoneLink app on your phone.");
+                        println!("Scan this with the EchoTwin app on your phone.");
                         println!("Check that the phone shows this computer's id: {id}");
                         println!("Reachable at: {}", addrs.join(", "));
                         println!(

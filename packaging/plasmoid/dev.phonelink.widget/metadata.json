@@ -1,13 +1,13 @@
 {
     "KPackageStructure": "Plasma/Applet",
     "KPlugin": {
-        "Authors": [{ "Name": "PhoneLink" }],
+        "Authors": [{ "Name": "EchoTwin" }],
         "Category": "System Information",
         "Description": "Your phone in the panel: notifications, SMS, files and music",
         "Icon": "smartphone",
         "Id": "dev.phonelink.widget",
         "License": "MIT",
-        "Name": "PhoneLink",
+        "Name": "EchoTwin",
         "Version": "1.0"
     },
     "X-Plasma-API-Minimum-Version": "6.0"

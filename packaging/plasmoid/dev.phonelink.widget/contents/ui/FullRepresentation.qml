@@ -57,7 +57,7 @@ PlasmaExtras.Representation {
                 spacing: 0
                 Kirigami.Heading {
                     level: 4
-                    text: root.phone ? root.phone.name : "PhoneLink"
+                    text: root.phone ? root.phone.name : "EchoTwin"
                     elide: Text.ElideRight
                     Layout.fillWidth: true
                 }
@@ -67,8 +67,10 @@ PlasmaExtras.Representation {
                     opacity: 0.75
                     font: Kirigami.Theme.smallFont
                     text: {
-                        if (!root.serviceUp) return "PhoneLink service isn't running";
-                        if (!root.st.paired) return "Pair your phone in the PhoneLink app";
+                        if (!root.serviceUp) return "EchoTwin service isn't running";
+                        if (!root.st.paired) return "Pair your phone in the EchoTwin app";
+                        if (root.switchedOff) return "Connection off · not searching for the phone";
+                        if (root.phone.paused_by_peer && !root.online) return "Switched off on the phone";
                         if (!root.online) return "Offline · files and notes wait for it";
                         var p = [];
                         var s = root.status;
@@ -82,15 +84,23 @@ PlasmaExtras.Representation {
                 }
             }
             PlasmaComponents.ToolButton {
+                icon.name: "system-shutdown"
+                visible: root.st.paired && root.serviceUp
+                checkable: true
+                checked: !root.switchedOff
+                onClicked: root.run([root.switchedOff ? "on" : "off"])
+                PlasmaComponents.ToolTip { text: root.switchedOff ? "Turn the connection on" : "Turn the connection off (stop searching)" }
+            }
+            PlasmaComponents.ToolButton {
                 icon.name: "view-refresh"
-                visible: root.st.paired && !root.online
+                visible: root.st.paired && !root.online && !root.switchedOff
                 onClicked: root.run(["reconnect"])
                 PlasmaComponents.ToolTip { text: "Reconnect now" }
             }
             PlasmaComponents.ToolButton {
                 icon.name: "window-new"
                 onClicked: root.openApp("")
-                PlasmaComponents.ToolTip { text: "Open PhoneLink" }
+                PlasmaComponents.ToolTip { text: "Open EchoTwin" }
             }
         }
     }
@@ -262,7 +272,7 @@ PlasmaExtras.Representation {
                         visible: smsList.count === 0
                         iconName: "mail-message"
                         text: "No conversations"
-                        explanation: "Allow SMS access in the PhoneLink app on your phone"
+                        explanation: "Allow SMS access in the EchoTwin app on your phone"
                     }
                     delegate: PlasmaComponents.ItemDelegate {
                         width: ListView.view.width
@@ -316,7 +326,7 @@ PlasmaExtras.Representation {
                     opacity: 0.7
                     font: Kirigami.Theme.smallFont
                     text: root.online
-                        ? "Or drop files on the phone icon in the panel. Files from the phone are saved in Downloads/PhoneLink."
+                        ? "Or drop files on the phone icon in the panel. Files from the phone are saved in Downloads/EchoTwin."
                         : "Your phone is offline: files are queued and sent when it reconnects."
                 }
                 PlasmaComponents.ScrollView {
@@ -342,7 +352,7 @@ PlasmaExtras.Representation {
                                     text: {
                                         switch (modelData.state) {
                                         case "done": return modelData.outgoing ? "Sent" : "Saved";
-                                        case "active": return Shell.percent(modelData.done, modelData.size) + "%";
+                                        case "active": return Shell.percent(modelData.done, modelData.size) + "%" + Shell.left(modelData.eta_secs, modelData.rate);
                                         case "queued": return "Queued";
                                         case "waiting": return modelData.message || "Waiting";
                                         case "failed": return "Failed";

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PhoneLink</string>
+    <string name="app_name">EchoTwin</string>
     <string name="tile_lock">Lock computer</string>
     <string name="tile_clipboard">Send clipboard</string>
     <string name="share_to_computer">Copy to computer</string>

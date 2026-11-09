@@ -468,7 +468,7 @@ async fn a_device_with_an_older_phonelink_is_not_sent_files() {
     let id = send(&lt, old_phone.fingerprint(), &f);
     lseen
         .until("told to update", |_| {
-            lseen.latest(&id).is_some_and(|i| i.state == TransferState::Waiting && i.message.contains("Update PhoneLink"))
+            lseen.latest(&id).is_some_and(|i| i.state == TransferState::Waiting && i.message.contains("Update EchoTwin"))
         })
         .await;
 }

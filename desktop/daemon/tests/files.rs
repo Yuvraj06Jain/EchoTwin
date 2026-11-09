@@ -35,7 +35,7 @@ struct Rig {
 async fn setup() -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("pl.sock");
-    let downloads = dir.path().join("Downloads/PhoneLink");
+    let downloads = dir.path().join("Downloads/EchoTwin");
     let (popups, popup_rx) = Popups::recording();
     let opts = DaemonOptions {
         data_dir: dir.path().join("data"),
@@ -211,7 +211,7 @@ async fn files_go_both_ways_through_the_service() {
     .unwrap();
     assert_eq!(ev.name, "OS-lab-report.pdf");
 
-    // Phone → laptop: lands in Downloads/PhoneLink, with a popup that opens the Files tab.
+    // Phone → laptop: lands in Downloads/EchoTwin, with a popup that opens the Files tab.
     let photo = file(src.path(), "IMG_20261106.jpg", 700_000);
     let pid = r
         .phone_files

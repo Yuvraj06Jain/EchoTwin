@@ -7,6 +7,7 @@ object Prefs {
     private const val FILE = "settings"
     private const val CLIPBOARD = "clipboard_sharing"
     private const val QUEUE = "queue_notifications"
+    private const val CONNECTION = "connection"
 
     private fun prefs(context: Context) = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
@@ -21,4 +22,10 @@ object Prefs {
 
     fun setQueueNotifications(context: Context, on: Boolean) =
         prefs(context).edit().putBoolean(QUEUE, on).apply()
+
+    /** The connection switch (on by default). Off: nothing runs and nothing connects. */
+    fun connection(context: Context): Boolean = prefs(context).getBoolean(CONNECTION, true)
+
+    fun setConnection(context: Context, on: Boolean) =
+        prefs(context).edit().putBoolean(CONNECTION, on).apply()
 }

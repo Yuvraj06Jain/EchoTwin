@@ -1,5 +1,5 @@
 [Unit]
-Description=PhoneLink daemon (private link to your phone)
+Description=EchoTwin daemon (private link to your phone)
 After=network-online.target
 Wants=network-online.target
 

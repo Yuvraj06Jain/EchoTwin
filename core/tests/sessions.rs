@@ -268,3 +268,58 @@ async fn concurrent_dials_to_the_same_peer_make_one_connection() {
         "exactly one connection, none replaced"
     );
 }
+
+/// Switching the connection off on one device stops both from searching; switching it back
+/// on reconnects at once and delivers what was queued meanwhile.
+#[tokio::test]
+async fn switching_the_connection_off_and_on() {
+    let (laptop, mut lrx, phone, mut prx) = paired_pair().await;
+    let (lfp, pfp) = (laptop.fingerprint(), phone.fingerprint());
+    let _lk = laptop.maintain(pfp, vec![]);
+    let _pk = phone.maintain(lfp, vec![]);
+
+    // Phone switches off: the laptop is told and stops dialling.
+    phone.set_paused(true);
+    wait_for(&mut lrx, "laptop told the phone paused", |e| {
+        matches!(e, Event::PeerPaused { .. })
+    })
+    .await;
+    eventually("both disconnected", || {
+        !laptop.is_connected(&pfp) && !phone.is_connected(&lfp)
+    })
+    .await;
+    assert!(laptop.peer_paused(&pfp));
+    laptop.nudge(); // even a network change must not make it dial a paused phone…
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(!laptop.is_connected(&pfp), "no reconnect while the phone is off");
+    while let Ok(e) = lrx.try_recv() {
+        assert!(!matches!(e, Event::PeerConnected { .. }), "laptop reconnected while paused");
+    }
+    // …and the phone itself refuses to dial.
+    assert!(phone.connect_any(lfp, vec![laptop.local_addr().unwrap()]).await.is_err());
+    laptop.send(&pfp, b"while you were off".to_vec()).unwrap();
+
+    // Phone switches back on: reconnects at once, gets the queued message.
+    phone.set_paused(false);
+    wait_for(&mut prx, "queued message arrives", is_msg(b"while you were off")).await;
+    eventually("laptop no longer thinks it's paused", || !laptop.peer_paused(&pfp)).await;
+
+    // Laptop switches off: the phone is told; a phone that dials anyway is refused.
+    laptop.set_paused(true);
+    wait_for(&mut prx, "phone told the laptop paused", |e| {
+        matches!(e, Event::PeerPaused { .. })
+    })
+    .await;
+    eventually("disconnected", || !phone.is_connected(&lfp)).await;
+    let r = phone.connect_any(lfp, vec![laptop.local_addr().unwrap()]).await;
+    assert!(r.is_err(), "a paused laptop refuses the session");
+    assert!(phone.peer_paused(&lfp));
+
+    // Laptop back on: it dials the phone itself.
+    laptop.set_paused(false);
+    eventually("reconnected from the laptop side", || {
+        laptop.is_connected(&pfp) && phone.is_connected(&lfp)
+    })
+    .await;
+    assert!(!phone.peer_paused(&lfp));
+}

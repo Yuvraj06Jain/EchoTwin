@@ -97,7 +97,7 @@ class MainActivity : ComponentActivity() {
     private var bluetoothOn by mutableStateOf(true)
     private val askBluetooth = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         bluetoothOn = ok
-        notice = if (ok) "Bluetooth backup ready" else "Without \"Nearby devices\", PhoneLink can't use the Bluetooth backup"
+        notice = if (ok) "Bluetooth backup ready" else "Without \"Nearby devices\", EchoTwin can't use the Bluetooth backup"
     }
 
     /** The system file picker; the permission to read the files is kept so sends can resume. */
@@ -116,7 +116,9 @@ class MainActivity : ComponentActivity() {
         ) {
             askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        ContextCompat.startForegroundService(this, Intent(this, LinkService::class.java))
+        if (Prefs.connection(this)) {
+            ContextCompat.startForegroundService(this, Intent(this, LinkService::class.java))
+        }
 
         setContent {
             PhoneLinkTheme {
@@ -124,6 +126,7 @@ class MainActivity : ComponentActivity() {
                 val notes by LinkManager.messages.collectAsStateWithLifecycle()
                 val myId by LinkManager.myId.collectAsStateWithLifecycle()
                 val transfers by LinkManager.transfers.collectAsStateWithLifecycle()
+                val connectionOn by LinkManager.connectionOn.collectAsStateWithLifecycle()
                 val state = UiState(
                     myId = myId,
                     devices = devices,
@@ -132,6 +135,7 @@ class MainActivity : ComponentActivity() {
                     access = Access(mirrorOn, batteryOk, smsOn, bluetoothOn, phoneStatusOn),
                     clipboardOn = clipboardOn,
                     queueOn = queueOn,
+                    connectionOn = connectionOn,
                     busy = busy,
                     bluetoothProblem = BluetoothBackup.problem,
                 )
@@ -184,6 +188,10 @@ class MainActivity : ComponentActivity() {
         override fun cancelTransfer(id: String) = LinkManager.cancelTransfer(id)
         override fun clearTransfers() = LinkManager.clearTransfers()
         override fun setClipboard(on: Boolean) = setClipboardSharing(on)
+        override fun setConnection(on: Boolean) {
+            LinkManager.setConnection(on)
+            notice = if (on) "Connection on: looking for your computer" else "Connection off"
+        }
         override fun setQueue(on: Boolean) {
             LinkManager.setQueueNotifications(on)
             queueOn = on
@@ -226,7 +234,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             val code = withContext(Dispatchers.IO) { runCatching { LinkManager.link().readPairingCode(contents) } }
             code.onSuccess { pendingPair = contents to it }
-                .onFailure { notice = "That is not a PhoneLink pairing code." }
+                .onFailure { notice = "That is not a EchoTwin pairing code." }
         }
     }
 
@@ -298,7 +306,7 @@ class MainActivity : ComponentActivity() {
             startActivity(general)
             return
         }
-        // Android 11+: straight to PhoneLink's own switch.
+        // Android 11+: straight to EchoTwin's own switch.
         val component = ComponentName(this, MirrorService::class.java).flattenToString()
         val detail = Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
             .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, component)

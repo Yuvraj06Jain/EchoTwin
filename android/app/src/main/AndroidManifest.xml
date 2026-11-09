@@ -105,7 +105,7 @@
             </intent-filter>
         </activity>
 
-        <!-- "PhoneLink" in the Share menu: sends files (any type) to the computer. -->
+        <!-- "EchoTwin" in the Share menu: sends files (any type) to the computer. -->
         <activity
             android:name=".ShareActivity"
             android:exported="true"
@@ -148,7 +148,7 @@
             </intent-filter>
         </service>
 
-        <!-- "Lock computer" on the PhoneLink notification; only this app can send it. -->
+        <!-- "Lock computer" on the EchoTwin notification; only this app can send it. -->
         <receiver
             android:name=".LockReceiver"
             android:exported="false" />

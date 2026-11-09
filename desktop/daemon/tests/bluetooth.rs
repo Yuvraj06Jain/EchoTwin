@@ -154,7 +154,7 @@ async fn the_phone_reaches_the_laptop_over_bluetooth_when_wifi_is_gone() {
     .await
     .unwrap();
 
-    // The profile is registered with PhoneLink's id, bonded devices only.
+    // The profile is registered with EchoTwin's id, bonded devices only.
     timeout(WAIT, async {
         while seen.lock().unwrap().registered.is_empty() {
             tokio::time::sleep(Duration::from_millis(20)).await;

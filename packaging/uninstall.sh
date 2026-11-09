@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Remove PhoneLink. Your keys and paired devices stay in ~/.local/share/phonelink
+# Remove EchoTwin. Your keys and paired devices stay in ~/.local/share/phonelink
 # unless you pass --purge.
 set -euo pipefail
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
@@ -12,7 +12,7 @@ for size in 32 64 128 256 512; do rm -f "$DATA/icons/hicolor/${size}x${size}/app
 systemctl --user daemon-reload
 if [[ "${1:-}" == "--purge" ]]; then
   rm -rf "$DATA/phonelink" "$HOME/.config/phonelink"
-  echo "Removed PhoneLink and all its data."
+  echo "Removed EchoTwin and all its data."
 else
-  echo "Removed PhoneLink. Data kept in $DATA/phonelink (use --purge to delete)."
+  echo "Removed EchoTwin. Data kept in $DATA/phonelink (use --purge to delete)."
 fi

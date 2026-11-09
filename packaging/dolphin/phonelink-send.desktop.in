@@ -6,6 +6,6 @@ X-KDE-Priority=TopLevel
 Actions=sendToPhone
 
 [Desktop Action sendToPhone]
-Name=Send to phone (PhoneLink)
+Name=Send to phone (EchoTwin)
 Icon=smartphone
 Exec=@BINDIR@/phonelink send-file --notify %F

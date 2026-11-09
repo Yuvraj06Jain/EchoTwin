@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=PhoneLink
+Name=EchoTwin
 GenericName=Phone connection
 Comment=See your phone's notes, messages and files on this computer
 Exec=@BINDIR@/phonelink-app

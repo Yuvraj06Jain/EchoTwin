@@ -119,6 +119,38 @@ pub struct TransferInfo {
     /// Incoming and done: where the file was saved.
     pub path: Option<String>,
     pub updated_ms: u64,
+    /// Current speed in bytes per second (0 when not moving or not known yet).
+    pub rate: u64,
+    /// Estimated seconds left at the current speed (`None` until there is a speed).
+    pub eta_secs: Option<u64>,
+}
+
+/// Smoothing of the transfer speed: about the last 3 seconds count most.
+const RATE_WINDOW_SECS: f64 = 3.0;
+
+/// Speed sample for one running transfer.
+struct Speed {
+    at: Instant,
+    done: u64,
+    rate: f64,
+}
+
+/// New smoothed speed after `bytes` more arrived in `dt` seconds.
+fn smooth_rate(prev: f64, dt: f64, bytes: u64) -> f64 {
+    if dt <= 0.0 {
+        return prev;
+    }
+    let now = bytes as f64 / dt;
+    if prev <= 0.0 {
+        return now;
+    }
+    let alpha = 1.0 - (-dt / RATE_WINDOW_SECS).exp();
+    prev + alpha * (now - prev)
+}
+
+/// Seconds left for `size - done` bytes at `rate` bytes/s.
+fn eta(size: u64, done: u64, rate: f64) -> Option<u64> {
+    (rate >= 1.0).then(|| (size.saturating_sub(done) as f64 / rate).ceil() as u64)
 }
 
 /// How the sending side reads a file. The laptop opens paths; the phone hands over a file
@@ -169,6 +201,8 @@ struct Inner {
     /// One receiving task per transfer at a time.
     receiving: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     wake: Notify,
+    /// Speed of each transfer that is moving right now.
+    speeds: Mutex<HashMap<String, Speed>>,
 }
 
 /// The transfer engine. Cheap to clone.
@@ -327,6 +361,7 @@ impl Transfers {
                 sending_to: Mutex::new(HashMap::new()),
                 retry_at: Mutex::new(HashMap::new()),
                 receiving: Mutex::new(HashMap::new()),
+                speeds: Mutex::new(HashMap::new()),
                 wake: Notify::new(),
             }),
         };
@@ -384,6 +419,8 @@ impl Transfers {
                 state: TransferState::parse(&state),
                 message: r.get(11)?,
                 updated_ms: r.get::<_, i64>(13)? as u64,
+                rate: 0,
+                eta_secs: None,
             },
             source: r.get(6)?,
             part: r.get(8)?,
@@ -414,6 +451,9 @@ impl Transfers {
 
     fn emit(&self, id: &str) {
         if let Some(r) = self.row(id) {
+            if r.info.state != TransferState::Active {
+                self.inner.speeds.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+            }
             let _ = self.inner.events.send(r.info);
         }
     }
@@ -425,6 +465,24 @@ impl Transfers {
         info.state = TransferState::Active;
         info.message.clear();
         info.updated_ms = now_ms();
+        {
+            let mut speeds = self.inner.speeds.lock().unwrap_or_else(|e| e.into_inner());
+            let now = Instant::now();
+            let s = speeds.entry(info.id.clone()).or_insert(Speed {
+                at: now,
+                done,
+                rate: 0.0,
+            });
+            if done >= s.done {
+                s.rate = smooth_rate(s.rate, now.duration_since(s.at).as_secs_f64(), done - s.done);
+            } else {
+                s.rate = 0.0; // restarted from an earlier point
+            }
+            s.at = now;
+            s.done = done;
+            info.rate = s.rate as u64;
+            info.eta_secs = eta(info.size, done, s.rate);
+        }
         let _ = self.inner.events.send(info);
     }
 
@@ -513,8 +571,22 @@ impl Transfers {
         ) else {
             return vec![];
         };
+        let speeds = self.inner.speeds.lock().unwrap_or_else(|e| e.into_inner());
         stmt.query_map([], Self::map_row)
-            .map(|rows| rows.filter_map(|r| r.ok()).map(|r| r.info).collect())
+            .map(|rows| {
+                rows.filter_map(|r| r.ok())
+                    .map(|r| {
+                        let mut info = r.info;
+                        if let Some(s) = speeds.get(&info.id) {
+                            info.done = info.done.max(s.done);
+                            info.state = TransferState::Active;
+                            info.rate = s.rate as u64;
+                            info.eta_secs = eta(info.size, info.done, s.rate);
+                        }
+                        info
+                    })
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -608,7 +680,7 @@ impl Transfers {
             match self.inner.node.transport(&peer) {
                 Some(_) if !self.inner.node.peer_supports(&peer, CAP_FILES) => {
                     let name = self.inner.node.peer(&peer).map(|p| p.name).unwrap_or_default();
-                    waiting(format!("Update PhoneLink on {name} to send files"));
+                    waiting(format!("Update EchoTwin on {name} to send files"));
                     continue;
                 }
                 Some(Transport::Quic) => {}
@@ -1087,6 +1159,29 @@ impl Transfers {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn speed_and_time_left() {
+        // First sample: the instantaneous speed.
+        let r = super::smooth_rate(0.0, 0.25, 2_500_000);
+        assert_eq!(r, 10_000_000.0);
+        // Steady 10 MB/s stays 10 MB/s; a sudden 0 pulls it down only gradually.
+        let r = super::smooth_rate(r, 0.25, 2_500_000);
+        assert!((r - 10_000_000.0).abs() < 1.0);
+        let slower = super::smooth_rate(r, 0.25, 0);
+        assert!(slower > 9_000_000.0 && slower < 10_000_000.0, "{slower}");
+        // After ~10 s of nothing it is close to 0.
+        let mut x = r;
+        for _ in 0..40 {
+            x = super::smooth_rate(x, 0.25, 0);
+        }
+        assert!(x < 500_000.0, "{x}");
+        assert_eq!(super::smooth_rate(5.0, 0.0, 100), 5.0, "no time passed: unchanged");
+        // 1 GB left at 10 MB/s = 100 s; no speed yet = unknown.
+        assert_eq!(super::eta(2_000_000_000, 1_000_000_000, 10_000_000.0), Some(100));
+        assert_eq!(super::eta(100, 0, 0.0), None);
+        assert_eq!(super::eta(100, 100, 50.0), Some(0));
+    }
     use super::*;
 
     #[test]

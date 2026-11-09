@@ -163,3 +163,61 @@ async fn status_both_ways_and_widget_json() {
     let Reply::Devices { devices } = c.request(&Request::Devices).await.unwrap() else { panic!() };
     assert!(devices[0].status.is_none());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_connection_switch() {
+    let mut rig = setup(&[CAP_STATUS]).await;
+    let mut c = Client::connect(&rig.socket).await.unwrap();
+    let pfp = rig.phone.fingerprint();
+
+    // Off on the laptop: the phone is told and dropped; Status says so.
+    assert!(matches!(c.request(&Request::SetConnection { on: false }).await.unwrap(), Reply::Done));
+    timeout(WAIT, async {
+        while !matches!(rig.phone_rx.recv().await, Some(Event::PeerPaused { .. })) {}
+    })
+    .await
+    .expect("phone told the laptop switched off");
+    let Reply::Status { connection, .. } = c.request(&Request::Status).await.unwrap() else { panic!() };
+    assert!(!connection);
+    timeout(WAIT, async {
+        loop {
+            let Reply::Devices { devices } = c.request(&Request::Devices).await.unwrap() else { panic!() };
+            if !devices[0].connected {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("disconnected");
+    assert!(rig.phone.connect_any(rig.laptop, vec![]).await.is_err());
+
+    // On again: the laptop dials the phone by itself.
+    c.request(&Request::SetConnection { on: true }).await.unwrap();
+    timeout(WAIT, async {
+        loop {
+            if rig.phone.is_connected(&rig.laptop) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("reconnected after switching on");
+
+    // Off on the phone: the laptop shows it and doesn't keep dialling.
+    rig.phone.set_paused(true);
+    timeout(WAIT, async {
+        loop {
+            if let Some(Reply::Event { event: WatchEvent::PeerPaused { .. } }) = rig.watch.next().await.unwrap() {
+                return;
+            }
+        }
+    })
+    .await
+    .expect("laptop sees the phone switched off");
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let Reply::Devices { devices } = c.request(&Request::Devices).await.unwrap() else { panic!() };
+    assert!(devices[0].paused_by_peer && !devices[0].connected);
+    let _ = pfp;
+}

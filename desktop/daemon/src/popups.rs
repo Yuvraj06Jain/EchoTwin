@@ -1,5 +1,5 @@
 //! Desktop popups through the freedesktop notification D-Bus API. Clicking one opens the
-//! PhoneLink window.
+//! EchoTwin window.
 //!
 //! All popups go through one long-lived D-Bus connection on one thread, so:
 //! * an update replaces the earlier popup and a removal on the phone closes it;
@@ -77,7 +77,7 @@ pub struct Popups {
 }
 
 impl Popups {
-    /// Popups on the session bus; a click opens the PhoneLink window.
+    /// Popups on the session bus; a click opens the EchoTwin window.
     pub fn start() -> Self {
         Self::start_with(None, Arc::new(open_app))
     }
@@ -215,7 +215,7 @@ fn notify(
     body: &str,
 ) -> zbus::Result<u32> {
     // "default" = clicking the popup itself; servers don't show it as a button.
-    let actions = vec![DEFAULT_ACTION, "Open PhoneLink"];
+    let actions = vec![DEFAULT_ACTION, "Open EchoTwin"];
     let hints: HashMap<&str, Value<'_>> = HashMap::new();
     c.call_method(
         Some(DEST),
@@ -263,7 +263,7 @@ fn start_listener(conn: Connection, ours: Arc<Mutex<Ours>>, opener: Opener) -> z
                             }
                             (o.tokens.remove(&id), o.tabs.get(&id).copied().unwrap_or(Tab::Notifications))
                         };
-                        info!("popup clicked; opening the PhoneLink window");
+                        info!("popup clicked; opening the EchoTwin window");
                         opener(tab, token);
                     }
                     _ => {}
@@ -362,7 +362,7 @@ pub fn open_app(tab: Tab, token: Option<String>) {
                 let _ = child.wait();
             });
         }
-        Err(e) => warn!("could not open the PhoneLink window ({}): {e}", exe.display()),
+        Err(e) => warn!("could not open the EchoTwin window ({}): {e}", exe.display()),
     }
 }
 

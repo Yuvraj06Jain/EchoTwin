@@ -61,7 +61,7 @@ impl PairingOffer {
         let query = uri
             .trim()
             .strip_prefix(URI_PREFIX)
-            .ok_or_else(|| bad("not a PhoneLink code"))?;
+            .ok_or_else(|| bad("not a EchoTwin code"))?;
         let (mut v, mut fp, mut s, mut a, mut n) = (None, None, None, None, None);
         for kv in query.split('&') {
             let (k, val) = kv.split_once('=').ok_or_else(|| bad("malformed field"))?;

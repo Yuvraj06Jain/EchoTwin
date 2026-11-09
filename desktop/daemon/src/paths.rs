@@ -33,7 +33,7 @@ pub fn download_dir() -> PathBuf {
     if let Some(p) = env::var_os("PHONELINK_DOWNLOAD_DIR") {
         return PathBuf::from(p);
     }
-    user_download_dir().join("PhoneLink")
+    user_download_dir().join("EchoTwin")
 }
 
 /// The Downloads folder from `~/.config/user-dirs.dirs` (localised on many desktops).

@@ -84,6 +84,7 @@
       clipboardSync: true,
       allowLock: true,
       bluetoothBackup: true,
+      connection: true,
       bluetoothStatus: '',
       apps: [
         { name: 'WhatsApp', enabled: true },

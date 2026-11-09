@@ -1,4 +1,4 @@
-//! PhoneLink desktop window.
+//! EchoTwin desktop window.
 //!
 //! This is only the user interface. All networking, pairing and security live in the
 //! `phonelinkd` background service; the window talks to it over the same private Unix
@@ -327,6 +327,12 @@ async fn set_bluetooth_backup(enabled: bool) -> Result<(), String> {
     expect_done(Request::SetBluetoothBackup { enabled }).await
 }
 
+/// The connection switch: off = disconnect and stop searching for the phone.
+#[tauri::command]
+async fn set_connection(on: bool) -> Result<(), String> {
+    expect_done(Request::SetConnection { on }).await
+}
+
 #[tauri::command]
 async fn set_allow_lock(enabled: bool) -> Result<(), String> {
     expect_done(Request::SetAllowLock { enabled }).await
@@ -593,6 +599,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             set_blur,
             open_blur_settings,
+            set_connection,
             status,
             send_note,
             unpair,
@@ -635,7 +642,7 @@ fn main() {
                 init.push_str(&format!("window.__PHONELINK_OPEN_TAB__ = {tab:?};"));
             }
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("PhoneLink")
+                .title("EchoTwin")
                 .inner_size(1180.0, 760.0)
                 .min_inner_size(900.0, 600.0)
                 .decorations(false)
@@ -672,7 +679,7 @@ fn main() {
             _ => {}
         })
         .run(tauri::generate_context!())
-        .expect("failed to start the PhoneLink window");
+        .expect("failed to start the EchoTwin window");
 }
 
 #[cfg(test)]

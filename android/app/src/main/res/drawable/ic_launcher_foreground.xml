@@ -1,4 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<inset xmlns:android="http://schemas.android.com/apk/res/android"
-    android:drawable="@drawable/ic_link"
-    android:inset="30%" />
+<!-- EchoTwin launcher icon: the same white dot + ring as the laptop app's icon
+     (desktop/app/icons), on the green background from colors.xml (launcher_background). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#F2FBF6"
+        android:pathData="M30.35,54 a13.87,13.87 0 1,0 27.74,0 a13.87,13.87 0 1,0 -27.74,0 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#F2FBF6"
+        android:strokeWidth="5.13"
+        android:pathData="M58.41,54 a8.74,8.74 0 1,0 17.48,0 a8.74,8.74 0 1,0 -17.48,0 Z" />
+</vector>

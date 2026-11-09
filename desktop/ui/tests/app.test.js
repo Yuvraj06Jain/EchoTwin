@@ -63,7 +63,7 @@ function fakeTauri() {
         if (!fake.daemonUp) throw 'daemon-down';
         switch (cmd) {
           case 'status':
-            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66' }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, devices: fake.devices };
+            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66' }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, devices: fake.devices };
           case 'notifications':
             if (fake.slowNext) {
               // Snapshot the data now, answer late (like a reload that started before news arrived).
@@ -121,6 +121,10 @@ function fakeTauri() {
             if (fake.mediaFails) throw 'media broke';
             return fake.media;
           case 'media_control':
+            return null;
+          case 'set_connection':
+            fake.connection = args.on;
+            if (!args.on) fake.devices = fake.devices.map((d) => ({ ...d, connected: false }));
             return null;
           case 'set_bluetooth_backup':
             fake.bt = args.enabled;
@@ -545,7 +549,9 @@ function fakeTauri() {
   check((await toast()).startsWith('Sending “OS lab report.pdf”'), 'sending toast');
   // Progress arrives as events and updates the row in place.
   await page.focus('.transfer [data-action="cancel-transfer"]');
-  await page.evaluate(() => window.__emit('phonelink://event', { kind: 'transfer_changed', item: { id: 't-0', device: 'x', device_name: 'Galaxy S24 FE', direction: 'outgoing', name: 'OS lab report.pdf', size: 1000, done: 640, state: 'active', message: '', path: null, updated_ms: 1 } }));
+  await page.evaluate(() => window.__emit('phonelink://event', { kind: 'transfer_changed', item: { id: 't-0', device: 'x', device_name: 'Galaxy S24 FE', direction: 'outgoing', name: 'OS lab report.pdf', size: 1000, done: 640, state: 'active', message: '', path: null, updated_ms: 1, rate: 2097152, eta_secs: 95 } }));
+  await page.waitForTimeout(150);
+  { const row = await page.$eval('[data-id="t-0"]', (e) => e.textContent).catch(() => ''); check(row.includes('MB/s') && row.includes('1 min 40 s left'), 'speed and time left shown: ' + row.replace(/\s+/g, ' ').slice(0, 120)); }
   await page.waitForTimeout(100);
   check((await page.getAttribute('.transfer .progress', 'aria-valuenow')) === '64', 'progress bar follows the events');
   check(await page.evaluate(() => document.activeElement && document.activeElement.dataset.action === 'cancel-transfer'), 'focus kept during progress updates');
@@ -553,9 +559,9 @@ function fakeTauri() {
   await page.waitForTimeout(100);
   check((await txt('.transfer [data-meta]')).includes('64% · Waiting for Wi-Fi'), 'waiting shows why');
   // A file from the phone: Open and Show in folder.
-  await page.evaluate(() => window.__emit('phonelink://event', { kind: 'transfer_changed', item: { id: 'in-1', device: 'x', device_name: 'Galaxy S24 FE', direction: 'incoming', name: 'IMG_1.jpg', size: 5000, done: 5000, state: 'done', message: '', path: '/home/y/Downloads/PhoneLink/IMG_1.jpg', updated_ms: 3 } }));
+  await page.evaluate(() => window.__emit('phonelink://event', { kind: 'transfer_changed', item: { id: 'in-1', device: 'x', device_name: 'Galaxy S24 FE', direction: 'incoming', name: 'IMG_1.jpg', size: 5000, done: 5000, state: 'done', message: '', path: '/home/y/Downloads/EchoTwin/IMG_1.jpg', updated_ms: 3 } }));
   await page.waitForTimeout(150);
-  check((await toast()) === 'Received “IMG_1.jpg”' || (await txt('.transfer[data-id="in-1"] [data-meta]')).includes('Saved to Downloads/PhoneLink'), 'received file shown');
+  check((await toast()) === 'Received “IMG_1.jpg”' || (await txt('.transfer[data-id="in-1"] [data-meta]')).includes('Saved to Downloads/EchoTwin'), 'received file shown');
   await page.click('.transfer[data-id="in-1"] [data-action="show-in-folder"]');
   await page.waitForTimeout(100);
   let ot = await lastCall('open_transfer');
@@ -619,6 +625,27 @@ function fakeTauri() {
   check((await page.$$eval('#device-panel .battery.low', (e) => e.length)) === 1, 'low battery is marked');
   check((await page.$$eval('#device-panel .bars', (e) => e.length)) === 0, 'no bars on Wi-Fi');
   await page.screenshot({ path: 'shots/app-phone-status.png' });
+
+  console.log('Connection switch');
+  await page.click('#device-panel [data-action="toggle-connection"]');
+  await page.waitForTimeout(500);
+  check((await lastCall('set_connection'))[1].on === false, 'switch off calls set_connection(false)');
+  check((await txt('#conn-pill')).endsWith('Connection off'), 'pill says the connection is off');
+  check((await txt('#offline-banner')).includes('switched off'), 'banner explains it: ' + (await txt('#offline-banner')));
+  await page.click('#offline-banner [data-action="toggle-connection"]');
+  await page.waitForTimeout(500);
+  check((await lastCall('set_connection'))[1].on === true, 'Turn on calls set_connection(true)');
+  await page.evaluate(() => {
+    window.__fake.devices = window.__fake.devices.map((d) => ({ ...d, connected: false, paused_by_peer: true }));
+    window.__emit('phonelink://event', { kind: 'peer_paused', id: 'x', name: 'Galaxy S24 FE' });
+  });
+  await page.waitForTimeout(400);
+  check((await txt('#conn-pill')).endsWith('Off on the phone'), 'pill shows the phone switched off');
+  await page.evaluate(() => {
+    window.__fake.devices = window.__fake.devices.map((d) => ({ ...d, connected: true, paused_by_peer: false }));
+    window.__emit('phonelink://event', { kind: 'connected', id: 'x', name: 'x', via: 'wifi' });
+  });
+  await page.waitForTimeout(400);
 
   console.log('Music');
   check((await page.$$eval('.now-playing', (e) => e.length)) === 0, 'no card while nothing plays');

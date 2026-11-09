@@ -1,4 +1,4 @@
-//! A PhoneLink node: one QUIC endpoint that both listens and dials.
+//! A EchoTwin node: one QUIC endpoint that both listens and dials.
 //!
 //! Connection life-cycle:
 //! 1. QUIC + mutual TLS handshake. Unpaired certificates are refused here (see [`crate::tls`]).
@@ -13,7 +13,7 @@
 //! and a QUIC connection that comes back replaces a running stream session.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     path::PathBuf,
     sync::{
@@ -57,6 +57,12 @@ pub mod close_code {
     pub const SHUTDOWN: u32 = 0x14;
     pub const UNPAIRED: u32 = 0x15;
 }
+
+/// `Reject` reason meaning "my owner switched the connection off; don't keep trying".
+pub const PAUSED_REASON: &str = "paused";
+/// While the peer has switched off, look again this rarely (it normally dials us when it
+/// switches back on).
+const PEER_PAUSED_RECHECK: Duration = Duration::from_secs(600);
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(8);
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(5);
@@ -238,6 +244,10 @@ pub enum Event {
     PeerDisconnected {
         peer: Fingerprint,
     },
+    /// The peer switched its connection off (it will dial us when it switches back on).
+    PeerPaused {
+        peer: Fingerprint,
+    },
     /// Delivered exactly once per message ID, in arrival order.
     Message {
         peer: Fingerprint,
@@ -281,6 +291,12 @@ struct Inner {
     /// Extra streams opened by peers (file data), for whoever called `data_streams`.
     data_tx: mpsc::UnboundedSender<DataStream>,
     data_rx: Mutex<Option<mpsc::UnboundedReceiver<DataStream>>>,
+    /// Connection switched off on this device: no dialling, incoming sessions refused.
+    paused: watch::Sender<bool>,
+    /// Peers that switched off on their side; we stop dialling them.
+    peers_paused: Mutex<HashSet<Fingerprint>>,
+    /// Bumped when `peers_paused` loses an entry, so waiting reconnect loops look again.
+    peers_paused_changed: watch::Sender<u64>,
 }
 
 #[derive(Clone)]
@@ -340,11 +356,82 @@ impl Node {
                 links: Mutex::new(None),
                 data_tx,
                 data_rx: Mutex::new(Some(data_rx)),
+                paused: watch::channel(false).0,
+                peers_paused: Mutex::new(HashSet::new()),
+                peers_paused_changed: watch::channel(0).0,
             }),
         };
         info!(fingerprint = %node.fingerprint().short(), addr = ?node.local_addr(), "node started");
         tokio::spawn(node.clone().accept_loop());
         Ok((node, rx))
+    }
+
+    /// Switch the connection off (`true`) or back on. Off: every session is told
+    /// "paused" and closed, reconnect loops stop dialling, and paired devices that connect
+    /// are told "paused" too (so they stop searching). On: reconnect at once.
+    pub fn set_paused(&self, paused: bool) {
+        if self.inner.paused.send_replace(paused) == paused {
+            return;
+        }
+        if paused {
+            let links: Vec<(Link, mpsc::UnboundedSender<Control>)> = self
+                .sessions()
+                .values()
+                .map(|s| (s.link.clone(), s.tx.clone()))
+                .collect();
+            for (link, tx) in links {
+                let _ = tx.send(Control::Reject {
+                    reason: PAUSED_REASON.into(),
+                });
+                tokio::spawn(async move {
+                    // Let the writer send the frame, then hang up.
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    link.close(close_code::NORMAL, b"paused");
+                });
+            }
+            info!("connection switched off");
+        } else {
+            info!("connection switched on");
+            self.nudge();
+        }
+    }
+
+    pub fn is_paused(&self) -> bool {
+        *self.inner.paused.borrow()
+    }
+
+    /// Did `fp` switch its connection off (and has not connected since)?
+    pub fn peer_paused(&self, fp: &Fingerprint) -> bool {
+        self.inner
+            .peers_paused
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(fp)
+    }
+
+    fn mark_peer_paused(&self, peer: Fingerprint) {
+        let new = self
+            .inner
+            .peers_paused
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(peer);
+        if new {
+            info!(peer = %peer.short(), "peer switched its connection off");
+            self.emit(Event::PeerPaused { peer });
+        }
+    }
+
+    fn clear_peer_paused(&self, peer: &Fingerprint) {
+        let removed = self
+            .inner
+            .peers_paused
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(peer);
+        if removed {
+            self.inner.peers_paused_changed.send_modify(|v| *v += 1);
+        }
     }
 
     pub fn fingerprint(&self) -> Fingerprint {
@@ -612,6 +699,9 @@ impl Node {
     // ---------------------------------------------------------------- connections
 
     async fn dial(&self, addr: SocketAddr, expected: Fingerprint) -> Result<Connection> {
+        if self.is_paused() {
+            return Err(Error::Protocol(PAUSED_REASON.into()));
+        }
         let cfg = tls::client_config(&self.inner.identity, expected, self.inner.provider.clone())?;
         let connecting = self
             .inner
@@ -633,6 +723,9 @@ impl Node {
     pub async fn connect_any(&self, peer: Fingerprint, addrs: Vec<SocketAddr>) -> Result<()> {
         if !self.inner.gate.is_trusted(&peer) {
             return Err(Error::NotPaired);
+        }
+        if self.is_paused() {
+            return Err(Error::Protocol(PAUSED_REASON.into()));
         }
         if self.transport(&peer) == Some(Transport::Quic) {
             return Ok(());
@@ -715,7 +808,12 @@ impl Node {
                 );
                 Ok(())
             }
-            Some(Frame::Known(Control::Reject { reason })) => Err(Error::Protocol(reason)),
+            Some(Frame::Known(Control::Reject { reason })) => {
+                if reason == PAUSED_REASON {
+                    self.mark_peer_paused(peer);
+                }
+                Err(Error::Protocol(reason))
+            }
             _ => Err(Error::Protocol("peer did not answer hello".into())),
         }
     }
@@ -781,6 +879,15 @@ impl Node {
                     )
                     .await;
                     return conn.close(VarInt::from_u32(close_code::PROTOCOL), b"version");
+                }
+                if self.is_paused() {
+                    let reject = Control::Reject {
+                        reason: PAUSED_REASON.into(),
+                    };
+                    let _ = wire::write_frame(&mut send, &reject).await;
+                    let _ = send.finish();
+                    let _ = timeout(Duration::from_secs(2), conn.closed()).await;
+                    return conn.close(VarInt::from_u32(close_code::NORMAL), b"paused");
                 }
                 if wire::write_frame(&mut send, &self.hello()).await.is_err() {
                     return;
@@ -872,6 +979,7 @@ impl Node {
                 debug!("could not persist peer address: {e}");
             }
         }
+        self.clear_peer_paused(&peer);
         info!(peer = %peer.short(), ?addr, ?transport, version = hello.version.min(PROTOCOL_VERSION), "connected");
         self.emit(Event::PeerConnected {
             peer,
@@ -975,6 +1083,12 @@ impl Node {
                         }
                     }
                     Ok(Some(Frame::Known(Control::Ping))) => {}
+                    Ok(Some(Frame::Known(Control::Reject { reason }))) => {
+                        if reason == PAUSED_REASON {
+                            node.mark_peer_paused(peer);
+                        }
+                        break;
+                    }
                     Ok(Some(Frame::Known(Control::Links { bluetooth }))) => {
                         node.peer_links(&peer, bluetooth)
                     }
@@ -1025,6 +1139,9 @@ impl Node {
         if !self.inner.gate.is_trusted(&peer) {
             return Err(Error::NotPaired);
         }
+        if self.is_paused() {
+            return Err(Error::Protocol(PAUSED_REASON.into()));
+        }
         if self.transport(&peer) == Some(Transport::Quic) {
             return Err(Error::Protocol("already connected over the network".into()));
         }
@@ -1054,7 +1171,12 @@ impl Node {
                 name,
                 capabilities,
             },
-            Some(Frame::Known(Control::Reject { reason })) => return Err(Error::Protocol(reason)),
+            Some(Frame::Known(Control::Reject { reason })) => {
+                if reason == PAUSED_REASON {
+                    self.mark_peer_paused(peer);
+                }
+                return Err(Error::Protocol(reason));
+            }
             _ => return Err(Error::Protocol("peer did not answer hello".into())),
         };
         if self.start_session(Link::new_stream(), peer, send, recv, true, hello) {
@@ -1117,6 +1239,13 @@ impl Node {
             }
             _ => return Err(Error::Protocol("expected hello".into())),
         };
+        if self.is_paused() {
+            let reject = Control::Reject {
+                reason: PAUSED_REASON.into(),
+            };
+            let _ = wire::write_frame(&mut send, &reject).await;
+            return Err(Error::Protocol(PAUSED_REASON.into()));
+        }
         wire::write_frame(&mut send, &self.hello()).await?;
         drop(permit);
         if self.start_session(Link::new_stream(), peer, send, recv, false, hello) {
@@ -1251,9 +1380,36 @@ impl Node {
             let mut last_probe: Option<std::time::Instant> = None;
             let mut offline_since: Option<std::time::Instant> = None;
             let mut last_log: Option<std::time::Instant> = None;
+            let mut paused_rx = node.inner.paused.subscribe();
+            let mut peer_resumed = node.inner.peers_paused_changed.subscribe();
             loop {
                 if *shutdown.borrow() {
                     return;
+                }
+                // Switched off here: wait until switched back on (no dialling at all).
+                if *paused_rx.borrow_and_update() {
+                    tokio::select! {
+                        _ = paused_rx.wait_for(|p| !*p) => {}
+                        _ = shutdown.changed() => return,
+                    }
+                    backoff = BACKOFF_MIN;
+                    failures = 0;
+                    nudged = true;
+                    continue;
+                }
+                // Switched off over there: it dials us when it's back. Look rarely, or
+                // when we switch back on ourselves.
+                if node.peer_paused(&peer) && node.sessions().get(&peer).is_none() {
+                    peer_resumed.borrow_and_update();
+                    tokio::select! {
+                        _ = peer_resumed.changed() => {}
+                        _ = paused_rx.changed() => {}
+                        _ = tokio::time::sleep(PEER_PAUSED_RECHECK) => {
+                            node.clear_peer_paused(&peer);
+                        }
+                        _ = shutdown.changed() => return,
+                    }
+                    continue;
                 }
                 let Some(rec) = node.peer(&peer) else { return }; // unpaired
                 let existing = node.sessions().get(&peer).map(|s| s.link.clone());

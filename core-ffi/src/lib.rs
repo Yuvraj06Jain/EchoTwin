@@ -1,4 +1,4 @@
-//! Kotlin-facing API of the PhoneLink core, generated with UniFFI.
+//! Kotlin-facing API of the EchoTwin core, generated with UniFFI.
 //!
 //! The Android app creates one [`PhoneLink`] inside its foreground service. All networking,
 //! crypto, storage and reconnect logic is the shared Rust core, so the phone and the laptop
@@ -53,7 +53,7 @@ pub struct Device {
     pub connected: bool,
     /// Messages waiting for this device to come back.
     pub pending: u64,
-    /// Connected, and its PhoneLink can be locked from here.
+    /// Connected, and its EchoTwin can be locked from here.
     pub can_lock: bool,
     /// Connected, and shares the clipboard.
     pub can_clipboard: bool,
@@ -64,6 +64,8 @@ pub struct Device {
     /// The computer's battery (0–100) while connected, if it has one and said so.
     pub battery: Option<u8>,
     pub charging: bool,
+    /// The computer switched its connection off (it reconnects when switched back on).
+    pub paused_by_peer: bool,
 }
 
 /// What a scanned QR code says, shown before the user confirms pairing.
@@ -111,6 +113,10 @@ pub enum LinkEvent {
         id: String,
         key: String,
         index: u32,
+    },
+    /// The computer switched its connection off (refresh `devices()`).
+    ComputerPaused {
+        id: String,
     },
     /// The computer's battery changed (refresh `devices()`).
     ComputerStatus {
@@ -323,6 +329,10 @@ pub struct FileTransfer {
     /// Received and complete: the file in the app's private folder, to publish to
     /// Downloads (then it may be deleted).
     pub path: Option<String>,
+    /// Bytes per second while moving (0 otherwise).
+    pub rate: u64,
+    /// Seconds left at the current speed, when known.
+    pub eta_secs: Option<u64>,
 }
 
 fn file_transfer(node: &Node, t: &TransferInfo) -> FileTransfer {
@@ -348,6 +358,8 @@ fn file_transfer(node: &Node, t: &TransferInfo) -> FileTransfer {
         state,
         message: t.message.clone(),
         path: t.path.clone(),
+        rate: t.rate,
+        eta_secs: t.eta_secs,
     }
 }
 
@@ -446,6 +458,7 @@ fn device(node: &Node, caps: &Caps, power: &Power, p: &PeerRecord) -> Device {
         bluetooth: p.bluetooth.clone(),
         battery,
         charging,
+        paused_by_peer: node.peer_paused(&p.fingerprint),
     }
 }
 
@@ -569,7 +582,7 @@ impl PhoneLink {
         })?;
 
         // Files: received ones go to a private folder first; the app publishes them to
-        // Downloads/PhoneLink once complete.
+        // Downloads/EchoTwin once complete.
         let (transfers, mut transfer_events) = {
             let _guard = rt.enter();
             Transfers::start(
@@ -645,6 +658,7 @@ impl PhoneLink {
                             via: via(Some(transport)),
                         }
                     }
+                    Event::PeerPaused { peer } => LinkEvent::ComputerPaused { id: peer.short() },
                     Event::PeerDisconnected { peer } => {
                         pump_caps
                             .lock()
@@ -895,6 +909,17 @@ impl PhoneLink {
     /// Mirror a new or updated notification to every paired computer.
     pub fn post_notification(&self, notification: MirroredNotification) -> Result<(), LinkError> {
         self.send_notification(AppMessage::NotificationPosted(notification.into_wire()))
+    }
+
+    /// The connection switch: `true` = off (disconnect, stop searching, refuse the
+    /// computer until switched back on). Survives nothing: call again after `start`.
+    pub fn set_paused(&self, paused: bool) {
+        let _guard = self.rt.enter();
+        self.node.set_paused(paused);
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.node.is_paused()
     }
 
     /// Whether notifications are queued for computers that are offline (default off:
@@ -1202,7 +1227,7 @@ impl PhoneLink {
         }
         if !has_cap(&self.caps, &fp, cap) {
             return Err(LinkError::Failed(format!(
-                "update PhoneLink on {} to use {what}",
+                "update EchoTwin on {} to use {what}",
                 name_of(&self.node, &fp)
             )));
         }
@@ -1410,6 +1435,20 @@ mod tests {
         wait(&rx, |e| matches!(e, LinkEvent::ComputerStatus { battery: Some(76), .. }));
         let d = &phone.devices()[0];
         assert_eq!((d.battery, d.charging), (Some(76), true));
+
+        // The connection switch: the laptop is told, the phone stays off until switched on.
+        phone.set_paused(true);
+        assert!(phone.is_paused());
+        rt.block_on(async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while !matches!(lrx.recv().await, Some(Event::PeerPaused { .. })) {}
+            })
+            .await
+            .expect("laptop told the phone switched off")
+        });
+        wait(&rx, |e| matches!(e, LinkEvent::Disconnected { .. }));
+        phone.set_paused(false);
+        wait(&rx, |e| matches!(e, LinkEvent::Connected { .. }));
 
         rt.block_on(laptop.shutdown());
         wait(&rx, |e| matches!(e, LinkEvent::Disconnected { .. }));
@@ -1633,7 +1672,7 @@ mod tests {
     }
 
     /// Lock and clipboard, as the Android app calls them, against a laptop node that
-    /// supports both, then against one that doesn't (an older PhoneLink on the computer).
+    /// supports both, then against one that doesn't (an older EchoTwin on the computer).
     #[test]
     fn lock_and_clipboard_call_sequence() {
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -1720,7 +1759,7 @@ mod tests {
         let ev = wait(&rx, |e| matches!(e, LinkEvent::ClipboardReceived { .. }));
         assert!(matches!(ev, LinkEvent::ClipboardReceived { text, .. } if text == "ssh lab-pc"));
 
-        // A computer running an older PhoneLink: the phone says so instead of sending.
+        // A computer running an older EchoTwin: the phone says so instead of sending.
         phone.shutdown();
         drop(phone);
         rt.block_on(laptop.shutdown());
@@ -1742,7 +1781,7 @@ mod tests {
         let d = &phone2.devices()[0];
         assert!(d.connected && !d.can_lock && !d.can_clipboard);
         let err = phone2.lock_computer(None).unwrap_err().to_string();
-        assert!(err.contains("update PhoneLink"), "{err}");
+        assert!(err.contains("update EchoTwin"), "{err}");
         assert!(phone2.send_clipboard("x".into()).is_err());
         phone2.shutdown();
         rt.block_on(old_laptop.shutdown());

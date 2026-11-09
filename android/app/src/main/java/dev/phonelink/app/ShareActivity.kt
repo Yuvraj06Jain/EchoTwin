@@ -7,7 +7,7 @@ import android.os.Build
 import android.os.Bundle
 
 /**
- * "PhoneLink" in Android's Share menu: sends the shared files to the computer, then closes.
+ * "EchoTwin" in Android's Share menu: sends the shared files to the computer, then closes.
  * Text shared without a file goes to the computer's clipboard instead.
  */
 class ShareActivity : Activity() {

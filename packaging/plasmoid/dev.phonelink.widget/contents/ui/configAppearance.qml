@@ -1,4 +1,4 @@
-// Right-click the widget → Configure PhoneLink… → Appearance.
+// Right-click the widget → Configure EchoTwin… → Appearance.
 import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts

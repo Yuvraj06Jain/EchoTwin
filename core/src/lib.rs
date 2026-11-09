@@ -1,4 +1,4 @@
-//! PhoneLink core: everything both the Linux daemon and the Android app share.
+//! EchoTwin core: everything both the Linux daemon and the Android app share.
 //!
 //! * [`identity`]: per-device Ed25519 key + self-signed certificate, identified by its SHA-256 fingerprint.
 //! * [`pairing`]: QR-code pairing; a one-time secret shown only on the laptop screen.

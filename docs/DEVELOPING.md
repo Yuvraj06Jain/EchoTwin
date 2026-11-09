@@ -1,4 +1,4 @@
-# Developing PhoneLink
+# Developing EchoTwin
 
 How to build, test, debug and change the code. For what each file does see
 [FILES.md](FILES.md); for features see [FEATURES.md](FEATURES.md).
@@ -39,7 +39,7 @@ You don't need Android Studio. `.github/workflows/android.yml` builds on GitHub:
 
 1. Push to `main` touching `android/**`, `core/**`, `core-ffi/**`, `Cargo.*` or the workflow
    — or run it by hand: GitHub → **Actions** → **Android APK** → **Run workflow** → `main`.
-2. ~3–5 min later: **Releases → latest-apk** has `PhoneLink-<commit>.apk`. Install it over the
+2. ~3–5 min later: **Releases → latest-apk** has `EchoTwin-<commit>.apk`. Install it over the
    old one; pairing is kept because every build is signed with the same key (repo secrets
    `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`).
 3. The run also writes `status.txt` and `build.log` to the **`ci-logs`** branch
@@ -101,8 +101,9 @@ blur). Use the numbered checklist in [SETUP.md](../SETUP.md).
 | `muted_apps` | [] | phone apps whose notifications don't pop up |
 | `clipboard_sync` | true | share the clipboard |
 | `allow_lock` | true | phone may lock this computer |
-| `download_dir` | `~/Downloads/PhoneLink` | where received files go |
+| `download_dir` | `~/Downloads/EchoTwin` | where received files go |
 | `bluetooth_backup` | true | accept the Bluetooth backup link |
+| `connection` | true | the connection switch (`phonelink on/off`) |
 | `power_supply_dir` | `/sys/class/power_supply` | tests only |
 
 Window appearance is stored by the page (`localStorage` keys `phonelink.opacity`,

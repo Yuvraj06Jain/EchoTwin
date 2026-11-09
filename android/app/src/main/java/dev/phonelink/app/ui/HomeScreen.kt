@@ -52,7 +52,7 @@ fun HomeScreen(state: UiState, actions: Actions, onOpenSetup: () -> Unit, modifi
         modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { Header("PhoneLink") }
+        item { Header("EchoTwin") }
 
         if (state.access.missing > 0) {
             item {
@@ -86,7 +86,7 @@ fun HomeScreen(state: UiState, actions: Actions, onOpenSetup: () -> Unit, modifi
             Panel {
                 SwitchRow(
                     "Notifications",
-                    if (state.access.notifications) "Shown as popups and in the PhoneLink window"
+                    if (state.access.notifications) "Shown as popups and in the EchoTwin window"
                     else "Needs notification access",
                     checked = state.access.notifications,
                 ) { actions.allowNotifications() }
@@ -138,9 +138,11 @@ fun Header(title: String) {
     )
 }
 
-fun statusLabel(d: Device): String = when {
+fun statusLabel(d: Device, connectionOn: Boolean = true): String = when {
+    !connectionOn -> "Connection off"
     d.connected && d.via == "bluetooth" -> "Connected · Bluetooth"
     d.connected -> "Connected · Wi-Fi"
+    d.pausedByPeer -> "Switched off on the computer"
     else -> "Offline"
 }
 
@@ -153,7 +155,7 @@ private fun ComputerCard(d: Device, state: UiState, actions: Actions, onNote: ()
                 Text(d.name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
                 Chip(
-                    statusLabel(d),
+                    statusLabel(d, state.connectionOn),
                     when {
                         bluetooth -> Pl.Warn
                         d.connected -> Pl.AccentText
@@ -161,13 +163,23 @@ private fun ComputerCard(d: Device, state: UiState, actions: Actions, onNote: ()
                     },
                 )
             }
-            if (!d.connected) TextButton(onClick = actions::reconnect) { Text("Reconnect", color = Pl.AccentText) }
+            if (!d.connected && state.connectionOn && !d.pausedByPeer) {
+                TextButton(onClick = actions::reconnect) { Text("Reconnect", color = Pl.AccentText) }
+            }
         }
+        SwitchRow(
+            "Connection",
+            if (state.connectionOn) "Off: disconnect and stop running in the background"
+            else "Off: not connected, nothing running. Turn on to reconnect.",
+            checked = state.connectionOn,
+        ) { actions.setConnection(it) }
         d.battery?.let { level ->
             Hint("Computer battery $level%" + if (d.charging) " · charging" else "", color = if (level.toInt() < 20 && !d.charging) Pl.Warn else Pl.Muted)
         }
         when {
+            !state.connectionOn -> {}
             bluetooth -> Hint("Wi-Fi can't reach the computer right now.")
+            d.pausedByPeer && !d.connected -> Hint("The connection was switched off on the computer. It reconnects as soon as it's turned back on there.")
             !d.connected -> Hint(
                 (state.bluetoothProblem?.let { "$it. " } ?: "") +
                     "Make sure both are on the same Wi-Fi (or your hotspot)." +

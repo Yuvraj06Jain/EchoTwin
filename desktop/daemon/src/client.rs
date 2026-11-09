@@ -22,7 +22,7 @@ impl Client {
     pub async fn connect(socket: &Path) -> anyhow::Result<Self> {
         let stream = UnixStream::connect(socket).await.with_context(|| {
             format!(
-                "PhoneLink daemon is not running (no socket at {}).\nStart it with: systemctl --user start phonelinkd",
+                "EchoTwin daemon is not running (no socket at {}).\nStart it with: systemctl --user start phonelinkd",
                 socket.display()
             )
         })?;

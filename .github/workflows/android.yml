@@ -52,7 +52,7 @@ jobs:
           if [ -n "$KEYSTORE_B64" ]; then
             echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/signing.p12"
             echo "PHONELINK_KEYSTORE=$RUNNER_TEMP/signing.p12" >> "$GITHUB_ENV"
-            echo "Signing with the stable PhoneLink key."
+            echo "Signing with the stable EchoTwin key."
           else
             echo "::warning::No ANDROID_KEYSTORE_B64 secret: using a throwaway debug key. Updates will need an uninstall."
           fi
@@ -74,21 +74,21 @@ jobs:
           "$BT/apksigner" verify --print-certs "$APK" | tee -a build.log | head -5
           set -o pipefail
           ./scripts/audit-apk-permissions.sh "$APK" 2>&1 | tee -a build.log
-          cp "$APK" "PhoneLink-${GITHUB_SHA::7}.apk"
+          cp "$APK" "EchoTwin-${GITHUB_SHA::7}.apk"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PhoneLink-apk
-          path: PhoneLink-*.apk
+          name: EchoTwin-apk
+          path: EchoTwin-*.apk
 
       - name: Publish as the "latest-apk" release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest-apk --yes --cleanup-tag || true
-          gh release create latest-apk PhoneLink-*.apk \
+          gh release create latest-apk EchoTwin-*.apk \
             --target "$GITHUB_SHA" \
-            --title "PhoneLink for Android (latest build)" \
+            --title "EchoTwin for Android (latest build)" \
             --notes "Built from ${GITHUB_SHA::7}. Open this page on your phone, download the APK and install it (allow 'Install unknown apps' for your browser when asked)."
 
       # Lets the developer read build errors with plain git, whatever the repo visibility.

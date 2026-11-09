@@ -79,6 +79,28 @@ other again by themselves, usually within seconds.
 **To change** timings: constants at the top of `core/src/node.rs` (`BACKOFF_MAX`,
 `PROBE_AFTER_FAILURES`, `PROBE_INTERVAL`, …).
 
+### Connection switch (on/off)
+
+**What:** switch the connection off on either device; nothing connects or searches until
+it's switched back on, and the other device stops searching too. Laptop: window (left
+panel / Settings), widget header button, `phonelink off|on`. Phone: Home card / Settings
+switch (also stops the background service).
+
+**How:** `Node::set_paused` sends `Control::Reject { reason: "paused" }` on every session,
+closes it, refuses incoming sessions the same way and makes `maintain` wait. A peer that
+receives "paused" marks it (`peer_paused`) and stops dialling until the other side connects
+back (rechecks every 10 min).
+
+| Layer | File | Functions |
+|---|---|---|
+| Core | `core/src/node.rs` | `set_paused`, `is_paused`, `peer_paused`, `mark_peer_paused`, `PAUSED_REASON`, `Event::PeerPaused` |
+| Laptop | `desktop/daemon/src/daemon.rs` | `Request::SetConnection`, `State::update_lan` (mDNS off while off), Bluetooth profile unregistered; config `connection` |
+| Window / widget / CLI | `main.rs` `set_connection`; `app.js` `connectionOff`, `toggle-connection`; `FullRepresentation.qml` power button; `phonelink on/off` | |
+| Phone | `core-ffi` `set_paused`, `Device.paused_by_peer`; `LinkManager.setConnection`; `Prefs.connection`; `HomeScreen` `ComputerCard` switch | |
+
+**Tests:** `core/tests/sessions.rs` `switching_the_connection_off_and_on`,
+`desktop/daemon/tests/status.rs` `the_connection_switch`, FFI `status_both_ways`.
+
 ## 3. Bluetooth backup
 
 **What:** when Wi-Fi/hotspot is gone, the phone stays connected over Bluetooth; notifications,
@@ -203,8 +225,8 @@ extrapolates the position locally; buttons send `MediaControl` back.
 
 **What:** send files both ways; resumes after drops/restarts; verified; cancel from either
 side. Laptop: drag onto the window or widget, "Send files", Dolphin "Send to phone",
-`phonelink send-file`. Phone: Share → PhoneLink, "Send files". Received on the laptop in
-`~/Downloads/PhoneLink`, on the phone in `Download/PhoneLink`.
+`phonelink send-file`. Phone: Share → EchoTwin, "Send files". Received on the laptop in
+`~/Downloads/EchoTwin`, on the phone in `Download/EchoTwin`.
 
 **How:** [PROTOCOL → File data streams](PROTOCOL.md#file-data-streams). The engine is in the
 core and runs on both sides; the phone only provides file descriptors and publishes
@@ -223,6 +245,11 @@ results.
 | FFI | `core-ffi/src/lib.rs` | `send_file`, `cancel_transfer`, `transfers`, `clear_transfers`, trait `FileSource`, `LinkEvent::TransferChanged` |
 | Phone | `android/…/FileShare.kt` | `open` (URI → fd), `send`, `onChanged` (publish to MediaStore + notification), `publishLeftovers` |
 | Phone | `ShareActivity.kt`, `MainActivity` file picker, `ui/OtherScreens.kt` `FilesScreen`, `HomeScreen` `TransferCard` | |
+
+Speed and time left: `transfer.rs` keeps a smoothed rate per running transfer
+(`smooth_rate`, `eta`) and reports `TransferInfo.rate` / `eta_secs`; shown by `app.js`
+`transferStatus`/`fmtEta`, the widget (`Shell.left`), the CLI and the phone (`formatEta`).
+Files are sent byte-for-byte, never compressed.
 
 **Settings:** laptop `download_dir`.
 **Tests:** `core/tests/files.rs`, `desktop/daemon/tests/files.rs`.
@@ -278,7 +305,7 @@ connect and every 30 s and sends `ComputerStatus` on change. Neither is queued.
 ## 12. Desktop popups and opening the window
 
 **What:** KDE popups for notifications, notes, connections, files; clicking opens the
-PhoneLink window at the right tab (and focuses it on Wayland).
+EchoTwin window at the right tab (and focuses it on Wayland).
 
 **How:** one D-Bus connection on one thread sends `Notify`, replaces/closes by id, and
 listens for `ActionInvoked`/`ActivationToken`; the opener starts `phonelink-app
@@ -321,7 +348,7 @@ the quoting was tested with hostile names; QML is parse-checked (`qmlformat`).
 
 ## 14. Desktop app window
 
-**What:** the PhoneLink window: device panel (phone art, status, battery/5G, music card,
+**What:** the EchoTwin window: device panel (phone art, status, battery/5G, music card,
 quick actions), tabs Notifications / Messages / Files, Settings sheet, pairing screen,
 "service not running" screen. Translucent with optional blur.
 

@@ -249,7 +249,7 @@ async fn what_plays_on_the_phone_shows_up_and_can_be_controlled() {
 
 #[tokio::test]
 async fn a_phone_without_music_controls_gets_no_buttons() {
-    let r = setup(&[]).await; // an older PhoneLink on the phone
+    let r = setup(&[]).await; // an older EchoTwin on the phone
     let Reply::Error { message } = r.control(MediaAction::PlayPause).await else {
         panic!("should be refused")
     };
@@ -263,5 +263,5 @@ async fn a_phone_without_music_controls_gets_no_buttons() {
     else {
         panic!("should be refused")
     };
-    assert!(message.contains("update PhoneLink"), "{message}");
+    assert!(message.contains("update EchoTwin"), "{message}");
 }

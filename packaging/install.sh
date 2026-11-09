@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Install PhoneLink for the current user (no root needed for PhoneLink itself).
+# Install EchoTwin for the current user (no root needed for EchoTwin itself).
 # Works on any systemd distro: Kubuntu, Arch, Fedora, ...
 #
 #  * phonelinkd   background service (systemd user unit), keeps the phone connected
 #  * phonelink    command-line tool
-#  * PhoneLink    the desktop window (menu entry + icon); needs WebKitGTK 4.1
+#  * EchoTwin    the desktop window (menu entry + icon); needs WebKitGTK 4.1
 #
 # Uses the prebuilt binaries in ./bin when present and compatible (x86_64, glibc >= 2.39,
 # e.g. Kubuntu 24.04+ or Arch); otherwise builds from source with cargo.
@@ -63,7 +63,7 @@ for dir in "$DATA/kio/servicemenus" "$DATA/kservices5/ServiceMenus"; do
   chmod 755 "$dir/phonelink-send.desktop"
 done
 
-# The panel widget (Plasma 6): right-click the panel → Add Widgets → PhoneLink.
+# The panel widget (Plasma 6): right-click the panel → Add Widgets → EchoTwin.
 WIDGET_OK=0
 if command -v kpackagetool6 >/dev/null; then
   if kpackagetool6 -t Plasma/Applet -l 2>/dev/null | grep -qx dev.phonelink.widget; then
@@ -81,17 +81,17 @@ if prebuilt_ok phonelink-app; then
     APP_OK=1
   else
     echo
-    echo "The PhoneLink window needs WebKitGTK 4.1. Install it, then run this script again:"
+    echo "The EchoTwin window needs WebKitGTK 4.1. Install it, then run this script again:"
     webkit_hint libwebkit2gtk-4.1-0 ""
   fi
 elif command -v cargo >/dev/null && webkit_dev; then
-  echo "Building the PhoneLink window from source..."
+  echo "Building the EchoTwin window from source..."
   cargo build --release --locked -p phonelink-app
   install -Dm755 target/release/phonelink-app "$BIN/phonelink-app"
   APP_OK=1
 else
   echo
-  echo "Skipping the PhoneLink window: building it needs Rust and the WebKitGTK 4.1 headers:"
+  echo "Skipping the EchoTwin window: building it needs Rust and the WebKitGTK 4.1 headers:"
   webkit_hint "libwebkit2gtk-4.1-dev build-essential libssl-dev librsvg2-dev" "-devel"
 fi
 
@@ -117,14 +117,14 @@ if ! systemctl --user is-active --quiet phonelinkd; then
   exit 1
 fi
 echo
-echo "PhoneLink is running."
+echo "EchoTwin is running."
 if [ "$APP_OK" = 1 ]; then
-  echo "Open \"PhoneLink\" from your application menu to pair your phone."
+  echo "Open \"EchoTwin\" from your application menu to pair your phone."
 else
   echo "Pair your phone from a terminal with: phonelink pair"
 fi
 if [ "$WIDGET_OK" = 1 ]; then
-  echo "Panel widget installed: right-click the panel → Add Widgets… → search \"PhoneLink\"."
+  echo "Panel widget installed: right-click the panel → Add Widgets… → search \"EchoTwin\"."
   echo "(After an update, restart the panel to load it: plasmashell --replace & disown)"
 fi
 case ":$PATH:" in *":$BIN:"*) ;; *) echo "Note: add ~/.local/bin to your PATH (log out and back in on Kubuntu).";; esac

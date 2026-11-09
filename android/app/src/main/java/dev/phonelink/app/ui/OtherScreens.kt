@@ -63,7 +63,7 @@ fun FilesScreen(state: UiState, actions: Actions, modifier: Modifier = Modifier)
                 ) { Text("Send files to computer") }
                 Hint(
                     if (bluetoothOnly) "On Bluetooth, files wait for Wi-Fi and then send by themselves."
-                    else "Or use Share → PhoneLink in any app. Files from the computer are saved in Download/PhoneLink."
+                    else "Or use Share → EchoTwin in any app. Files from the computer are saved in Download/EchoTwin."
                 )
             }
         }
@@ -100,9 +100,15 @@ fun SettingsScreen(state: UiState, actions: Actions, onOpenSetup: () -> Unit, mo
                 SwitchRow(
                     "Share clipboard",
                     "Text copied on the computer can be pasted here. Send text from here with the " +
-                        "Clipboard button, the PhoneLink notification or the Quick Settings tile.",
+                        "Clipboard button, the EchoTwin notification or the Quick Settings tile.",
                     checked = state.clipboardOn,
                 ) { actions.setClipboard(it) }
+                SwitchRow(
+                    "Connection",
+                    "Off: disconnect from the computer and stop running in the background " +
+                        "(saves battery). The computer stops searching too.",
+                    checked = state.connectionOn,
+                ) { actions.setConnection(it) }
                 SwitchRow(
                     "Queue notifications while disconnected",
                     "Off: notifications that arrive while the computer is away are not sent later " +
@@ -180,7 +186,7 @@ fun SetupScreen(access: Access, actions: Actions, onDone: () -> Unit, modifier: 
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Header("Finish setup")
-        Hint("A few Android permissions so PhoneLink stays connected and can show everything on your computer.")
+        Hint("A few Android permissions so EchoTwin stays connected and can show everything on your computer.")
         Panel {
             Step(
                 "Notification access",
@@ -189,7 +195,7 @@ fun SetupScreen(access: Access, actions: Actions, onDone: () -> Unit, modifier: 
             )
             Step(
                 "Run in the background",
-                "Samsung stops background apps. Also add PhoneLink under Settings → Battery → " +
+                "Samsung stops background apps. Also add EchoTwin under Settings → Battery → " +
                     "Background usage limits → Never sleeping apps.",
                 access.battery, actions::allowBattery,
             )
@@ -256,7 +262,7 @@ fun PairScreen(busy: Boolean, onScan: () -> Unit, modifier: Modifier = Modifier)
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Spacer(Modifier.height(24.dp))
-        Text("PhoneLink", fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Text("EchoTwin", fontSize = 28.sp, fontWeight = FontWeight.Bold)
         Hint("Pair with your computer", color = Pl.Text)
         Surface(
             modifier = Modifier.size(220.dp).clickable(enabled = !busy, onClick = onScan),
@@ -270,7 +276,7 @@ fun PairScreen(busy: Boolean, onScan: () -> Unit, modifier: Modifier = Modifier)
             }
         }
         Panel {
-            Hint("1. On your computer, open PhoneLink and choose Pair (or run `phonelink pair`).", color = Pl.Text)
+            Hint("1. On your computer, open EchoTwin and choose Pair (or run `phonelink pair`).", color = Pl.Text)
             Hint("2. Scan the code it shows.", color = Pl.Text)
             Hint("3. Check that both screens show the same id.", color = Pl.Text)
         }

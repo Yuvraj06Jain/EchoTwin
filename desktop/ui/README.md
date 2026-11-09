@@ -1,4 +1,4 @@
-# PhoneLink desktop UI (preview)
+# EchoTwin desktop UI (preview)
 
 A clickable preview of the laptop app: dark theme, rounded window, sample data.
 

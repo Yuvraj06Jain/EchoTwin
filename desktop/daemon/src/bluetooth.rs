@@ -1,9 +1,9 @@
-//! The Bluetooth backup link, laptop side: a PhoneLink profile registered with BlueZ.
+//! The Bluetooth backup link, laptop side: a EchoTwin profile registered with BlueZ.
 //!
 //! BlueZ listens for the phone (RFCOMM, only from devices bonded in the system Bluetooth
 //! settings) and hands each connection to us as a socket; the core then runs the same
 //! mutual-TLS session as over Wi-Fi on it, so a merely Bluetooth-paired device still can't
-//! talk to PhoneLink. The phone only uses it when Wi-Fi is gone.
+//! talk to EchoTwin. The phone only uses it when Wi-Fi is gone.
 
 use std::collections::HashMap;
 
@@ -13,7 +13,7 @@ use zbus::{
     zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value},
 };
 
-/// PhoneLink's own service id; the phone connects to this.
+/// EchoTwin's own service id; the phone connects to this.
 pub const PROFILE_UUID: &str = "7a1d5c3e-9b4f-4e8a-a2c6-5f0e3d1b8c94";
 const PROFILE_PATH: &str = "/dev/phonelink/bluetooth";
 
@@ -102,7 +102,7 @@ fn adapter_address(conn: &Connection) -> Option<String> {
     adapters.into_iter().next().map(|(_, a)| a)
 }
 
-/// Register the PhoneLink profile. `bus`: a D-Bus address (tests), or the system bus.
+/// Register the EchoTwin profile. `bus`: a D-Bus address (tests), or the system bus.
 pub fn register(
     bus: &Option<String>,
     tx: tokio::sync::mpsc::UnboundedSender<Incoming>,
@@ -116,7 +116,7 @@ pub fn register(
     .map_err(|e| format!("no system D-Bus: {e}"))?;
     let address = adapter_address(&conn).ok_or("no Bluetooth adapter found (is Bluetooth on?)")?;
     let options: HashMap<&str, Value<'_>> = HashMap::from([
-        ("Name", Value::from("PhoneLink")),
+        ("Name", Value::from("EchoTwin")),
         ("Role", Value::from("server")),
         // Only devices paired in the system Bluetooth settings may connect at all.
         ("RequireAuthentication", Value::from(true)),
@@ -136,7 +136,7 @@ pub fn register(
     )
     .map_err(|e| {
         debug!("RegisterProfile failed: {e}");
-        format!("BlueZ refused the PhoneLink profile: {e}")
+        format!("BlueZ refused the EchoTwin profile: {e}")
     })?;
     Ok(Registered { conn, address })
 }

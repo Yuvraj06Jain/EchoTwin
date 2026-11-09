@@ -1,4 +1,4 @@
-//! PhoneLink for the Linux desktop.
+//! EchoTwin for the Linux desktop.
 //!
 //! `phonelinkd` (systemd user service) owns the [`phonelink_core::Node`]. The `phonelink`
 //! CLI, and later the tray UI, talk to it over a private Unix socket using line-delimited

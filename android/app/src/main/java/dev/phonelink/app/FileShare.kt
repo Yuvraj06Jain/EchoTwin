@@ -19,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap
  * checking, cancelling); this side only:
  *
  * * opens the file being sent when the core asks (a content URI → file descriptor),
- * * publishes received files to Download/PhoneLink through MediaStore (no storage
+ * * publishes received files to Download/EchoTwin through MediaStore (no storage
  *   permission needed), and
  * * keeps the progress notification up to date.
  */
@@ -27,7 +27,7 @@ object FileShare : FileSource {
     private lateinit var app: Context
 
     /**
-     * Files shared to PhoneLink from another app: Android's permission to read them ends
+     * Files shared to EchoTwin from another app: Android's permission to read them ends
      * when the share screen closes, so they are opened right away and kept open until sent.
      */
     private val openShares = ConcurrentHashMap<String, ParcelFileDescriptor>()
@@ -119,7 +119,7 @@ object FileShare : FileSource {
 
     // ------------------------------------------------------------------ progress and results
 
-    /** Called for every transfer change (on PhoneLink's background thread). */
+    /** Called for every transfer change (on EchoTwin's background thread). */
     fun onChanged(t: FileTransfer, all: () -> List<FileTransfer>) {
         val finished = t.state == "done" || t.state == "failed" || t.state == "cancelled"
         if (finished && t.outgoing) {
@@ -136,7 +136,7 @@ object FileShare : FileSource {
     }
 
     /**
-     * Move a received file from the app's private folder to Download/PhoneLink, where the
+     * Move a received file from the app's private folder to Download/EchoTwin, where the
      * Files app and others see it. Idempotent: once moved, the private copy is gone.
      */
     @Synchronized
@@ -147,7 +147,7 @@ object FileShare : FileSource {
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, t.name)
             put(MediaStore.MediaColumns.MIME_TYPE, t.mime.ifBlank { "application/octet-stream" })
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/PhoneLink")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/EchoTwin")
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
         val uri = try {
@@ -163,7 +163,7 @@ object FileShare : FileSource {
             val open = Intent(Intent.ACTION_VIEW)
                 .setDataAndType(uri, t.mime.ifBlank { "*/*" })
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            Notifications.fileResult(app, t.id, "Received ${t.name}", "From ${t.deviceName} · saved in Download/PhoneLink", open)
+            Notifications.fileResult(app, t.id, "Received ${t.name}", "From ${t.deviceName} · saved in Download/EchoTwin", open)
         } catch (e: Exception) {
             runCatching { cr.delete(uri, null, null) } // keep the private copy; retried later
         }

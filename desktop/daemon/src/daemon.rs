@@ -68,6 +68,7 @@ struct Settings {
     clipboard: bool,
     allow_lock: bool,
     bluetooth: bool,
+    connection: bool,
 }
 
 struct State {
@@ -92,6 +93,9 @@ struct State {
     /// Why the Bluetooth backup isn't ready (empty: ready).
     bt_status: Mutex<String>,
     bt_wake: Arc<Notify>,
+    /// LAN advertising (stopped while the connection is switched off).
+    lan: Mutex<Option<Lan>>,
+    discovery: bool,
     /// Each connected phone's battery and network.
     phone_status: Mutex<HashMap<Fingerprint, PhoneStatus>>,
     battery_root: PathBuf,
@@ -128,6 +132,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
             clipboard: opts.config.clipboard_sync,
             allow_lock: opts.config.allow_lock,
             bluetooth: opts.config.bluetooth_backup,
+            connection: opts.config.connection,
         }),
         store: Mutex::new(Store::default()),
         popups: opts.popups.clone().unwrap_or_else(Popups::start),
@@ -144,6 +149,8 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         bt_status: Mutex::new("starting".into()),
         bt_wake: Arc::new(Notify::new()),
         phone_status: Mutex::new(HashMap::new()),
+        lan: Mutex::new(None),
+        discovery: opts.config.discovery,
         battery_root: opts
             .config
             .power_supply_dir
@@ -159,23 +166,14 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         "phonelinkd running"
     );
 
+    if !opts.config.connection {
+        node.set_paused(true);
+        info!("connection is switched off; turn it on in the app or with `phonelink on`");
+    }
     for peer in node.peers() {
         state.keep_connected(peer.fingerprint);
     }
-    let lan = if opts.config.discovery {
-        match Lan::new() {
-            Ok(lan) => {
-                lan.advertise(node.clone(), port, state.advert_refresh.clone());
-                Some(lan)
-            }
-            Err(e) => {
-                warn!("LAN discovery unavailable, relying on remembered addresses: {e}");
-                None
-            }
-        }
-    } else {
-        None
-    };
+    state.update_lan();
 
     tokio::spawn(event_pump(state.clone(), events));
     tokio::spawn(network_watch(state.clone()));
@@ -189,7 +187,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
     info!("shutting down");
     server.abort();
     node.shutdown().await;
-    if let Some(lan) = lan {
+    if let Some(lan) = lock(&state.lan).take() {
         lan.shutdown();
     }
     let _ = std::fs::remove_file(&opts.socket);
@@ -301,6 +299,7 @@ fn device_info(
         capabilities,
         via: via(node.transport(&p.fingerprint)),
         status,
+        paused_by_peer: false,
     }
 }
 
@@ -345,6 +344,27 @@ impl State {
     }
 
     /// Change a setting in config.toml (when there is one).
+    /// Advertise on the LAN while discovery is on and the connection switched on.
+    fn update_lan(&self) {
+        let want = self.discovery && !self.node.is_paused();
+        let mut lan = lock(&self.lan);
+        if !want {
+            if let Some(l) = lan.take() {
+                l.shutdown();
+            }
+            return;
+        }
+        if lan.is_none() {
+            match Lan::new() {
+                Ok(l) => {
+                    l.advertise(self.node.clone(), self.port, self.advert_refresh.clone());
+                    *lan = Some(l);
+                }
+                Err(e) => warn!("LAN discovery unavailable, relying on remembered addresses: {e}"),
+            }
+        }
+    }
+
     fn persist(&self, change: impl FnOnce(&mut Config)) -> Reply {
         let Some(path) = &self.config_path else {
             return Reply::Done;
@@ -359,7 +379,7 @@ impl State {
         }
     }
 
-    /// PhoneLink's own popups (paired, connected, a note). Same click-to-open behaviour.
+    /// EchoTwin's own popups (paired, connected, a note). Same click-to-open behaviour.
     fn status_popup(&self, enabled: bool, id: String, title: String, body: String) {
         self.popup_to(enabled, id, title, body, crate::popups::Tab::Notifications)
     }
@@ -370,7 +390,7 @@ impl State {
         }
         self.popups.send(PopupCmd::Show {
             id,
-            app: "PhoneLink".into(),
+            app: "EchoTwin".into(),
             title: notifications::escape_markup(&title),
             body: notifications::escape_markup(&body),
             icon: None,
@@ -460,7 +480,9 @@ impl State {
             .cloned()
             .unwrap_or_default();
         let status = lock(&self.phone_status).get(&p.fingerprint).cloned();
-        device_info(&self.node, p, caps, status)
+        let mut info = device_info(&self.node, p, caps, status);
+        info.paused_by_peer = self.node.peer_paused(&p.fingerprint);
+        info
     }
 
     fn clipboard_on(&self) -> bool {
@@ -544,7 +566,7 @@ impl State {
             return Err(format!("{} is not connected; the message was not sent", self.name_of(&fp)));
         }
         if !self.connected_with(CAP_SMS).contains(&fp) {
-            return Err(format!("update PhoneLink on {} to send SMS", self.name_of(&fp)));
+            return Err(format!("update EchoTwin on {} to send SMS", self.name_of(&fp)));
         }
         let address = lock(&self.sms).address(&fp, id).unwrap_or_default();
         if address.is_empty() {
@@ -584,6 +606,8 @@ impl State {
             message: t.message.clone(),
             path: t.path.clone(),
             updated_ms: t.updated_ms,
+            rate: t.rate,
+            eta_secs: t.eta_secs,
         }
     }
 
@@ -661,7 +685,7 @@ impl State {
         }
         if !self.connected_with(CAP_MEDIA).contains(&fp) {
             return Err(format!(
-                "update PhoneLink on {} for music controls",
+                "update EchoTwin on {} for music controls",
                 self.name_of(&fp)
             ));
         }
@@ -757,7 +781,7 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     notify && !blip,
                     format!("status/{}", peer.short()),
                     format!("{name} connected"),
-                    "PhoneLink is active.".into(),
+                    "EchoTwin is active.".into(),
                 );
                 WatchEvent::Connected {
                     id: peer.short(),
@@ -765,6 +789,10 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     via: via(Some(transport)).unwrap_or_default(),
                 }
             }
+            Event::PeerPaused { peer } => WatchEvent::PeerPaused {
+                id: peer.short(),
+                name: state.name_of(&peer),
+            },
             Event::PeerDisconnected { peer } => {
                 last_disconnect.insert(peer, std::time::Instant::now());
                 lock(&state.caps).remove(&peer);
@@ -954,7 +982,7 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
     }
 }
 
-/// Keeps the PhoneLink Bluetooth profile registered with BlueZ while the backup is on (and
+/// Keeps the EchoTwin Bluetooth profile registered with BlueZ while the backup is on (and
 /// Bluetooth exists), tells phones where to find this computer, and serves the connections.
 /// Re-reads this computer's battery every 30 s and tells connected phones when it changed.
 async fn battery_watch(state: Arc<State>) {
@@ -1006,7 +1034,7 @@ async fn bluetooth_backup(state: Arc<State>) {
         }
     };
     loop {
-        let wanted = lock(&state.settings).bluetooth;
+        let wanted = lock(&state.settings).bluetooth && !state.node.is_paused();
         if !wanted {
             if let Some(r) = registered.take() {
                 let _ = tokio::task::spawn_blocking(move || r.unregister()).await;
@@ -1067,7 +1095,7 @@ async fn transfer_updates(state: Arc<State>, mut events: tokio::sync::mpsc::Unbo
                     notify,
                     format!("file/{}", t.id),
                     format!("Received “{}”", t.name),
-                    format!("From {device}. Saved in Downloads/PhoneLink."),
+                    format!("From {device}. Saved in Downloads/EchoTwin."),
                     crate::popups::Tab::Files,
                 ),
                 (Direction::Outgoing, TransferState::Failed) => state.popup_to(
@@ -1197,6 +1225,15 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                 lock(&state.settings).bluetooth = enabled;
                 state.bt_wake.notify_one();
                 let reply = state.persist(|c| c.bluetooth_backup = enabled);
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::SetConnection { on } => {
+                lock(&state.settings).connection = on;
+                state.node.set_paused(!on);
+                state.update_lan();
+                state.bt_wake.notify_one();
+                state.broadcast(WatchEvent::ConnectionChanged { on });
+                let reply = state.persist(|c| c.connection = on);
                 write_reply(&mut w, &reply).await?;
             }
             Request::SetAllowLock { enabled } => {
@@ -1487,6 +1524,7 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                     allow_lock,
                     bluetooth_backup,
                     bluetooth_status,
+                    connection: !node.is_paused(),
                 };
                 write_reply(&mut w, &reply).await?;
             }

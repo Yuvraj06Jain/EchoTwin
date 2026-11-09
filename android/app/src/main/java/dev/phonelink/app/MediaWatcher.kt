@@ -22,7 +22,7 @@ import java.io.ByteArrayOutputStream
  * What is playing on the phone (Spotify, YouTube Music, …), for the computer's Now Playing
  * card, and the buttons pressed there.
  *
- * Uses the notification access PhoneLink already has: Android lets a notification listener
+ * Uses the notification access EchoTwin already has: Android lets a notification listener
  * see the active media sessions. No extra permission, no microphone, no audio is captured:
  * only the title/artist/position the player itself publishes.
  *

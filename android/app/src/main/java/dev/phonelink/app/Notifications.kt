@@ -51,7 +51,7 @@ object Notifications {
     fun status(context: Context, text: String, actions: Actions = Actions()): Notification {
         val b = NotificationCompat.Builder(context, CHANNEL_STATUS)
             .setSmallIcon(R.drawable.ic_link)
-            .setContentTitle("PhoneLink")
+            .setContentTitle("EchoTwin")
             .setContentText(text)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -103,7 +103,9 @@ object Notifications {
             running.none { it.outgoing } -> "Receiving ${running.size} files"
             else -> "${running.size} file transfers"
         }
-        val text = if (active) "$pct%" else running.first().message.ifBlank { "Waiting" }
+        val eta = running.filter { it.state == "active" && it.rate > 0uL }.mapNotNull { it.etaSecs?.toLong() }.maxOrNull()
+        val text = if (active) "$pct%" + (eta?.let { " · " + dev.phonelink.app.ui.formatEta(it) } ?: "")
+        else running.first().message.ifBlank { "Waiting" }
         val n = NotificationCompat.Builder(context, CHANNEL_FILES)
             .setSmallIcon(R.drawable.ic_link)
             .setContentTitle(title)

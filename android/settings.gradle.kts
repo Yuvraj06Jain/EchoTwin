@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "PhoneLink"
+rootProject.name = "EchoTwin"
 include(":app")

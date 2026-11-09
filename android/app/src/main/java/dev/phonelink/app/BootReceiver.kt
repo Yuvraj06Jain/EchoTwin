@@ -10,7 +10,7 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val relevant = intent.action == Intent.ACTION_BOOT_COMPLETED ||
             intent.action == Intent.ACTION_MY_PACKAGE_REPLACED
-        if (relevant && LinkManager.hasPairedDevice(context)) {
+        if (relevant && LinkManager.hasPairedDevice(context) && Prefs.connection(context)) {
             ContextCompat.startForegroundService(context, Intent(context, LinkService::class.java))
         }
     }

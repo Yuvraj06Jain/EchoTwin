@@ -1,4 +1,4 @@
-// PhoneLink desktop UI.
+// EchoTwin desktop UI.
 // All data comes from window.PhoneLinkAPI (mock-api.js in the preview, the daemon later).
 'use strict';
 
@@ -30,6 +30,7 @@
 
   const ICONS = {
     settings: '<circle cx="12" cy="12" r="2.6"/><path d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M6 6l1.6 1.6M16.4 16.4L18 18M6 18l1.6-1.6M16.4 7.6L18 6"/><circle cx="12" cy="12" r="6.2"/>',
+    power: '<path d="M12 4v7.5"/><path d="M7.4 7.2a6.5 6.5 0 1 0 9.2 0"/>',
     minimize: '<path d="M7 12h10"/>',
     maximize: '<rect x="7" y="7" width="10" height="10" rx="1.5"/>',
     close: '<path d="M7.5 7.5l9 9M16.5 7.5l-9 9"/>',
@@ -57,7 +58,7 @@
   };
   const icon = (name) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 
-  const APP_COLORS = { PhoneLink: '#3dbb82', WhatsApp: '#62c18e', Gmail: '#e2847b', Calendar: '#79a9e6', Messages: '#86b8d8', Swiggy: '#e6a463', Instagram: '#d491b8' };
+  const APP_COLORS = { EchoTwin: '#3dbb82', WhatsApp: '#62c18e', Gmail: '#e2847b', Calendar: '#79a9e6', Messages: '#86b8d8', Swiggy: '#e6a463', Instagram: '#d491b8' };
   const PALETTE = ['#86b8d8', '#e3ab76', '#9fcb8f', '#c5a3da', '#e39393', '#80d0c4', '#d8c27e'];
   function hash(s) {
     let h = 0;
@@ -198,7 +199,7 @@
       Promise.resolve()
         .then(() => fn(...args))
         .catch((err) => {
-          console.warn('PhoneLink UI:', err);
+          console.warn('EchoTwin UI:', err);
           toast(`Something went wrong: ${err && err.message ? err.message : err}`);
         });
   }
@@ -226,7 +227,7 @@
     const [notifications, threads, transfers, settings] = await Promise.all([
       // A failing list (e.g. an older service) must not stop the rest of the app loading.
       fetchNotifications().catch((err) => {
-        console.info('PhoneLink UI: notifications unavailable:', err && err.message);
+        console.info('EchoTwin UI: notifications unavailable:', err && err.message);
         return null;
       }),
       api.threads(),
@@ -273,12 +274,21 @@
     if (state.showPairing) renderPairing();
   }
 
+  /** The connection switch on this computer is off (saves battery: no searching). */
+  function connectionOff() {
+    return !!state.settings && state.settings.connection === false;
+  }
+
   function renderChrome() {
     const d = state.device;
     if (!d) {
       el.pill.innerHTML = '<span class="dot"></span>No phone paired';
     } else if (d.connected) {
       el.pill.innerHTML = `<span class="dot ok"></span>${esc(d.name)} · Connected${d.via === 'bluetooth' ? ' · Bluetooth' : ''}`;
+    } else if (connectionOff()) {
+      el.pill.innerHTML = `<span class="dot"></span>${esc(d.name)} · Connection off`;
+    } else if (d.pausedByPeer) {
+      el.pill.innerHTML = `<span class="dot"></span>${esc(d.name)} · Off on the phone`;
     } else {
       el.pill.innerHTML = `<span class="dot warn"></span>${esc(d.name)} · Offline`;
     }
@@ -298,7 +308,11 @@
 
     const offline = view === 'main' && d && !d.connected;
     el.banner.hidden = !offline;
-    if (offline) {
+    if (offline && connectionOff()) {
+      el.banner.innerHTML = `${icon('alert')}<span class="grow"><strong>The connection is switched off.</strong> ${esc(d.name)} won't connect and nothing searches for it until you turn it back on.</span><button type="button" class="btn btn-sm" data-action="toggle-connection">Turn on</button>`;
+    } else if (offline && d.pausedByPeer) {
+      el.banner.innerHTML = `${icon('alert')}<span class="grow"><strong>${esc(d.name)} switched its connection off.</strong> It reconnects as soon as it's turned back on in the phone app.</span>`;
+    } else if (offline) {
       el.banner.innerHTML = `${icon('alert')}<span class="grow"><strong>${esc(d.name)} is offline.</strong> Messages and files will be sent when it reconnects.</span>${api.reconnect ? '<button type="button" class="btn btn-sm" data-action="reconnect">Reconnect now</button>' : ''}<button type="button" class="link-btn" data-action="troubleshoot">Troubleshoot</button>`;
     }
   }
@@ -345,6 +359,7 @@
         <div class="actions">
           <button type="button" class="action" data-action="send-note">${icon('send')}<span class="grow">Send a note</span></button>
           ${caps.files ? `<button type="button" class="action" data-action="send-file">${icon('upload')}<span class="grow">Send files</span></button>` : ''}
+          <button type="button" class="action" role="switch" aria-checked="${!connectionOff()}" data-action="toggle-connection">${icon('power')}<span class="grow">Connection</span><span class="switch" aria-hidden="true"></span></button>
           ${caps.clipboard ? `<button type="button" class="action" role="switch" aria-checked="${clipOn}" data-action="toggle-clipboard">${icon('clipboard')}<span class="grow">Sync clipboard</span><span class="switch" aria-hidden="true"></span></button>` : ''}
         </div>
       </div>
@@ -378,7 +393,7 @@
     try {
       items = await api.media();
     } catch (err) {
-      console.info('PhoneLink UI: music state unavailable:', err && err.message);
+      console.info('EchoTwin UI: music state unavailable:', err && err.message);
       return;
     }
     if (seq !== mediaSeq) return; // an older answer must not overwrite a newer one
@@ -483,7 +498,7 @@
     if (!list.length) {
       const hint = caps.notificationMirroring
         ? `New notifications from ${esc(deviceName())} appear here.`
-        : `Notes you send from PhoneLink on ${esc(deviceName())} appear here.<br>Showing your phone's app notifications (WhatsApp, Gmail…) comes in the next update.`;
+        : `Notes you send from EchoTwin on ${esc(deviceName())} appear here.<br>Showing your phone's app notifications (WhatsApp, Gmail…) comes in the next update.`;
       el.panels.notifications.innerHTML = `<div class="empty">${icon('bell')}<strong>You're all caught up</strong><span>${hint}</span></div>`;
       return;
     }
@@ -565,7 +580,7 @@
       (t) => !q || t.name.toLowerCase().includes(q) || t.messages.some((m) => m.text.toLowerCase().includes(q)),
     );
     if (!list.length) {
-      el.threadList.innerHTML = `<li class="thread-empty">${q ? `No conversations match “${esc(state.threadSearch.trim())}”` : `No conversations yet.${caps.preview ? '' : ' On your phone, open PhoneLink and allow SMS access.'}`}</li>`;
+      el.threadList.innerHTML = `<li class="thread-empty">${q ? `No conversations match “${esc(state.threadSearch.trim())}”` : `No conversations yet.${caps.preview ? '' : ' On your phone, open EchoTwin and allow SMS access.'}`}</li>`;
       return;
     }
     el.threadList.innerHTML = list
@@ -649,14 +664,25 @@
   const RUNNING = ['queued', 'waiting', 'active'];
   const FINISHED = ['done', 'failed', 'cancelled'];
 
+  /** "about 45 s left", "about 3 min left", "about 1 h 5 min left". */
+  function fmtEta(secs) {
+    if (secs < 60) return `about ${Math.max(1, Math.round(secs))} s left`;
+    if (secs < 3600) {
+      const m = Math.floor(secs / 60);
+      const s = Math.round((secs % 60) / 10) * 10;
+      return `about ${m} min${s && m < 10 ? ` ${s} s` : ''} left`;
+    }
+    return `about ${Math.floor(secs / 3600)} h ${Math.floor((secs % 3600) / 60)} min left`;
+  }
+
   function transferStatus(t) {
     const pct = pctOf(t);
     const toPhone = t.direction === 'to-phone';
     switch (t.state) {
       case 'done':
-        return toPhone ? `Sent to ${deviceName()}` : 'Saved to Downloads/PhoneLink';
+        return toPhone ? `Sent to ${deviceName()}` : 'Saved to Downloads/EchoTwin';
       case 'active':
-        return `${toPhone ? 'Sending' : 'Receiving'} · ${pct}%`;
+        return `${toPhone ? 'Sending' : 'Receiving'} · ${pct}%${t.rate > 0 ? ` · ${fmtSize(t.rate)}/s` : ''}${typeof t.eta === 'number' && t.rate > 0 ? ` · ${fmtEta(t.eta)}` : ''}`;
       case 'queued':
         return 'Queued';
       case 'waiting':
@@ -711,7 +737,7 @@
       </div>
       ${items
         ? `<div class="files-head"><p class="section-label">Transfers</p>${anyFinished ? '<button type="button" class="link-btn" data-action="clear-transfers">Clear finished</button>' : ''}</div>${items}`
-        : `<div class="empty">${icon('folder')}<strong>No transfers yet</strong><span>Files you send or receive appear here. On your phone, use Share → PhoneLink.</span></div>`}
+        : `<div class="empty">${icon('folder')}<strong>No transfers yet</strong><span>Files you send or receive appear here. On your phone, use Share → EchoTwin.</span></div>`}
     </div>`;
     if (hadFocus) {
       const row = hadFocus.id && $(`.transfer[data-id="${CSS.escape(hadFocus.id)}"]`, el.panels.files);
@@ -767,7 +793,7 @@
         <h1>Pair your phone</h1>
         <p>Your phone and this computer must be on the same Wi&#8209;Fi, or this computer on your phone's hotspot.</p>
         <ol class="steps">
-          <li><span>Install <strong>PhoneLink</strong> on your Android phone.</span></li>
+          <li><span>Install <strong>EchoTwin</strong> on your Android phone.</span></li>
           <li><span>Open it and tap <strong>Pair a computer</strong>.</span></li>
           <li><span>Scan this code. Check that the phone shows the same id as below.</span></li>
         </ol>
@@ -1033,7 +1059,7 @@
           <li><strong>Same network?</strong> The phone must be on the same Wi&#8209;Fi, not mobile data or a guest network.</li>
           <li><strong>College or office Wi&#8209;Fi</strong> often blocks devices from reaching each other. Turn on your phone's hotspot and connect this computer to it.</li>
           <li><strong>VPN?</strong> Allow local network access in the VPN app, or pause it.</li>
-          <li><strong>Battery saving.</strong> On the phone, add PhoneLink to Settings → Battery → Background usage limits → Never sleeping apps.</li>
+          <li><strong>Battery saving.</strong> On the phone, add EchoTwin to Settings → Battery → Background usage limits → Never sleeping apps.</li>
           <li><strong>Firewall.</strong> If ufw is on, allow UDP port 47100 from your local network.</li>
         </ol>
       </div>
@@ -1093,6 +1119,7 @@
         ${s.apps.map((a) => switchRow(a.name, '', 'toggle-app', a.enabled, `data-name="${esc(a.name)}"`)).join('')}
       </div>` : ''}
       <div class="sheet-section"><p class="section-label">General</p>
+        ${'connection' in s ? switchRow('Connection', 'Off: disconnect from your phone and stop searching for it (nothing runs in the background). Turn on to reconnect.', 'toggle-setting', s.connection !== false, 'data-key="connection"') : ''}
         ${switchRow('Desktop notifications', 'Show messages from your phone as system notifications.', 'toggle-setting', !!s.desktopNotifications, 'data-key="desktopNotifications"')}
         ${caps.syncDismissals ? switchRow('Dismiss on both devices', 'Clearing a notification here also clears it on your phone, and the other way round.', 'toggle-setting', !!s.syncDismissals, 'data-key="syncDismissals"') : ''}
         ${caps.clipboard ? switchRow('Share clipboard with your phone', 'Text you copy here can be pasted on your phone. Passwords copied from a password manager are never sent.', 'toggle-setting', !!s.clipboardSync, 'data-key="clipboardSync"') : ''}
@@ -1108,7 +1135,7 @@
     try {
       state.settings = await api.settings();
     } catch (err) {
-      console.info('PhoneLink UI: using cached settings:', err && err.message);
+      console.info('EchoTwin UI: using cached settings:', err && err.message);
     }
     openDialog(`<section class="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <header class="sheet-head"><h2 id="settings-title">Settings</h2>
@@ -1178,7 +1205,7 @@
   function renderService() {
     el.service.innerHTML = `<div class="service-card">
       ${icon('alert')}
-      <h1>The PhoneLink service isn't running</h1>
+      <h1>The EchoTwin service isn't running</h1>
       <p>It runs in the background and keeps your phone connected, even when this window is closed.</p>
       <div class="service-actions">
         <button type="button" class="btn btn-primary" data-action="start-daemon">Start the service</button>
@@ -1327,6 +1354,13 @@
         if (!canSendFiles()) return undefined;
         if (api.chooseFiles) return sendPaths(await api.chooseFiles());
         return el.fileInput.click();
+      case 'toggle-connection': {
+        const on = connectionOff();
+        await api.updateSetting('connection', on);
+        if (state.settings) state.settings.connection = on;
+        scheduleLoad();
+        return toast(on ? 'Connection on: looking for your phone' : 'Connection off');
+      }
       case 'toggle-clipboard': {
         const on = !state.settings.clipboardSync;
         state.settings.clipboardSync = on;
@@ -1483,6 +1517,7 @@
           throw err;
         } finally {
           if (key === 'clipboardSync') renderDevice(); // the same switch is on the phone panel
+          if (key === 'connection') scheduleLoad();
         }
         return undefined;
       }

@@ -759,6 +759,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_id(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_is_paused(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_local_port(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_lock_computer(
@@ -792,6 +794,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_snapshot(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_text(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_set_paused(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_set_queue_notifications(
     ): Int
@@ -876,6 +880,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_phonelink_id(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_is_paused(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     external fun uniffi_phonelink_ffi_fn_method_phonelink_local_port(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Int
     external fun uniffi_phonelink_ffi_fn_method_phonelink_lock_computer(`ptr`: Long,`deviceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -910,6 +916,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_text(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_set_paused(`ptr`: Long,`paused`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_set_queue_notifications(`ptr`: Long,`on`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_shutdown(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1085,6 +1093,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_id() and 0xFFFF) != 64126) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_is_paused() and 0xFFFF) != 50693) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_local_port() and 0xFFFF) != 63701) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1134,6 +1145,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_text() and 0xFFFF) != 3677) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_set_paused() and 0xFFFF) != 28947) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_set_queue_notifications() and 0xFFFF) != 50598) {
@@ -2345,6 +2359,8 @@ public interface PhoneLinkInterface {
      */
     fun `id`(): kotlin.String
     
+    fun `isPaused`(): kotlin.Boolean
+    
     /**
      * The UDP port this phone listens on (stable across restarts).
      */
@@ -2444,6 +2460,12 @@ public interface PhoneLinkInterface {
      * device is connected right now; otherwise it is delivered when it reconnects.
      */
     fun `sendText`(`deviceId`: kotlin.String?, `text`: kotlin.String): kotlin.Boolean
+    
+    /**
+     * The connection switch: `true` = off (disconnect, stop searching, refuse the
+     * computer until switched back on). Survives nothing: call again after `start`.
+     */
+    fun `setPaused`(`paused`: kotlin.Boolean)
     
     /**
      * Whether notifications are queued for computers that are offline (default off:
@@ -2647,6 +2669,19 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
     callWithHandle {
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_id(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `isPaused`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_is_paused(
         it,
         _status)
 }
@@ -2978,6 +3013,23 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
     }
     )
     }
+    
+
+    
+    /**
+     * The connection switch: `true` = off (disconnect, stop searching, refuse the
+     * computer until switched back on). Survives nothing: call again after `start`.
+     */override fun `setPaused`(`paused`: kotlin.Boolean)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_set_paused(
+        it,
+        
+        FfiConverterBoolean.lower(`paused`),_status)
+}
+    }
+    
     
 
     
@@ -3866,7 +3918,7 @@ data class Device (
     var `pending`: kotlin.ULong
     , 
     /**
-     * Connected, and its PhoneLink can be locked from here.
+     * Connected, and its EchoTwin can be locked from here.
      */
     var `canLock`: kotlin.Boolean
     , 
@@ -3891,6 +3943,11 @@ data class Device (
     var `battery`: kotlin.UByte?
     , 
     var `charging`: kotlin.Boolean
+    , 
+    /**
+     * The computer switched its connection off (it reconnects when switched back on).
+     */
+    var `pausedByPeer`: kotlin.Boolean
     
 ){
     
@@ -3917,6 +3974,7 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalUByte.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -3930,7 +3988,8 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterString.allocationSize(value.`via`) +
             FfiConverterOptionalString.allocationSize(value.`bluetooth`) +
             FfiConverterOptionalUByte.allocationSize(value.`battery`) +
-            FfiConverterBoolean.allocationSize(value.`charging`)
+            FfiConverterBoolean.allocationSize(value.`charging`) +
+            FfiConverterBoolean.allocationSize(value.`pausedByPeer`)
     )
 
     override fun write(value: Device, buf: ByteBuffer) {
@@ -3944,6 +4003,7 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterOptionalString.write(value.`bluetooth`, buf)
             FfiConverterOptionalUByte.write(value.`battery`, buf)
             FfiConverterBoolean.write(value.`charging`, buf)
+            FfiConverterBoolean.write(value.`pausedByPeer`, buf)
     }
 }
 
@@ -3984,6 +4044,16 @@ data class FileTransfer (
      * Downloads (then it may be deleted).
      */
     var `path`: kotlin.String?
+    , 
+    /**
+     * Bytes per second while moving (0 otherwise).
+     */
+    var `rate`: kotlin.ULong
+    , 
+    /**
+     * Seconds left at the current speed, when known.
+     */
+    var `etaSecs`: kotlin.ULong?
     
 ){
     
@@ -4011,6 +4081,8 @@ public object FfiConverterTypeFileTransfer: FfiConverterRustBuffer<FileTransfer>
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterOptionalULong.read(buf),
         )
     }
 
@@ -4025,7 +4097,9 @@ public object FfiConverterTypeFileTransfer: FfiConverterRustBuffer<FileTransfer>
             FfiConverterULong.allocationSize(value.`done`) +
             FfiConverterString.allocationSize(value.`state`) +
             FfiConverterString.allocationSize(value.`message`) +
-            FfiConverterOptionalString.allocationSize(value.`path`)
+            FfiConverterOptionalString.allocationSize(value.`path`) +
+            FfiConverterULong.allocationSize(value.`rate`) +
+            FfiConverterOptionalULong.allocationSize(value.`etaSecs`)
     )
 
     override fun write(value: FileTransfer, buf: ByteBuffer) {
@@ -4040,6 +4114,8 @@ public object FfiConverterTypeFileTransfer: FfiConverterRustBuffer<FileTransfer>
             FfiConverterString.write(value.`state`, buf)
             FfiConverterString.write(value.`message`, buf)
             FfiConverterOptionalString.write(value.`path`, buf)
+            FfiConverterULong.write(value.`rate`, buf)
+            FfiConverterOptionalULong.write(value.`etaSecs`, buf)
     }
 }
 
@@ -4508,6 +4584,18 @@ sealed class LinkEvent {
     }
     
     /**
+     * The computer switched its connection off (refresh `devices()`).
+     */
+    data class ComputerPaused(
+        val `id`: kotlin.String) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
      * The computer's battery changed (refresh `devices()`).
      */
     data class ComputerStatus(
@@ -4654,36 +4742,39 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.read(buf),
                 FfiConverterUInt.read(buf),
                 )
-            8 -> LinkEvent.ComputerStatus(
+            8 -> LinkEvent.ComputerPaused(
+                FfiConverterString.read(buf),
+                )
+            9 -> LinkEvent.ComputerStatus(
                 FfiConverterString.read(buf),
                 FfiConverterOptionalUByte.read(buf),
                 FfiConverterBoolean.read(buf),
                 )
-            9 -> LinkEvent.ClipboardReceived(
+            10 -> LinkEvent.ClipboardReceived(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            10 -> LinkEvent.MediaControlRequested(
+            11 -> LinkEvent.MediaControlRequested(
                 FfiConverterString.read(buf),
                 FfiConverterTypeMediaCommand.read(buf),
                 )
-            11 -> LinkEvent.SmsSendRequested(
+            12 -> LinkEvent.SmsSendRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            12 -> LinkEvent.SmsOlderRequested(
+            13 -> LinkEvent.SmsOlderRequested(
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterULong.read(buf),
                 )
-            13 -> LinkEvent.TransferChanged(
+            14 -> LinkEvent.TransferChanged(
                 FfiConverterTypeFileTransfer.read(buf),
                 )
-            14 -> LinkEvent.RequestResult(
+            15 -> LinkEvent.RequestResult(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
@@ -4753,6 +4844,13 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 + FfiConverterString.allocationSize(value.`id`)
                 + FfiConverterString.allocationSize(value.`key`)
                 + FfiConverterUInt.allocationSize(value.`index`)
+            )
+        }
+        is LinkEvent.ComputerPaused -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
             )
         }
         is LinkEvent.ComputerStatus -> {
@@ -4869,28 +4967,33 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterUInt.write(value.`index`, buf)
                 Unit
             }
-            is LinkEvent.ComputerStatus -> {
+            is LinkEvent.ComputerPaused -> {
                 buf.putInt(8)
+                FfiConverterString.write(value.`id`, buf)
+                Unit
+            }
+            is LinkEvent.ComputerStatus -> {
+                buf.putInt(9)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterOptionalUByte.write(value.`battery`, buf)
                 FfiConverterBoolean.write(value.`charging`, buf)
                 Unit
             }
             is LinkEvent.ClipboardReceived -> {
-                buf.putInt(9)
+                buf.putInt(10)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`text`, buf)
                 Unit
             }
             is LinkEvent.MediaControlRequested -> {
-                buf.putInt(10)
+                buf.putInt(11)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterTypeMediaCommand.write(value.`command`, buf)
                 Unit
             }
             is LinkEvent.SmsSendRequested -> {
-                buf.putInt(11)
+                buf.putInt(12)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`clientId`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
@@ -4899,19 +5002,19 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 Unit
             }
             is LinkEvent.SmsOlderRequested -> {
-                buf.putInt(12)
+                buf.putInt(13)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
                 FfiConverterULong.write(value.`beforeMs`, buf)
                 Unit
             }
             is LinkEvent.TransferChanged -> {
-                buf.putInt(13)
+                buf.putInt(14)
                 FfiConverterTypeFileTransfer.write(value.`transfer`, buf)
                 Unit
             }
             is LinkEvent.RequestResult -> {
-                buf.putInt(14)
+                buf.putInt(15)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`key`, buf)
@@ -5085,6 +5188,38 @@ public object FfiConverterOptionalUByte: FfiConverterRustBuffer<kotlin.UByte?> {
         } else {
             buf.put(1)
             FfiConverterUByte.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalULong: FfiConverterRustBuffer<kotlin.ULong?> {
+    override fun read(buf: ByteBuffer): kotlin.ULong? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterULong.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.ULong?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterULong.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.ULong?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterULong.write(value, buf)
         }
     }
 }

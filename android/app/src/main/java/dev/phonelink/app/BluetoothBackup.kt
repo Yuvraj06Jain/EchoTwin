@@ -55,6 +55,7 @@ object BluetoothBackup {
     /** The computer dropped off: try Bluetooth if it doesn't come back over Wi-Fi soon. */
     fun onDisconnected() = main.post {
         main.removeCallbacks(attempt)
+        if (!Prefs.connection(app)) return@post // switched off: don't reach for Bluetooth either
         delay = FIRST_TRY_MS
         main.postDelayed(attempt, delay)
     }
@@ -88,7 +89,7 @@ object BluetoothBackup {
             return retryLater()
         }
         if (!allowed()) {
-            problem = "Allow \"Nearby devices\" in the PhoneLink app"
+            problem = "Allow \"Nearby devices\" in the EchoTwin app"
             return
         }
         val adapter = app.getSystemService(BluetoothManager::class.java)?.adapter

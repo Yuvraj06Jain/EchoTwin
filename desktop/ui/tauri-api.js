@@ -27,7 +27,7 @@
       return await T.core.invoke(cmd, args);
     } catch (e) {
       const msg = typeof e === 'string' ? e : (e && e.message) || String(e);
-      const err = new Error(msg === 'daemon-down' ? 'The PhoneLink service is not running' : msg);
+      const err = new Error(msg === 'daemon-down' ? 'The EchoTwin service is not running' : msg);
       if (msg === 'daemon-down') err.code = 'daemon-down';
       throw err;
     }
@@ -60,6 +60,8 @@
     message: t.message || '',
     path: t.path || null,
     deviceName: t.device_name,
+    rate: t.rate || 0,
+    eta: typeof t.eta_secs === 'number' ? t.eta_secs : null,
   });
   let notes = [];
   let noteSeq = 0;
@@ -69,6 +71,7 @@
   let allowLock = false;
   let bluetoothBackup = false;
   let bluetoothStatus = '';
+  let connection = true;
   let knownApps = []; // [{ package, app, muted }] from the service
 
   T.event.listen('phonelink://drop', ({ payload }) => listeners.drop.forEach((cb) => cb(payload)));
@@ -77,7 +80,7 @@
     if (payload.kind === 'text') {
       notes.unshift({
         id: `note-${++noteSeq}`,
-        app: 'PhoneLink',
+        app: 'EchoTwin',
         title: payload.name,
         text: payload.text,
         time: Date.now(),
@@ -103,6 +106,7 @@
     signal: d.status ? d.status.signal : null,
     battery: d.status && typeof d.status.battery === 'number' ? d.status.battery : null,
     charging: !!(d.status && d.status.charging),
+    pausedByPeer: !!d.paused_by_peer,
     lastSeen: null,
   });
 
@@ -132,6 +136,7 @@
       allowLock = !!s.allow_lock;
       bluetoothBackup = !!s.bluetooth_backup;
       bluetoothStatus = s.bluetooth_status || '';
+      connection = s.connection !== false;
       const devices = s.devices.map(toDevice);
       const device = devices.find((d) => d.connected) || devices[0] || null;
       return {
@@ -229,6 +234,7 @@
         allowLock,
         bluetoothBackup,
         bluetoothStatus,
+        connection,
         apps: knownApps.map((a) => ({ name: a.app, package: a.package, enabled: !a.muted })),
       };
     },
@@ -248,6 +254,9 @@
       } else if (key === 'allowLock') {
         await invoke('set_allow_lock', { enabled: value });
         allowLock = value;
+      } else if (key === 'connection') {
+        await invoke('set_connection', { on: value });
+        connection = value;
       } else if (key === 'bluetoothBackup') {
         await invoke('set_bluetooth_backup', { enabled: value });
         bluetoothBackup = value;

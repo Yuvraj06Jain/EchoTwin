@@ -229,7 +229,7 @@ object SmsSync {
      */
     fun send(address: String, body: String, done: (Boolean, String) -> Unit) {
         if (!canSend()) {
-            done(false, "Allow SMS in the PhoneLink app on the phone")
+            done(false, "Allow SMS in the EchoTwin app on the phone")
             return
         }
         val sms: SmsManager = try {

@@ -39,7 +39,8 @@ phonelink/
 | `Cargo.lock` | Exact Rust dependency versions (committed so builds are reproducible). |
 | `.cargo/config.toml` | Android builds: align native code to 16 KB pages so it loads on Android 15+ devices. |
 | `.gitignore` | Keeps build output (`target/`, Android `build/`, `jniLibs/`), SQLite files and keystores out of git. |
-| `README.md` | Overview, quick start, links to these docs. |
+| `README.md` | Repo front page: what EchoTwin is, security in brief, features, screenshots. |
+| `LICENSE` | GPL-3.0 license text. |
 | `SETUP.md` | Install guide for the laptop and phone, the numbered device test checklist (rows 1–55), troubleshooting. |
 | `docs/` | File map (this file), features, protocol, developer guide; `docs/img/` screenshots. |
 

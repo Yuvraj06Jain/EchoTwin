@@ -287,6 +287,7 @@ object LinkManager {
                 is LinkEvent.ReplyRequested -> handleRequest(event.id, event.key) { it.reply(event.key, event.text) }
                 is LinkEvent.ActionRequested -> handleRequest(event.id, event.key) { it.press(event.key, event.index.toInt()) }
                 is LinkEvent.ClipboardReceived -> putOnClipboard(event.name, event.text)
+                is LinkEvent.ClipboardImageIncoming -> FileShare.expectClipboard(event.transferId, event.name)
                 is LinkEvent.TransferChanged -> {
                     val all = { link?.transfers() ?: emptyList() }
                     io.execute {

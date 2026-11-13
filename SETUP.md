@@ -203,6 +203,7 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 58 | Send a big file | both devices show the speed and "about … left" |
 | 59 | Phone home screen | the app is called **EchoTwin** with the green dot-and-ring icon |
 | 60 | EchoTwin app → Settings → **Battery saver** off and on (or `phonelink saver off/on`) | the switch is remembered after restarting the service; with it on, the phone still connects at once, and walking away is noticed within ~30 s |
+| 61 | Take a screenshot (or copy an image file in Dolphin) on the laptop, then paste in WhatsApp on the phone | the full-quality image is pasted; a toast says "Image copied from …" |
 
 When something fails, include:
 - the step number

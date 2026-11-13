@@ -4610,6 +4610,21 @@ sealed class LinkEvent {
     }
     
     /**
+     * An image copied on the computer arrives as file transfer `transfer_id`: when it is
+     * done, put it on the clipboard instead of saving it in Downloads.
+     */
+    data class ClipboardImageIncoming(
+        val `id`: kotlin.String, 
+        val `name`: kotlin.String, 
+        val `transferId`: kotlin.String) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
      * Text copied on the computer: put it on this phone's clipboard (if sharing is on).
      */
     data class ClipboardReceived(
@@ -4750,31 +4765,36 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterOptionalUByte.read(buf),
                 FfiConverterBoolean.read(buf),
                 )
-            10 -> LinkEvent.ClipboardReceived(
+            10 -> LinkEvent.ClipboardImageIncoming(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            11 -> LinkEvent.MediaControlRequested(
+            11 -> LinkEvent.ClipboardReceived(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                )
+            12 -> LinkEvent.MediaControlRequested(
                 FfiConverterString.read(buf),
                 FfiConverterTypeMediaCommand.read(buf),
                 )
-            12 -> LinkEvent.SmsSendRequested(
+            13 -> LinkEvent.SmsSendRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            13 -> LinkEvent.SmsOlderRequested(
+            14 -> LinkEvent.SmsOlderRequested(
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterULong.read(buf),
                 )
-            14 -> LinkEvent.TransferChanged(
+            15 -> LinkEvent.TransferChanged(
                 FfiConverterTypeFileTransfer.read(buf),
                 )
-            15 -> LinkEvent.RequestResult(
+            16 -> LinkEvent.RequestResult(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
@@ -4860,6 +4880,15 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 + FfiConverterString.allocationSize(value.`id`)
                 + FfiConverterOptionalUByte.allocationSize(value.`battery`)
                 + FfiConverterBoolean.allocationSize(value.`charging`)
+            )
+        }
+        is LinkEvent.ClipboardImageIncoming -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterString.allocationSize(value.`name`)
+                + FfiConverterString.allocationSize(value.`transferId`)
             )
         }
         is LinkEvent.ClipboardReceived -> {
@@ -4979,21 +5008,28 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterBoolean.write(value.`charging`, buf)
                 Unit
             }
-            is LinkEvent.ClipboardReceived -> {
+            is LinkEvent.ClipboardImageIncoming -> {
                 buf.putInt(10)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterString.write(value.`name`, buf)
+                FfiConverterString.write(value.`transferId`, buf)
+                Unit
+            }
+            is LinkEvent.ClipboardReceived -> {
+                buf.putInt(11)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`text`, buf)
                 Unit
             }
             is LinkEvent.MediaControlRequested -> {
-                buf.putInt(11)
+                buf.putInt(12)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterTypeMediaCommand.write(value.`command`, buf)
                 Unit
             }
             is LinkEvent.SmsSendRequested -> {
-                buf.putInt(12)
+                buf.putInt(13)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`clientId`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
@@ -5002,19 +5038,19 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 Unit
             }
             is LinkEvent.SmsOlderRequested -> {
-                buf.putInt(13)
+                buf.putInt(14)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
                 FfiConverterULong.write(value.`beforeMs`, buf)
                 Unit
             }
             is LinkEvent.TransferChanged -> {
-                buf.putInt(14)
+                buf.putInt(15)
                 FfiConverterTypeFileTransfer.write(value.`transfer`, buf)
                 Unit
             }
             is LinkEvent.RequestResult -> {
-                buf.putInt(15)
+                buf.putInt(16)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`key`, buf)

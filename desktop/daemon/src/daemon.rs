@@ -125,6 +125,15 @@ struct State {
 
 /// Run until `shutdown` resolves.
 pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> anyhow::Result<()> {
+    // Reading copied pictures needs the desktop session's display, which a service started
+    // before the desktop may lack: take it from the user's session (systemd) if missing.
+    if std::env::var_os("WAYLAND_DISPLAY").is_none() && std::env::var_os("DISPLAY").is_none() {
+        for (k, v) in crate::popups::session_env() {
+            if matches!(k.as_str(), "WAYLAND_DISPLAY" | "DISPLAY" | "XDG_RUNTIME_DIR") && std::env::var_os(&k).is_none() {
+                std::env::set_var(k, v);
+            }
+        }
+    }
     std::fs::create_dir_all(&opts.data_dir)?;
     std::fs::set_permissions(&opts.data_dir, std::fs::Permissions::from_mode(0o700))?;
 
@@ -164,7 +173,12 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         keepers: Mutex::new(HashMap::new()),
         advert_refresh: Arc::new(Notify::new()),
         caps: Mutex::new(HashMap::new()),
-        clipboard: ClipboardSync::start(opts.buses.session.clone(), copies_tx),
+        clipboard: ClipboardSync::start(
+            opts.buses.session.clone(),
+            copies_tx,
+            Some(Box::new(crate::clipboard::SystemImages::new())),
+            opts.data_dir.join("clipboard"),
+        ),
         buses: opts.buses.clone(),
         media: Mutex::new(MediaStore::default()),
         transfers,
@@ -232,7 +246,7 @@ async fn start_node(
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
         cfg.timings = timings(opts.config.battery_saver);
         cfg.capabilities.extend(
-            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS]
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS]
                 .map(String::from),
         );
         match Node::start(cfg).await {
@@ -674,6 +688,34 @@ impl State {
     }
 
     /// Queue files (absolute paths to regular files) for a phone.
+    /// An image copied here: send it at full quality (as a file) to connected phones that
+    /// put such images on their clipboard, and tell them which transfer it is.
+    fn send_clipboard_image(&self, path: &std::path::Path) {
+        let Ok(meta) = std::fs::metadata(path) else { return };
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Clipboard image.png".into());
+        let mime = crate::open::guess_mime(&name);
+        for peer in self.connected_with(phonelink_core::CAP_CLIPBOARD_IMAGE) {
+            if !self.node.peer_supports(&peer, CAP_FILES) {
+                continue;
+            }
+            match self.transfers.send_file(peer, path.to_string_lossy().into_owned(), &name, meta.len(), mime) {
+                Ok(transfer_id) => {
+                    let msg = AppMessage::ClipboardImage {
+                        transfer_id,
+                        copied_ms: now_ms(),
+                    };
+                    if let Err(e) = self.to_phone(&peer, msg) {
+                        debug!("could not announce the clipboard image: {e}");
+                    }
+                }
+                Err(e) => debug!("could not send the clipboard image: {e}"),
+            }
+        }
+    }
+
     fn send_files(&self, device: Option<&str>, paths: &[String], notify: bool) -> Result<Vec<String>, String> {
         if paths.is_empty() {
             return Err("no files given".into());
@@ -1042,7 +1084,9 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     WatchEvent::PhoneStatusChanged { id: peer.short() }
                 }
                 // Only ever computer → phone.
-                AppMessage::MediaControl { .. } | AppMessage::ComputerStatus { .. } => continue,
+                AppMessage::MediaControl { .. }
+                | AppMessage::ComputerStatus { .. }
+                | AppMessage::ClipboardImage { .. } => continue,
                 AppMessage::Unsupported => {
                     debug!("message type not supported by this version; ignored");
                     continue;
@@ -1188,8 +1232,20 @@ async fn transfer_updates(state: Arc<State>, mut events: tokio::sync::mpsc::Unbo
 
 /// Text copied on this computer goes to every connected phone that can take it. Only
 /// while connected: queueing copies for later would paste stale text over newer ones.
-async fn share_copies(state: Arc<State>, mut copies: tokio::sync::mpsc::UnboundedReceiver<String>) {
-    while let Some(text) = copies.recv().await {
+async fn share_copies(
+    state: Arc<State>,
+    mut copies: tokio::sync::mpsc::UnboundedReceiver<crate::clipboard::Copied>,
+) {
+    while let Some(copied) = copies.recv().await {
+        let text = match copied {
+            crate::clipboard::Copied::Text(t) => t,
+            crate::clipboard::Copied::Image(path) => {
+                if state.clipboard_on() {
+                    state.send_clipboard_image(&path);
+                }
+                continue;
+            }
+        };
         if !state.clipboard_on() || text.trim().is_empty() || text.len() > MAX_CLIPBOARD_TEXT {
             continue;
         }

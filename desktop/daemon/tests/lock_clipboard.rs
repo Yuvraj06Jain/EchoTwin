@@ -11,7 +11,7 @@ use std::{
 
 use phonelink_core::{
     message::LOCK_RESULT_KEY, AppMessage, Event, Fingerprint, Node, NodeConfig, PairingOffer,
-    CAP_CLIPBOARD, CAP_LOCK,
+    transfer::CAP_FILES, CAP_CLIPBOARD, CAP_CLIPBOARD_IMAGE, CAP_LOCK,
 };
 use phonelink_desktop::{
     client::Client,
@@ -178,7 +178,8 @@ async fn setup() -> Option<Rig> {
     let mut offer = PairingOffer::from_uri(&uri).unwrap();
     offer.addrs = vec![SocketAddr::from(([127, 0, 0, 1], offer.addrs[0].port()))];
     let mut cfg = NodeConfig::new("Galaxy S24 FE", None, "127.0.0.1:0".parse().unwrap());
-    cfg.capabilities.extend([CAP_LOCK, CAP_CLIPBOARD].map(String::from));
+    cfg.capabilities
+        .extend([CAP_LOCK, CAP_CLIPBOARD, CAP_CLIPBOARD_IMAGE, CAP_FILES].map(String::from));
     let (phone, mut phone_rx) = Node::start(cfg).await.unwrap();
     phone.pair_with(&offer).await.unwrap();
     timeout(WAIT, async {
@@ -342,6 +343,20 @@ async fn clipboard_goes_both_ways_without_echoes() {
     assert_eq!(r.laptop_clipboard(), "OTP-free text from the phone");
 
     // Too long to be useful as a paste (and not cut off half-way): not sent.
+    // An image file copied in the file manager goes as that image (a file transfer the
+    // phone puts on its clipboard), not as its path.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("holiday photo.png"), b"\x89PNG\r\n\x1a\nnot really").unwrap();
+    r.laptop_copies(&format!("file://{}/holiday%20photo.png", dir.path().display()));
+    let m = r
+        .phone_waits_for("clipboard image announced", |m| matches!(m, AppMessage::ClipboardImage { .. }))
+        .await;
+    let AppMessage::ClipboardImage { transfer_id, copied_ms } = m else { unreachable!() };
+    assert!(!transfer_id.is_empty() && copied_ms.abs_diff(now_ms()) < 10_000);
+    assert!(r.phone_gets(Duration::from_millis(300)).await.iter().all(|m| !is_clip(m)), "not sent as text");
+    let Reply::Transfers { items } = r.request(Request::Transfers).await else { panic!() };
+    assert!(items.iter().any(|t| t.id == transfer_id && t.name == "holiday photo.png"), "sent at full quality as the file");
+
     r.laptop_copies(&"x".repeat(phonelink_core::message::MAX_CLIPBOARD_TEXT + 1));
     r.laptop_copies("   ");
     assert!(r.phone_gets(Duration::from_millis(500)).await.iter().all(|m| !is_clip(m)));

@@ -26,6 +26,9 @@ pub const CAP_SMS: &str = "sms/1";
 /// Conversations the phone shares (most recent first) and messages per conversation.
 pub const SMS_MAX_THREADS: usize = 30;
 pub const SMS_MAX_MESSAGES: usize = 30;
+/// Images copied on the computer go to the phone's clipboard (as a file transfer).
+pub const CAP_CLIPBOARD_IMAGE: &str = "clipimage/1";
+
 /// Battery and network status in both directions (never queued: only "right now" matters).
 pub const CAP_STATUS: &str = "status/1";
 
@@ -268,6 +271,9 @@ pub enum AppMessage {
     PhoneStatus(PhoneStatus),
     /// Computer → phone: its battery; `None` on a computer without one (`CAP_STATUS`).
     ComputerStatus { battery: Option<u8>, charging: bool },
+    /// Computer → phone: file transfer `transfer_id` is an image copied on the computer; put
+    /// it on the clipboard when it arrives (`CAP_CLIPBOARD_IMAGE`). `copied_ms`: sender's clock.
+    ClipboardImage { transfer_id: String, copied_ms: u64 },
 }
 
 /// Album art must be a small JPEG or PNG.
@@ -336,6 +342,10 @@ mod tests {
             AppMessage::ComputerStatus {
                 battery: None,
                 charging: false,
+            },
+            AppMessage::ClipboardImage {
+                transfer_id: "ab12".into(),
+                copied_ms: 7,
             },
         ] {
             assert_eq!(AppMessage::decode(&m.encode().unwrap()), m);

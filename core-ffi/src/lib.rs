@@ -26,7 +26,7 @@ use phonelink_core::{
     transfer::{Direction, SourceOpener, TransferConfig, TransferInfo, Transfers, CAP_FILES},
     AppMessage, Event, Fingerprint, MediaAction, Node, NodeConfig, NowPlaying, PairingOffer,
     PeerRecord, PhoneNotification, SmsMessage, SmsState, SmsThread, CAP_CLIPBOARD, CAP_LOCK,
-    CAP_MEDIA, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS,
+    CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS,
 };
 use tokio::{runtime::Runtime, task::JoinHandle};
 
@@ -123,6 +123,13 @@ pub enum LinkEvent {
         id: String,
         battery: Option<u8>,
         charging: bool,
+    },
+    /// An image copied on the computer arrives as file transfer `transfer_id`: when it is
+    /// done, put it on the clipboard instead of saving it in Downloads.
+    ClipboardImageIncoming {
+        id: String,
+        name: String,
+        transfer_id: String,
     },
     /// Text copied on the computer: put it on this phone's clipboard (if sharing is on).
     ClipboardReceived {
@@ -555,6 +562,7 @@ impl PhoneLink {
                             CAP_NOTIFICATIONS,
                             CAP_LOCK,
                             CAP_CLIPBOARD,
+                            CAP_CLIPBOARD_IMAGE,
                             CAP_MEDIA,
                             CAP_FILES,
                             CAP_SMS,
@@ -711,6 +719,17 @@ impl PhoneLink {
                                 id: peer.short(),
                                 name: name_of(&pump_node, &peer),
                                 text,
+                            }
+                        }
+                        AppMessage::ClipboardImage { transfer_id, copied_ms } => {
+                            // An old copy that waited in a queue: just a received file.
+                            if !is_fresh(copied_ms, now_ms(), CLIPBOARD_MAX_AGE_MS) {
+                                continue;
+                            }
+                            LinkEvent::ClipboardImageIncoming {
+                                id: peer.short(),
+                                name: name_of(&pump_node, &peer),
+                                transfer_id,
                             }
                         }
                         AppMessage::SmsSend {
@@ -1758,6 +1777,19 @@ mod tests {
         });
         let ev = wait(&rx, |e| matches!(e, LinkEvent::ClipboardReceived { .. }));
         assert!(matches!(ev, LinkEvent::ClipboardReceived { text, .. } if text == "ssh lab-pc"));
+
+        // An image copied on the laptop: the phone learns which transfer to put on its
+        // clipboard; an old announcement is ignored (the file is then just a download).
+        to_phone(AppMessage::ClipboardImage {
+            transfer_id: "old".into(),
+            copied_ms: now_ms() - 3_600_000,
+        });
+        to_phone(AppMessage::ClipboardImage {
+            transfer_id: "t-7".into(),
+            copied_ms: now_ms(),
+        });
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::ClipboardImageIncoming { .. }));
+        assert!(matches!(ev, LinkEvent::ClipboardImageIncoming { transfer_id, .. } if transfer_id == "t-7"));
 
         // A computer running an older EchoTwin: the phone says so instead of sending.
         phone.shutdown();

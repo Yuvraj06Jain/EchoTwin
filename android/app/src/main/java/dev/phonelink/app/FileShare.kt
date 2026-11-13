@@ -1,5 +1,7 @@
 package dev.phonelink.app
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -126,8 +128,40 @@ object FileShare : FileSource {
             sourceOf.remove(t.id)?.let { src -> openShares.remove(src)?.close() }
             if (t.state == "failed") Notifications.fileResult(app, t.id, "Couldn't send ${t.name}", t.message, null)
         }
-        if (!t.outgoing && t.state == "done") publish(t)
+        if (!t.outgoing && t.state == "done") {
+            val from = clipboardFrom.remove(t.id)
+            if (from != null && Prefs.clipboardSharing(app)) toClipboard(t, from) else publish(t)
+        }
         Notifications.transfers(app, all().filter { it.state == "active" || it.state == "waiting" || it.state == "queued" })
+    }
+
+    /** Transfers that are images copied on the computer (transfer id → computer name). */
+    private val clipboardFrom = ConcurrentHashMap<String, String>()
+
+    /** The computer said transfer [transferId] is an image it copied: clipboard, not Downloads. */
+    fun expectClipboard(transferId: String, computer: String) {
+        clipboardFrom[transferId] = computer
+    }
+
+    /**
+     * Put a received image on the clipboard at full quality. It stays in the app's private
+     * cache (the newest 5 are kept); apps you paste into may read just that file.
+     */
+    private fun toClipboard(t: FileTransfer, computer: String) {
+        val private = t.path?.let(::File) ?: return
+        if (!private.exists()) return
+        val dir = File(app.cacheDir, "clipboard").apply { mkdirs() }
+        dir.listFiles()?.sortedBy { it.lastModified() }?.dropLast(4)?.forEach { it.delete() }
+        val file = File(dir, t.name.ifBlank { "image.png" })
+        if (!private.renameTo(file)) {
+            runCatching { private.copyTo(file, overwrite = true); private.delete() }.onFailure { return publish(t) }
+        }
+        val uri = androidx.core.content.FileProvider.getUriForFile(app, app.packageName + ".files", file)
+        val clip = ClipData.newUri(app.contentResolver, "Image from $computer", uri)
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            runCatching { app.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(clip) }
+            LinkManager.toast("Image copied from $computer")
+        }
     }
 
     /** At start-up: files that arrived while the app was being closed are published now. */

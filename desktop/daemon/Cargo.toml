@@ -24,6 +24,9 @@ qrcode = { version = "0.14", default-features = false }
 if-addrs = "0.15"
 # Desktop popups over D-Bus (pure Rust). One long-lived connection, so clicks come back to us.
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+# Copied pictures (Wayland data-control on KDE, X11 elsewhere), sent losslessly as PNG.
+arboard = { version = "3", features = ["wayland-data-control"] }
+png = "0.17"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"

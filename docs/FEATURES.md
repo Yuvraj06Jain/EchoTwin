@@ -223,6 +223,8 @@ received and never echo it back; `copied_ms` must be fresh (2 min).
 | FFI | `core-ffi/src/lib.rs` | `send_clipboard`, `LinkEvent::ClipboardReceived` |
 | Phone | `android/…/ClipboardActivity.kt`, `Tiles.kt` `ClipboardTileService`, `LinkManager.{sendClipboard, putOnClipboard}`, `MainActivity.sendClipboard` | |
 
+**Images (laptop → phone):** a copied picture is read with `arboard` (`clipboard.rs` `SystemImages`, saved as PNG) or, for a copied image file, sent as that file; `State::send_clipboard_image` sends it with the file engine at full quality plus `ClipboardImage`, and the phone (`FileShare.toClipboard`) puts it on the clipboard through a `FileProvider` instead of Downloads.
+
 **Settings:** laptop `clipboard_sync`; phone `Prefs.clipboardSharing`.
 **Tests:** `lock_clipboard.rs` (`clipboard_goes_both_ways_without_echoes`).
 

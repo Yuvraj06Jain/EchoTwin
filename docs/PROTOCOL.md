@@ -77,6 +77,7 @@ Carried inside `Deliver.body`, postcard-encoded. Anything this build doesn't kno
 | 21 | `SmsSendResult { client_id, state, message }` | P→C | `sms/1` | `SmsStore::send_result` | `sms_send_result` |
 | 22 | `PhoneStatus(PhoneStatus)` | P→C | `status/1` | `phone_status` map → `DeviceInfo.status` | `send_phone_status` (StatusWatcher) |
 | 23 | `ComputerStatus { battery, charging }` | C→P | `status/1` | sent by `send_battery` / `battery_watch` | `LinkEvent::ComputerStatus` → `Device.battery` |
+| 24 | `ClipboardImage { transfer_id, copied_ms }` | C→P | `clipimage/1` | `State::send_clipboard_image` (after `send_file`) | `LinkEvent::ClipboardImageIncoming` → `FileShare.expectClipboard` → clipboard |
 
 Payload types (`message.rs`): `PhoneNotification { key, package, app, title, text,
 posted_ms, can_reply, actions }`, `NowPlaying { app, package, title, artist, album,

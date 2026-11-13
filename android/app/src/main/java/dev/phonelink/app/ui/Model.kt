@@ -47,6 +47,7 @@ interface Actions {
     fun allowSms()
     fun allowBluetooth()
     fun allowPhoneStatus()
+    fun testBluetooth()
     fun openAppInfo()
     fun unpair(device: Device)
 }

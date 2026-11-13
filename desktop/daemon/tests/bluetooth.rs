@@ -70,12 +70,17 @@ impl FakeProfileManager {
         profile: OwnedObjectPath,
         uuid: String,
         options: HashMap<String, OwnedValue>,
-    ) {
+    ) -> zbus::fdo::Result<()> {
+        // Like BlueZ when another profile already uses RFCOMM channel 22.
+        if options.get("Channel").and_then(|v| u16::try_from(v).ok()) == Some(22) {
+            return Err(zbus::fdo::Error::Failed("channel 22 busy".into()));
+        }
         let mut s = self.0.lock().unwrap();
         s.registered.push((hdr.sender().unwrap().to_string(), profile.to_string(), uuid));
         for (k, v) in options {
             s.options.insert(k, format!("{v:?}"));
         }
+        Ok(())
     }
 
     fn unregister_profile(&self, _profile: OwnedObjectPath) {
@@ -165,6 +170,11 @@ async fn the_phone_reaches_the_laptop_over_bluetooth_when_wifi_is_gone() {
     let (sender, path, uuid) = seen.lock().unwrap().registered[0].clone();
     assert_eq!(uuid, PROFILE_UUID);
     assert!(seen.lock().unwrap().options["RequireAuthentication"].contains("true"));
+    assert!(
+        seen.lock().unwrap().options["Channel"].contains("23"),
+        "a fixed channel, the next one when 22 is taken: {:?}",
+        seen.lock().unwrap().options.get("Channel")
+    );
     let Reply::Status { bluetooth_backup, bluetooth_status, .. } = request(Request::Status).await else { panic!() };
     assert!(bluetooth_backup);
     assert_eq!(bluetooth_status, "", "ready");

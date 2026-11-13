@@ -117,6 +117,24 @@ fun SettingsScreen(state: UiState, actions: Actions, onOpenSetup: () -> Unit, mo
                 ) { actions.setQueue(it) }
             }
         }
+        item { SectionTitle("Bluetooth backup") }
+        item {
+            Panel {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("When Wi-Fi is gone", fontWeight = FontWeight.Medium)
+                        Hint(
+                            when {
+                                dev.phonelink.app.BluetoothBackup.active -> "Connected over Bluetooth now"
+                                !state.access.bluetooth -> "Needs \"Nearby devices\" (Finish setup)"
+                                else -> state.bluetoothProblem ?: "Ready: takes over 15 s after Wi-Fi drops"
+                            }
+                        )
+                    }
+                    TextButton(onClick = actions::testBluetooth) { Text("Test", color = Pl.AccentText) }
+                }
+            }
+        }
         item { SectionTitle("Access") }
         item {
             Panel(Modifier.clickable(onClick = onOpenSetup)) {

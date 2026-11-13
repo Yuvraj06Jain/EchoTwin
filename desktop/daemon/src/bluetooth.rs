@@ -50,7 +50,14 @@ impl Profile {
 pub struct Registered {
     conn: Connection,
     pub address: String,
+    /// The RFCOMM channel the phone connects to.
+    pub channel: u16,
 }
+
+/// RFCOMM channels tried in order. A fixed channel (not "any") makes BlueZ listen on it and
+/// publish it in the service record, and lets the phone fall back to it directly if its
+/// service lookup fails. 22 is rarely used by other profiles.
+pub const CHANNELS: [u16; 9] = [22, 23, 24, 25, 26, 27, 28, 29, 30];
 
 impl Registered {
     pub fn unregister(self) {
@@ -115,28 +122,37 @@ pub fn register(
     .and_then(|b| b.build())
     .map_err(|e| format!("no system D-Bus: {e}"))?;
     let address = adapter_address(&conn).ok_or("no Bluetooth adapter found (is Bluetooth on?)")?;
-    let options: HashMap<&str, Value<'_>> = HashMap::from([
-        ("Name", Value::from("EchoTwin")),
-        ("Role", Value::from("server")),
-        // Only devices paired in the system Bluetooth settings may connect at all.
-        ("RequireAuthentication", Value::from(true)),
-        ("RequireAuthorization", Value::from(false)),
-        ("AutoConnect", Value::from(false)),
-    ]);
-    conn.call_method(
-        Some("org.bluez"),
-        "/org/bluez",
-        Some("org.bluez.ProfileManager1"),
-        "RegisterProfile",
-        &(
-            ObjectPath::try_from(PROFILE_PATH).expect("valid path"),
-            PROFILE_UUID,
-            options,
-        ),
-    )
-    .map_err(|e| {
-        debug!("RegisterProfile failed: {e}");
-        format!("BlueZ refused the EchoTwin profile: {e}")
-    })?;
-    Ok(Registered { conn, address })
+    let mut last = String::new();
+    for channel in CHANNELS {
+        let options: HashMap<&str, Value<'_>> = HashMap::from([
+            ("Name", Value::from("EchoTwin")),
+            ("Role", Value::from("server")),
+            ("Channel", Value::from(channel)),
+            // Only devices paired in the system Bluetooth settings may connect at all.
+            ("RequireAuthentication", Value::from(true)),
+            ("RequireAuthorization", Value::from(false)),
+            ("AutoConnect", Value::from(false)),
+        ]);
+        match conn.call_method(
+            Some("org.bluez"),
+            "/org/bluez",
+            Some("org.bluez.ProfileManager1"),
+            "RegisterProfile",
+            &(
+                ObjectPath::try_from(PROFILE_PATH).expect("valid path"),
+                PROFILE_UUID,
+                options,
+            ),
+        ) {
+            Ok(_) => {
+                tracing::info!(channel, %address, "Bluetooth backup listening");
+                return Ok(Registered { conn, address, channel });
+            }
+            Err(e) => {
+                debug!(channel, "RegisterProfile failed: {e}");
+                last = e.to_string();
+            }
+        }
+    }
+    Err(format!("BlueZ refused the EchoTwin profile: {last}"))
 }

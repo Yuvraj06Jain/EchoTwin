@@ -200,6 +200,10 @@ class MainActivity : ComponentActivity() {
         override fun allowBattery() = fixBattery()
         override fun allowSms() = askSms.launch(SmsSync.permissions)
         override fun allowBluetooth() = askBluetooth.launch(BluetoothBackup.permission)
+        override fun testBluetooth() {
+            notice = "Testing Bluetooth…"
+            BluetoothBackup.test { notice = it }
+        }
         override fun allowPhoneStatus() = askPhoneStatus.launch(StatusWatcher.PHONE_PERMISSION)
         override fun openAppInfo() = this@MainActivity.openAppInfo()
         override fun unpair(device: Device) = this@MainActivity.unpair(device)

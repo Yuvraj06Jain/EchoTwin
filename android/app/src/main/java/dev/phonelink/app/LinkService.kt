@@ -59,6 +59,7 @@ class LinkService : LifecycleService() {
             acquireMulticastLock()
             SmsSync.start()
             StatusWatcher.start(this@LinkService)
+            BluetoothBackup.start()
             runCatching { link.startDiscovery() }
             watchNetwork(link)
         }
@@ -99,8 +100,14 @@ class LinkService : LifecycleService() {
     private fun watchNetwork(link: PhoneLink) {
         val cm = getSystemService(ConnectivityManager::class.java) ?: return
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) = link.onNetworkChanged()
-            override fun onLost(network: Network) = link.onNetworkChanged()
+            override fun onAvailable(network: Network) {
+                link.onNetworkChanged()
+                BluetoothBackup.onNetworkChanged()
+            }
+            override fun onLost(network: Network) {
+                link.onNetworkChanged()
+                BluetoothBackup.onNetworkChanged()
+            }
             override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) =
                 link.onNetworkChanged()
         }

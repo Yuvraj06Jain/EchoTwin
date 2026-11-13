@@ -394,6 +394,8 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                     id,
                     port,
                     devices,
+                    bluetooth_backup,
+                    bluetooth_status,
                     ..
                 },
             ) = (cli.json, &r)
@@ -401,6 +403,12 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 println!("This computer: {name}");
                 println!("  id:   {id}");
                 println!("  port: UDP {port}");
+                let bt = match (bluetooth_backup, bluetooth_status.as_str()) {
+                    (false, _) => "off".to_string(),
+                    (true, "") => "ready (see the journal for the channel)".to_string(),
+                    (true, why) => format!("not available: {why}"),
+                };
+                println!("  Bluetooth backup: {bt}");
                 println!("Paired devices:");
                 print_devices(devices);
             }

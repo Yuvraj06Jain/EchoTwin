@@ -212,6 +212,9 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 67 | Phone Home → **Ring** | the laptop plays a loud beeping with a Stop popup; the volume goes back afterwards |
 | 68 | Play music on the laptop, call the phone from another phone | "… is calling" popup with **Decline**; the music pauses; Decline ends the call; when the call ends the music continues |
 | 69 | Same with a WhatsApp call, and with an outgoing call | the music pauses and resumes; for WhatsApp the popup appears too |
+| 70 | Panel widget: look at the icon, then click it | the phone outline is filled to the phone's battery (amber below 20%), a number counts new things; the popup shows the tile dashboard; captions open full lists with a back arrow; reopening starts on the dashboard |
+| 71 | Drag a file onto the drop tile (or the icon) | it shows the file name, percent and time left; the icon gets a ring that fills as it goes |
+| 72 | Phone Home screen | phone and laptop pictures show the right battery levels; the link says Wi-Fi (green) or Bluetooth (amber); switching the connection off turns it grey and stops the dashes |
 
 When something fails, include:
 - the step number

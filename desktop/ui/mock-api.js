@@ -24,6 +24,7 @@
     signal: 3,
     battery: 76,
     charging: false,
+    canRing: true,
   };
 
   let mode = 'connected'; // connected | offline | unpaired
@@ -296,6 +297,10 @@
       await wait(mode === 'connected' ? 700 : 150);
       t.messages.push(msg);
       return clone(msg);
+    },
+    async ring(/* on, deviceId */) {
+      await wait(100);
+      if (mode !== 'connected') throw new Error(`${phone.name} is not connected`);
     },
     async openUrl(/* url, deviceId */) {
       await wait(150);

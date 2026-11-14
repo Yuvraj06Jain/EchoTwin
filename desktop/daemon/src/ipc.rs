@@ -156,6 +156,11 @@ pub enum Request {
         device: Option<String>,
         url: String,
     },
+    /// Ring the connected phone loudly (even on silent), or stop it.
+    Ring {
+        device: Option<String>,
+        on: bool,
+    },
     /// Put a notification's one-time code on this computer's clipboard.
     CopyCode {
         id: String,

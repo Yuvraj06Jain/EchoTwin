@@ -6,14 +6,34 @@ use std::sync::{Arc, Mutex};
 pub trait Effects: Send + Sync {
     /// Open a web link (already checked with `is_web_link`) in the default browser.
     fn open_url(&self, url: &str) -> bool;
+    /// Start or stop ringing this computer (stops by itself after `ring::MAX_RING`).
+    fn ring(&self, on: bool) -> Result<(), String>;
 }
 
 /// The real desktop.
-pub struct System;
+pub struct System {
+    ringer: crate::ring::Ringer,
+}
+
+impl System {
+    /// `data_dir`: where the ring sound is kept.
+    pub fn new(data_dir: &std::path::Path) -> Self {
+        Self { ringer: crate::ring::Ringer::new(data_dir) }
+    }
+}
 
 impl Effects for System {
     fn open_url(&self, url: &str) -> bool {
         crate::open::open_url(url)
+    }
+
+    fn ring(&self, on: bool) -> Result<(), String> {
+        if on {
+            self.ringer.start()
+        } else {
+            self.ringer.stop();
+            Ok(())
+        }
     }
 }
 
@@ -41,5 +61,10 @@ impl Effects for Recorded {
     fn open_url(&self, url: &str) -> bool {
         self.note(format!("open {url}"));
         true
+    }
+
+    fn ring(&self, on: bool) -> Result<(), String> {
+        self.note(format!("ring {}", if on { "on" } else { "off" }));
+        Ok(())
     }
 }

@@ -112,6 +112,7 @@
     battery: d.status && typeof d.status.battery === 'number' ? d.status.battery : null,
     charging: !!(d.status && d.status.charging),
     pausedByPeer: !!d.paused_by_peer,
+    canRing: (d.capabilities || []).includes('ring/1'),
     lastSeen: null,
   });
 
@@ -288,6 +289,9 @@
       app.muted = !enabled;
     },
 
+    async ring(on, deviceId) {
+      await invoke('ring', { on, device: deviceId || null });
+    },
     async openUrl(url, deviceId) {
       const deliveredNow = await invoke('open_url', { url, device: deviceId || null });
       return { queued: !deliveredNow };

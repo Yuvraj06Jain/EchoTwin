@@ -17,6 +17,7 @@ android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE
 android.permission.RECEIVE_BOOT_COMPLETED
 android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
 android.permission.POST_NOTIFICATIONS
+android.permission.VIBRATE
 android.permission.CAMERA
 android.permission.READ_SMS
 android.permission.SEND_SMS

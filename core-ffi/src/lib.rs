@@ -26,7 +26,7 @@ use phonelink_core::{
     transfer::{Direction, SourceOpener, TransferConfig, TransferInfo, Transfers, CAP_FILES},
     AppMessage, Event, Fingerprint, MediaAction, Node, NodeConfig, NowPlaying, PairingOffer,
     PeerRecord, PhoneNotification, SmsMessage, SmsState, SmsThread, CAP_CLIPBOARD, CAP_LOCK,
-    CAP_CLIPBOARD_IMAGE, CAP_LINKS, CAP_MEDIA, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS,
+    CAP_CLIPBOARD_IMAGE, CAP_LINKS, CAP_MEDIA, CAP_RING, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS,
 };
 use tokio::{runtime::Runtime, task::JoinHandle};
 
@@ -57,6 +57,8 @@ pub struct Device {
     pub can_lock: bool,
     /// Connected, and shares the clipboard.
     pub can_clipboard: bool,
+    /// Connected, and can be rung from here.
+    pub can_ring: bool,
     /// "wifi" or "bluetooth" while connected; empty when offline.
     pub via: String,
     /// The computer's Bluetooth address for the backup link (it tells us), if it has one.
@@ -140,6 +142,13 @@ pub enum LinkEvent {
         id: String,
         name: String,
         url: String,
+    },
+    /// The computer asks this phone to ring loudly (`on`) or to stop. Already checked to
+    /// be recent.
+    RingRequested {
+        id: String,
+        name: String,
+        on: bool,
     },
     /// Text copied on the computer: put it on this phone's clipboard (if sharing is on).
     ClipboardReceived {
@@ -478,6 +487,7 @@ fn device(node: &Node, caps: &Caps, power: &Power, p: &PeerRecord) -> Device {
         pending: node.pending_count(&p.fingerprint).unwrap_or(0) as u64,
         can_lock: connected && has_cap(caps, &p.fingerprint, CAP_LOCK),
         can_clipboard: connected && has_cap(caps, &p.fingerprint, CAP_CLIPBOARD),
+        can_ring: connected && has_cap(caps, &p.fingerprint, CAP_RING),
         via: via(node.transport(&p.fingerprint)),
         bluetooth: p.bluetooth.clone(),
         battery,
@@ -585,6 +595,7 @@ impl PhoneLink {
                             CAP_SMS,
                             CAP_STATUS,
                             CAP_LINKS,
+                            CAP_RING,
                         ]
                         .map(String::from),
                     );
@@ -738,6 +749,16 @@ impl PhoneLink {
                                 id: peer.short(),
                                 name: name_of(&pump_node, &peer),
                                 text,
+                            }
+                        }
+                        AppMessage::Ring { on, sent_ms } => {
+                            if !is_fresh(sent_ms, now_ms(), phonelink_core::message::RING_MAX_AGE_MS) {
+                                continue;
+                            }
+                            LinkEvent::RingRequested {
+                                id: peer.short(),
+                                name: name_of(&pump_node, &peer),
+                                on,
                             }
                         }
                         AppMessage::OpenUrl { url, .. } => {
@@ -1023,6 +1044,13 @@ impl PhoneLink {
         let fp = self.connected_one(device_id, CAP_LOCK, "locking from the phone")?;
         let body = AppMessage::LockComputer { sent_ms: now_ms() }.encode()?;
         self.node.send(&fp, body)?;
+        Ok(name_of(&self.node, &fp))
+    }
+
+    /// Ring the computer (to find it), or stop. Returns its name.
+    pub fn ring_computer(&self, device_id: Option<String>, on: bool) -> Result<String, LinkError> {
+        let fp = self.connected_one(device_id, CAP_RING, "ringing")?;
+        self.node.send(&fp, AppMessage::Ring { on, sent_ms: now_ms() }.encode()?)?;
         Ok(name_of(&self.node, &fp))
     }
 
@@ -1752,7 +1780,7 @@ mod tests {
             cfg.capabilities.extend(caps.iter().map(|c| c.to_string()));
             rt.block_on(Node::start(cfg)).unwrap()
         };
-        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS]);
+        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS, CAP_RING]);
         let uri = laptop
             .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
             .to_uri();
@@ -1825,6 +1853,14 @@ mod tests {
             next_from_phone(&mut lrx),
             AppMessage::OpenUrl { url, sent_ms } if url == "https://example.org/a" && sent_ms.abs_diff(now_ms()) < 10_000
         ));
+        // Ringing both ways; an old ring request (queued somewhere) is ignored.
+        assert_eq!(phone.ring_computer(None, true).unwrap(), "Kubuntu");
+        assert!(matches!(next_from_phone(&mut lrx), AppMessage::Ring { on: true, .. }));
+        to_phone(AppMessage::Ring { on: true, sent_ms: now_ms() - 3_600_000 });
+        to_phone(AppMessage::Ring { on: false, sent_ms: now_ms() });
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::RingRequested { .. }));
+        assert!(matches!(ev, LinkEvent::RingRequested { on: false, .. }), "{ev:?}");
+
         // Laptop → phone: only a plain web link becomes a notification.
         to_phone(AppMessage::OpenUrl { url: "javascript:alert(1)".into(), sent_ms: now_ms() });
         to_phone(AppMessage::OpenUrl { url: "https://example.org/x".into(), sent_ms: 0 });

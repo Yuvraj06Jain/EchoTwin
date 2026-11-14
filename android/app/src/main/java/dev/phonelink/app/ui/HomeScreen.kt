@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -197,6 +198,18 @@ private fun ComputerCard(d: Device, state: UiState, actions: Actions, onNote: ()
                 Modifier.weight(1f), actions::sendFiles,
             )
             ActionTile("Note", Icons.Filled.Edit, true, Modifier.weight(1f), onNote)
+        }
+        if (d.canRing) {
+            var ringing by remember { mutableStateOf(false) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionTile(
+                    if (ringing) "Stop" else "Ring", Icons.Filled.Notifications, true, Modifier.weight(1f),
+                ) {
+                    ringing = !ringing
+                    actions.ring(ringing)
+                }
+                Spacer(Modifier.weight(3f))
+            }
         }
     }
 }

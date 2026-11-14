@@ -167,6 +167,8 @@ function fakeTauri() {
           case 'send_note':
           case 'open_url':
             return fake.deliveredNow;
+          case 'ring':
+            return null;
           case 'unpair':
             fake.devices = fake.devices.filter((d) => d.id !== args.device);
             return null;
@@ -250,6 +252,21 @@ function fakeTauri() {
   check((await page.$$eval('#device-panel [data-action="send-file"]', (b) => b.length)) === 1, 'Send files on the phone panel');
   check((await page.$$eval('[data-action="toggle-clipboard"]', (b) => b.length)) === 1, 'clipboard sharing switch on the phone panel');
   check((await page.$$eval('.battery', (b) => b.length)) === 0, 'no made-up battery level');
+  check((await page.$$eval('[data-action="ring-phone"]', (b) => b.length)) === 0, 'no Ring for a phone that cannot ring');
+  await page.evaluate(() => {
+    window.__fake.devices[0].capabilities = ['ring/1'];
+    window.__emit('phonelink://event', { kind: 'connected', id: '9C21-7E04-B3A8-51DF', name: 'Galaxy S24 FE' });
+  });
+  await page.waitForTimeout(400);
+  await page.click('[data-action="ring-phone"]');
+  await page.waitForTimeout(250);
+  const rg = await lastCall('ring');
+  check(rg && rg[1].on === true && rg[1].device === '9C21-7E04-B3A8-51DF', `Ring phone calls ring(on) (${JSON.stringify(rg)})`);
+  check((await txt('[data-action="ring-phone"]')) === 'Stop ringing', 'the button turns into Stop ringing');
+  await page.click('[data-action="ring-phone"]');
+  await page.waitForTimeout(250);
+  check((await lastCall('ring'))[1].on === false, 'Stop ringing calls ring(off)');
+  await page.evaluate(() => { delete window.__fake.devices[0].capabilities; });
   check((await txt('.device-model')) === 'Paired phone', 'no made-up phone model');
   check((await txt('#panel-notifications .empty')).includes('New notifications from Galaxy S24 FE'), 'notifications empty state');
   await page.click('#tab-messages');

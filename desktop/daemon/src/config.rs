@@ -38,6 +38,8 @@ pub struct Config {
     pub battery_alerts: bool,
     /// Let the phone open web links here ("Open on computer").
     pub open_links: bool,
+    /// Let the phone ring this computer (to find it).
+    pub allow_ring: bool,
     /// Where batteries are read from (tests only). Default: `/sys/class/power_supply`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub power_supply_dir: Option<String>,
@@ -60,19 +62,21 @@ impl Default for Config {
             battery_saver: true,
             battery_alerts: true,
             open_links: true,
+            allow_ring: true,
             power_supply_dir: None,
         }
     }
 }
 
 /// Simple on/off settings, set with `Request::SetSwitch` and listed in `Reply::Status`.
-pub const SWITCHES: &[&str] = &["battery_alerts", "open_links"];
+pub const SWITCHES: &[&str] = &["battery_alerts", "open_links", "allow_ring"];
 
 impl Config {
     pub fn switch(&self, name: &str) -> Option<bool> {
         Some(match name {
             "battery_alerts" => self.battery_alerts,
             "open_links" => self.open_links,
+            "allow_ring" => self.allow_ring,
             _ => return None,
         })
     }
@@ -82,6 +86,7 @@ impl Config {
         let slot = match name {
             "battery_alerts" => &mut self.battery_alerts,
             "open_links" => &mut self.open_links,
+            "allow_ring" => &mut self.allow_ring,
             _ => return false,
         };
         *slot = on;

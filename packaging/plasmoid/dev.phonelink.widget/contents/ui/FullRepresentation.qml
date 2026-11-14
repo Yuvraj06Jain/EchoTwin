@@ -92,6 +92,26 @@ PlasmaExtras.Representation {
                 PlasmaComponents.ToolTip { text: root.switchedOff ? "Turn the connection on" : "Turn the connection off (stop searching)" }
             }
             PlasmaComponents.ToolButton {
+                id: ringButton
+                property bool ringing: false
+                icon.name: ringing ? "media-playback-stop" : "notifications"
+                visible: root.online && !!root.phone.can_ring
+                onClicked: {
+                    ringing = !ringing;
+                    root.run(["ring", ringing ? "start" : "stop"]);
+                    root.flash(ringing ? "Ringing your phone" : "Stopped ringing");
+                    if (ringing)
+                        ringStop.restart();
+                }
+                // The phone stops by itself after a minute.
+                Timer {
+                    id: ringStop
+                    interval: 60000
+                    onTriggered: ringButton.ringing = false
+                }
+                PlasmaComponents.ToolTip { text: ringButton.ringing ? "Stop ringing" : "Ring your phone (even on silent)" }
+            }
+            PlasmaComponents.ToolButton {
                 icon.name: "view-refresh"
                 visible: root.st.paired && !root.online && !root.switchedOff
                 onClicked: root.run(["reconnect"])

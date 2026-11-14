@@ -130,6 +130,9 @@ struct State {
     effects: Arc<dyn crate::effects::Effects>,
 }
 
+/// The "this computer is ringing" popup.
+const RING_POPUP: &str = "status/ring";
+
 /// Buttons pressed on our popups: (popup id, action key).
 async fn popup_actions(state: Arc<State>, mut rx: tokio::sync::mpsc::UnboundedReceiver<(String, String)>) {
     while let Some((id, key)) = rx.recv().await {
@@ -208,7 +211,10 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         phone_status: Mutex::new(HashMap::new()),
         status_sent: Mutex::new(HashMap::new()),
         battery_alerts: Mutex::new(HashMap::new()),
-        effects: opts.effects.clone().unwrap_or_else(|| Arc::new(crate::effects::System)),
+        effects: opts
+            .effects
+            .clone()
+            .unwrap_or_else(|| Arc::new(crate::effects::System::new(&opts.data_dir))),
         lan: Mutex::new(None),
         discovery: opts.config.discovery,
         battery_root: opts
@@ -269,7 +275,7 @@ async fn start_node(
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
         cfg.timings = timings(opts.config.battery_saver);
         cfg.capabilities.extend(
-            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS]
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING]
                 .map(String::from),
         );
         match Node::start(cfg).await {
@@ -443,6 +449,41 @@ impl State {
         self.popup_to(true, format!("status/battery/{}", peer.short()), title, body, crate::popups::Tab::Notifications);
     }
 
+    /// The phone rings this computer (or stops).
+    fn rung_by(&self, peer: Fingerprint, on: bool, sent_ms: u64) {
+        use phonelink_core::message::{is_fresh, RING_MAX_AGE_MS};
+        if !is_fresh(sent_ms, now_ms(), RING_MAX_AGE_MS) {
+            debug!("ignored an old ring request");
+            return;
+        }
+        if !on {
+            self.stop_ringing();
+            return;
+        }
+        if !self.switch_on("allow_ring") {
+            info!("the phone asked to ring this computer, but that is switched off");
+            return;
+        }
+        match self.effects.ring(true) {
+            Ok(()) => self.popup_with(
+                RING_POPUP.into(),
+                format!("{} is ringing this computer", self.name_of(&peer)),
+                "Press Stop to silence it.".into(),
+                crate::popups::Tab::Notifications,
+                vec![("ring-stop".into(), "Stop".into())],
+                crate::ring::MAX_RING.as_millis() as i32,
+            ),
+            Err(e) => warn!("could not ring: {e}"),
+        }
+    }
+
+    fn stop_ringing(&self) {
+        if let Err(e) = self.effects.ring(false) {
+            debug!("stop ringing: {e}");
+        }
+        self.popups.send(PopupCmd::Close { id: RING_POPUP.into() });
+    }
+
     /// "Open on computer" from the phone.
     fn open_link_from(&self, peer: Fingerprint, url: &str, sent_ms: u64) {
         use phonelink_core::message::{is_fresh, is_web_link, LINK_MAX_AGE_MS};
@@ -530,6 +571,10 @@ impl State {
     /// A button on one of our popups.
     fn popup_action(&self, popup_id: &str, key: &str) {
         debug!(popup_id, key, "popup action");
+        if key == "ring-stop" {
+            self.stop_ringing();
+            return;
+        }
         if let Some(id) = key.strip_prefix("otp:") {
             if let Err(e) = self.copy_code(id) {
                 warn!("could not copy the code: {e}");
@@ -1209,7 +1254,11 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     state.open_link_from(peer, &url, sent_ms);
                     continue;
                 }
-                AppMessage::CallState { .. } | AppMessage::Ring { .. } => continue,
+                AppMessage::Ring { on, sent_ms } => {
+                    state.rung_by(peer, on, sent_ms);
+                    continue;
+                }
+                AppMessage::CallState { .. } => continue,
                 // Only ever computer → phone.
                 AppMessage::CallDecline { .. }
                 | AppMessage::MediaControl { .. }
@@ -1849,6 +1898,25 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                             message: e.to_string(),
                         },
                     },
+                    Err(message) => Reply::Error { message },
+                };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::Ring { device, on } => {
+                let reply = match state.resolve(device.as_deref()) {
+                    Ok(p) if !state.node.is_connected(&p.fingerprint) => Reply::Error {
+                        message: format!("{} is not connected", p.name),
+                    },
+                    Ok(p) if !state.has_cap(&p.fingerprint, phonelink_core::CAP_RING) => Reply::Error {
+                        message: "update EchoTwin on your phone to ring it from here".into(),
+                    },
+                    Ok(p) => {
+                        let body = AppMessage::Ring { on, sent_ms: now_ms() }.encode()?;
+                        match state.node.send(&p.fingerprint, body) {
+                            Ok(_) => Reply::Done,
+                            Err(e) => Reply::Error { message: e.to_string() },
+                        }
+                    }
                     Err(message) => Reply::Error { message },
                 };
                 write_reply(&mut w, &reply).await?;

@@ -156,6 +156,7 @@ async fn status_both_ways_and_widget_json() {
     assert_eq!(v["paired"], true);
     assert_eq!(v["phone"]["name"], "Galaxy S24 FE");
     assert_eq!(v["phone"]["connected"], true);
+    assert_eq!(v["phone"]["can_ring"], false, "this phone did not say it can ring");
     assert_eq!(v["phone"]["status"]["battery"], 82);
     assert_eq!(v["phone"]["status"]["network"], "5G");
     assert!(v["notifications"].is_array() && v["sms"].is_array() && v["transfers"].is_array());
@@ -501,4 +502,63 @@ async fn a_phone_without_links_support_is_told_to_update() {
         .await
         .unwrap();
     assert!(matches!(&r, Reply::Error { message } if message.contains("update")), "{r:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ringing_both_ways() {
+    let mut rig = setup(&[phonelink_core::CAP_RING]).await;
+    let ring = |on: bool, sent_ms: u64| {
+        rig.phone.send(&rig.laptop, AppMessage::Ring { on, sent_ms }.encode().unwrap()).unwrap();
+    };
+    let ring_popups = |d: Duration| {
+        std::thread::sleep(d);
+        rig.popups
+            .try_iter()
+            .filter_map(|p| match p {
+                PopupCmd::Show { id, actions, timeout_ms, .. } if id == "status/ring" => {
+                    Some(format!("show {} {timeout_ms}", actions[0].0))
+                }
+                PopupCmd::Close { id } if id == "status/ring" => Some("close".into()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    ring_popups(Duration::from_millis(200));
+
+    // Phone rings the laptop, then stops it.
+    ring(true, now());
+    assert_eq!(ring_popups(Duration::from_millis(600)), ["show ring-stop 60000"]);
+    assert_eq!(rig.effects.take(), ["ring on"]);
+    ring(false, now());
+    assert_eq!(ring_popups(Duration::from_millis(600)), ["close"]);
+    assert_eq!(rig.effects.take(), ["ring off"]);
+
+    // A stale request (it waited in a queue) is ignored.
+    ring(true, now() - 10 * 60_000);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(rig.effects.take().is_empty());
+
+    // Switched off: the phone can't ring it.
+    let mut c = Client::connect(&rig.socket).await.unwrap();
+    let off = Request::SetSwitch { name: "allow_ring".into(), on: false };
+    assert!(matches!(c.request(&off).await.unwrap(), Reply::Done));
+    ring(true, now());
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(rig.effects.take().is_empty());
+
+    // Laptop rings the phone: the request reaches it with a fresh timestamp.
+    let r = c.request(&Request::Ring { device: None, on: true }).await.unwrap();
+    assert_eq!(r, Reply::Done);
+    let got = timeout(WAIT, async {
+        loop {
+            if let Some(Event::Message { body, .. }) = rig.phone_rx.recv().await {
+                if let AppMessage::Ring { on, sent_ms } = AppMessage::decode(&body) {
+                    return (on, sent_ms);
+                }
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert!(got.0 && got.1.abs_diff(now()) < 10_000);
 }

@@ -35,6 +35,7 @@ interface Actions {
     fun pair()
     fun reconnect()
     fun lock()
+    fun ring(on: Boolean)
     fun sendClipboard()
     fun sendFiles()
     fun sendNote(text: String)

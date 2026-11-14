@@ -779,6 +779,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_remove_notification(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_ring_computer(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_action_result(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_app_icon(
@@ -902,6 +904,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_phonelink_remove_notification(`ptr`: Long,`key`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_ring_computer(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`on`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_action_result(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,`ok`: Byte,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_app_icon(`ptr`: Long,`package`: RustBuffer.ByValue,`png`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1125,6 +1129,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_remove_notification() and 0xFFFF) != 20485) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_ring_computer() and 0xFFFF) != 40606) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_action_result() and 0xFFFF) != 31285) {
@@ -2421,6 +2428,11 @@ public interface PhoneLinkInterface {
     fun `removeNotification`(`key`: kotlin.String)
     
     /**
+     * Ring the computer (to find it), or stop. Returns its name.
+     */
+    fun `ringComputer`(`deviceId`: kotlin.String?, `on`: kotlin.Boolean): kotlin.String
+    
+    /**
      * Tell the computer `device_id` how its request about `key` went.
      */
     fun `sendActionResult`(`deviceId`: kotlin.String, `key`: kotlin.String, `ok`: kotlin.Boolean, `message`: kotlin.String)
@@ -2864,6 +2876,25 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
 }
     }
     
+    
+
+    
+    /**
+     * Ring the computer (to find it), or stop. Returns its name.
+     */
+    @Throws(LinkException::class)override fun `ringComputer`(`deviceId`: kotlin.String?, `on`: kotlin.Boolean): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_ring_computer(
+        it,
+        
+        FfiConverterOptionalString.lower(`deviceId`),
+        FfiConverterBoolean.lower(`on`),_status)
+}
+    }
+    )
+    }
     
 
     
@@ -3959,6 +3990,11 @@ data class Device (
     var `canClipboard`: kotlin.Boolean
     , 
     /**
+     * Connected, and can be rung from here.
+     */
+    var `canRing`: kotlin.Boolean
+    , 
+    /**
      * "wifi" or "bluetooth" while connected; empty when offline.
      */
     var `via`: kotlin.String
@@ -4001,6 +4037,7 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterULong.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalUByte.read(buf),
@@ -4016,6 +4053,7 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterULong.allocationSize(value.`pending`) +
             FfiConverterBoolean.allocationSize(value.`canLock`) +
             FfiConverterBoolean.allocationSize(value.`canClipboard`) +
+            FfiConverterBoolean.allocationSize(value.`canRing`) +
             FfiConverterString.allocationSize(value.`via`) +
             FfiConverterOptionalString.allocationSize(value.`bluetooth`) +
             FfiConverterOptionalUByte.allocationSize(value.`battery`) +
@@ -4030,6 +4068,7 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterULong.write(value.`pending`, buf)
             FfiConverterBoolean.write(value.`canLock`, buf)
             FfiConverterBoolean.write(value.`canClipboard`, buf)
+            FfiConverterBoolean.write(value.`canRing`, buf)
             FfiConverterString.write(value.`via`, buf)
             FfiConverterOptionalString.write(value.`bluetooth`, buf)
             FfiConverterOptionalUByte.write(value.`battery`, buf)
@@ -4712,6 +4751,21 @@ sealed class LinkEvent {
     }
     
     /**
+     * The computer asks this phone to ring loudly (`on`) or to stop. Already checked to
+     * be recent.
+     */
+    data class RingRequested(
+        val `id`: kotlin.String, 
+        val `name`: kotlin.String, 
+        val `on`: kotlin.Boolean) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
      * Text copied on the computer: put it on this phone's clipboard (if sharing is on).
      */
     data class ClipboardReceived(
@@ -4864,31 +4918,36 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            12 -> LinkEvent.ClipboardReceived(
+            12 -> LinkEvent.RingRequested(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterBoolean.read(buf),
+                )
+            13 -> LinkEvent.ClipboardReceived(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            13 -> LinkEvent.MediaControlRequested(
+            14 -> LinkEvent.MediaControlRequested(
                 FfiConverterString.read(buf),
                 FfiConverterTypeMediaCommand.read(buf),
                 )
-            14 -> LinkEvent.SmsSendRequested(
+            15 -> LinkEvent.SmsSendRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            15 -> LinkEvent.SmsOlderRequested(
+            16 -> LinkEvent.SmsOlderRequested(
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterULong.read(buf),
                 )
-            16 -> LinkEvent.TransferChanged(
+            17 -> LinkEvent.TransferChanged(
                 FfiConverterTypeFileTransfer.read(buf),
                 )
-            17 -> LinkEvent.RequestResult(
+            18 -> LinkEvent.RequestResult(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
@@ -4994,6 +5053,15 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 + FfiConverterString.allocationSize(value.`id`)
                 + FfiConverterString.allocationSize(value.`name`)
                 + FfiConverterString.allocationSize(value.`url`)
+            )
+        }
+        is LinkEvent.RingRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterString.allocationSize(value.`name`)
+                + FfiConverterBoolean.allocationSize(value.`on`)
             )
         }
         is LinkEvent.ClipboardReceived -> {
@@ -5129,21 +5197,28 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.write(value.`url`, buf)
                 Unit
             }
-            is LinkEvent.ClipboardReceived -> {
+            is LinkEvent.RingRequested -> {
                 buf.putInt(12)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterString.write(value.`name`, buf)
+                FfiConverterBoolean.write(value.`on`, buf)
+                Unit
+            }
+            is LinkEvent.ClipboardReceived -> {
+                buf.putInt(13)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`text`, buf)
                 Unit
             }
             is LinkEvent.MediaControlRequested -> {
-                buf.putInt(13)
+                buf.putInt(14)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterTypeMediaCommand.write(value.`command`, buf)
                 Unit
             }
             is LinkEvent.SmsSendRequested -> {
-                buf.putInt(14)
+                buf.putInt(15)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`clientId`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
@@ -5152,19 +5227,19 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 Unit
             }
             is LinkEvent.SmsOlderRequested -> {
-                buf.putInt(15)
+                buf.putInt(16)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
                 FfiConverterULong.write(value.`beforeMs`, buf)
                 Unit
             }
             is LinkEvent.TransferChanged -> {
-                buf.putInt(16)
+                buf.putInt(17)
                 FfiConverterTypeFileTransfer.write(value.`transfer`, buf)
                 Unit
             }
             is LinkEvent.RequestResult -> {
-                buf.putInt(17)
+                buf.putInt(18)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`key`, buf)

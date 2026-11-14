@@ -53,6 +53,11 @@ enum Cmd {
         to: Option<String>,
         url: String,
     },
+    /// Ring your phone loudly (even on silent) to find it; `phonelink ring stop` stops it.
+    Ring {
+        #[arg(value_parser = ["start", "stop"], default_value = "start")]
+        action: String,
+    },
     /// Print events (connections, messages) as they happen.
     Watch,
     /// List notifications mirrored from the phone.
@@ -179,6 +184,7 @@ async fn widget_state(c: &mut Client) -> anyhow::Result<serde_json::Value> {
         "phone": phone.map(|d| json!({
             "id": d.id, "name": d.name, "connected": d.connected, "via": d.via, "status": d.status,
             "paused_by_peer": d.paused_by_peer,
+            "can_ring": d.connected && d.capabilities.iter().any(|c| c == phonelink_core::CAP_RING),
         })),
         "media": media,
         "notifications": notifications,
@@ -440,6 +446,12 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             if !cli.json {
                 println!("Unpaired {device}. It can no longer connect.");
             }
+        }
+        Cmd::Ring { action } => {
+            let on = action == "start";
+            let r = c.request(&Request::Ring { device: None, on }).await?;
+            fail_on_error(&r)?;
+            println!("{}", if on { "Ringing your phone" } else { "Stopped" });
         }
         Cmd::OpenUrl { to, url } => {
             let r = c.request(&Request::OpenUrl { device: to, url }).await?;

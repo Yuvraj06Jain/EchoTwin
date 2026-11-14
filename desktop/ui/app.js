@@ -365,6 +365,7 @@
         <div class="actions">
           <button type="button" class="action" data-action="send-note">${icon('send')}<span class="grow">Send a note</span></button>
           ${caps.files ? `<button type="button" class="action" data-action="send-file">${icon('upload')}<span class="grow">Send files</span></button>` : ''}
+          ${d.connected && d.canRing && api.ring ? `<button type="button" class="action" data-action="ring-phone">${icon('bell')}<span class="grow">${state.ringing ? 'Stop ringing' : 'Ring phone'}</span></button>` : ''}
           <button type="button" class="action" role="switch" aria-checked="${!connectionOff()}" data-action="toggle-connection">${icon('power')}<span class="grow">Connection</span><span class="switch" aria-hidden="true"></span></button>
           ${caps.clipboard ? `<button type="button" class="action" role="switch" aria-checked="${clipOn}" data-action="toggle-clipboard">${icon('clipboard')}<span class="grow">Sync clipboard</span><span class="switch" aria-hidden="true"></span></button>` : ''}
         </div>
@@ -1402,6 +1403,17 @@
         return undefined;
       case 'send-note':
         return openNoteDialog();
+      case 'ring-phone': {
+        const on = !state.ringing;
+        await api.ring(on, state.device ? state.device.id : null);
+        state.ringing = on;
+        clearTimeout(state.ringTimer);
+        // The phone stops by itself after a minute.
+        if (on) state.ringTimer = setTimeout(() => { state.ringing = false; renderDevice(); }, 60_000);
+        renderDevice();
+        $('[data-action="ring-phone"]', el.device)?.focus();
+        return toast(on ? `Ringing ${deviceName()}` : 'Stopped ringing');
+      }
       case 'send-file':
         if (!canSendFiles()) return undefined;
         if (api.chooseFiles) return sendPaths(await api.chooseFiles());

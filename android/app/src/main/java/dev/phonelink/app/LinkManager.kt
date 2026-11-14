@@ -205,6 +205,12 @@ object LinkManager {
         "Locking $name…"
     }
 
+    /** Ring the computer (to find it), or stop it. */
+    fun ringComputer(on: Boolean) = whenConnected { link ->
+        val name = link.ringComputer(null, on)
+        if (on) "Ringing $name…" else "Stopped"
+    }
+
     /** Share → "Open on computer": the first web link in `text`, in the computer's browser. */
     fun openOnComputer(text: String) {
         val url = Regex("""https?://\S+""", RegexOption.IGNORE_CASE).find(text)?.value
@@ -307,6 +313,7 @@ object LinkManager {
                     }
                 }
                 is LinkEvent.OpenUrlRequested -> Notifications.link(app, event.name, event.url)
+                is LinkEvent.RingRequested -> if (event.on) Ringer.start(app, event.name) else Ringer.stop()
                 is LinkEvent.ComputerStatus -> event.alert?.let { alert ->
                     if (Prefs.batteryAlerts(app)) {
                         val text = when (alert) {

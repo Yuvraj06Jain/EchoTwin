@@ -20,4 +20,5 @@ pub mod otp;
 pub mod open;
 pub mod paths;
 pub mod popups;
+pub mod ring;
 pub mod sms;

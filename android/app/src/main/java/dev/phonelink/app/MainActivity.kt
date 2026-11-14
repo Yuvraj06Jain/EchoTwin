@@ -184,6 +184,7 @@ class MainActivity : ComponentActivity() {
             notice = "Looking for your computer on this network…"
         }
         override fun lock() = LinkManager.lockComputer()
+        override fun ring(on: Boolean) = LinkManager.ringComputer(on)
         override fun sendClipboard() = this@MainActivity.sendClipboard()
         override fun sendFiles() = pickFiles.launch(arrayOf("*/*"))
         override fun sendNote(text: String) = sendText(text)

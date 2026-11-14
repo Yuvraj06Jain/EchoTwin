@@ -44,6 +44,7 @@ class MirrorService : NotificationListenerService() {
     override fun onListenerDisconnected() {
         if (instance === this) instance = null
         MediaWatcher.stop()
+        CallWatcher.clear()
     }
 
     override fun onDestroy() {
@@ -52,12 +53,17 @@ class MirrorService : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        if (CallWatcher.isCall(sbn) && sbn.packageName != packageName) {
+            CallWatcher.posted(sbn)
+            return
+        }
         val m = toMirrored(sbn) ?: return
         LinkManager.mirrorPosted(m)
         sendIconOnce(sbn.packageName)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        if (CallWatcher.isCall(sbn)) CallWatcher.removed(sbn.key)
         if (isMirrorable(sbn)) LinkManager.mirrorRemoved(sbn.key)
     }
 

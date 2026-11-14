@@ -40,6 +40,8 @@ pub struct Config {
     pub open_links: bool,
     /// Let the phone ring this computer (to find it).
     pub allow_ring: bool,
+    /// Pause music and videos here while the phone has a call; resume afterwards.
+    pub pause_media_on_call: bool,
     /// Where batteries are read from (tests only). Default: `/sys/class/power_supply`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub power_supply_dir: Option<String>,
@@ -63,13 +65,14 @@ impl Default for Config {
             battery_alerts: true,
             open_links: true,
             allow_ring: true,
+            pause_media_on_call: true,
             power_supply_dir: None,
         }
     }
 }
 
 /// Simple on/off settings, set with `Request::SetSwitch` and listed in `Reply::Status`.
-pub const SWITCHES: &[&str] = &["battery_alerts", "open_links", "allow_ring"];
+pub const SWITCHES: &[&str] = &["battery_alerts", "open_links", "allow_ring", "pause_media_on_call"];
 
 impl Config {
     pub fn switch(&self, name: &str) -> Option<bool> {
@@ -77,6 +80,7 @@ impl Config {
             "battery_alerts" => self.battery_alerts,
             "open_links" => self.open_links,
             "allow_ring" => self.allow_ring,
+            "pause_media_on_call" => self.pause_media_on_call,
             _ => return None,
         })
     }
@@ -87,6 +91,7 @@ impl Config {
             "battery_alerts" => &mut self.battery_alerts,
             "open_links" => &mut self.open_links,
             "allow_ring" => &mut self.allow_ring,
+            "pause_media_on_call" => &mut self.pause_media_on_call,
             _ => return false,
         };
         *slot = on;

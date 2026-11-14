@@ -26,7 +26,7 @@ use phonelink_core::{
     transfer::{Direction, SourceOpener, TransferConfig, TransferInfo, Transfers, CAP_FILES},
     AppMessage, Event, Fingerprint, MediaAction, Node, NodeConfig, NowPlaying, PairingOffer,
     PeerRecord, PhoneNotification, SmsMessage, SmsState, SmsThread, CAP_CLIPBOARD, CAP_LOCK,
-    CAP_CLIPBOARD_IMAGE, CAP_LINKS, CAP_MEDIA, CAP_RING, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS,
+    CAP_CALLS, CAP_CLIPBOARD_IMAGE, CAP_LINKS, CAP_MEDIA, CAP_RING, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS,
 };
 use tokio::{runtime::Runtime, task::JoinHandle};
 
@@ -143,6 +143,12 @@ pub enum LinkEvent {
         name: String,
         url: String,
     },
+    /// The computer asks to decline the ringing call whose notification key is `key`.
+    /// Answer with `send_action_result(id, "call", ok, message)`.
+    CallDeclineRequested {
+        id: String,
+        key: String,
+    },
     /// The computer asks this phone to ring loudly (`on`) or to stop. Already checked to
     /// be recent.
     RingRequested {
@@ -190,6 +196,14 @@ pub enum LinkEvent {
 }
 
 /// A music button pressed on the computer.
+/// Where a call on this phone is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum CallPhaseFfi {
+    Idle,
+    Ringing,
+    Active,
+}
+
 /// The computer's battery just went low or full.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum BatteryAlertKind {
@@ -596,6 +610,7 @@ impl PhoneLink {
                             CAP_STATUS,
                             CAP_LINKS,
                             CAP_RING,
+                            CAP_CALLS,
                         ]
                         .map(String::from),
                     );
@@ -751,6 +766,7 @@ impl PhoneLink {
                                 text,
                             }
                         }
+                        AppMessage::CallDecline { key } => LinkEvent::CallDeclineRequested { id: peer.short(), key },
                         AppMessage::Ring { on, sent_ms } => {
                             if !is_fresh(sent_ms, now_ms(), phonelink_core::message::RING_MAX_AGE_MS) {
                                 continue;
@@ -1045,6 +1061,18 @@ impl PhoneLink {
         let body = AppMessage::LockComputer { sent_ms: now_ms() }.encode()?;
         self.node.send(&fp, body)?;
         Ok(name_of(&self.node, &fp))
+    }
+
+    /// Tell connected computers about a call (ringing, ongoing, ended). `caller` may be
+    /// empty; `key` is the call notification's key (for Decline). Returns how many got it.
+    pub fn send_call_state(&self, phase: CallPhaseFfi, caller: String, key: String) -> Result<u32, LinkError> {
+        let state = match phase {
+            CallPhaseFfi::Idle => phonelink_core::CallPhase::Idle,
+            CallPhaseFfi::Ringing => phonelink_core::CallPhase::Ringing,
+            CallPhaseFfi::Active => phonelink_core::CallPhase::Active,
+        };
+        let caller = phonelink_core::message::truncate_text(&caller, phonelink_core::message::MAX_CALLER);
+        self.send_connected(CAP_CALLS, AppMessage::CallState { state, caller, key })
     }
 
     /// Ring the computer (to find it), or stop. Returns its name.
@@ -1780,7 +1808,7 @@ mod tests {
             cfg.capabilities.extend(caps.iter().map(|c| c.to_string()));
             rt.block_on(Node::start(cfg)).unwrap()
         };
-        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS, CAP_RING]);
+        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS, CAP_RING, CAP_CALLS]);
         let uri = laptop
             .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
             .to_uri();
@@ -1853,6 +1881,17 @@ mod tests {
             next_from_phone(&mut lrx),
             AppMessage::OpenUrl { url, sent_ms } if url == "https://example.org/a" && sent_ms.abs_diff(now_ms()) < 10_000
         ));
+        // Calls: the state reaches the laptop (long names cut); Decline comes back as an event.
+        let long = "M".repeat(300);
+        assert_eq!(phone.send_call_state(CallPhaseFfi::Ringing, long, "k1".into()).unwrap(), 1);
+        assert!(matches!(
+            next_from_phone(&mut lrx),
+            AppMessage::CallState { state: phonelink_core::CallPhase::Ringing, caller, key } if caller.len() <= 100 && key == "k1"
+        ));
+        to_phone(AppMessage::CallDecline { key: "k1".into() });
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::CallDeclineRequested { .. }));
+        assert!(matches!(ev, LinkEvent::CallDeclineRequested { key, .. } if key == "k1"));
+
         // Ringing both ways; an old ring request (queued somewhere) is ignored.
         assert_eq!(phone.ring_computer(None, true).unwrap(), "Kubuntu");
         assert!(matches!(next_from_phone(&mut lrx), AppMessage::Ring { on: true, .. }));

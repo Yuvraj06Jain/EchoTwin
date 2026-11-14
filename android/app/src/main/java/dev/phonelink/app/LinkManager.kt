@@ -10,6 +10,7 @@ import android.os.PersistableBundle
 import android.provider.Settings
 import android.widget.Toast
 import dev.phonelink.core.BatteryAlertKind
+import dev.phonelink.core.CallPhaseFfi
 import dev.phonelink.core.Device
 import dev.phonelink.core.EventListener
 import dev.phonelink.core.LinkEvent
@@ -255,6 +256,9 @@ object LinkManager {
     fun sendNowPlaying(media: PhoneMedia?) = onIo { it.sendNowPlaying(media) }
     fun sendMediaArt(key: String, image: ByteArray) = onIo { it.sendMediaArt(key, image) }
 
+    /** A call started, changed or ended (connected computers only). */
+    fun sendCallState(phase: CallPhaseFfi, caller: String, key: String) = onIo { it.sendCallState(phase, caller, key) }
+
     /** Battery and network for connected computers (not queued). */
     fun sendPhoneStatus(battery: Int?, charging: Boolean, network: String, signal: Int) = onIo {
         it.sendPhoneStatus(battery?.toUByte(), charging, network, signal.toUByte())
@@ -295,6 +299,7 @@ object LinkManager {
                     sendSnapshot()
                     MediaWatcher.resend()
                     StatusWatcher.send(force = true)
+                    CallWatcher.resend()
                     sendSmsSnapshot()
                 }
                 is LinkEvent.SmsSendRequested -> smsSend(event.id, event.clientId, event.address, event.body)
@@ -313,6 +318,7 @@ object LinkManager {
                     }
                 }
                 is LinkEvent.OpenUrlRequested -> Notifications.link(app, event.name, event.url)
+                is LinkEvent.CallDeclineRequested -> handleRequest(event.id, "call") { CallWatcher.decline(it, event.key) }
                 is LinkEvent.RingRequested -> if (event.on) Ringer.start(app, event.name) else Ringer.stop()
                 is LinkEvent.ComputerStatus -> event.alert?.let { alert ->
                     if (Prefs.batteryAlerts(app)) {

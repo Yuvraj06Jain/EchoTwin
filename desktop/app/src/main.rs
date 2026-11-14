@@ -157,6 +157,11 @@ async fn send_note(text: String, device: Option<String>) -> Result<bool, String>
 }
 
 #[tauri::command]
+async fn decline_call(device: Option<String>) -> Result<(), String> {
+    expect_done(Request::DeclineCall { device }).await
+}
+
+#[tauri::command]
 async fn ring(on: bool, device: Option<String>) -> Result<(), String> {
     expect_done(Request::Ring { device, on }).await
 }
@@ -650,6 +655,7 @@ fn main() {
             copy_code,
             open_url,
             ring,
+            decline_call,
             set_switch,
             clear_notifications,
             reply_notification,

@@ -14,6 +14,7 @@ pub mod effects;
 pub mod ipc;
 pub mod lock;
 pub mod media;
+pub mod mpris;
 pub mod netaddrs;
 pub mod notifications;
 pub mod otp;

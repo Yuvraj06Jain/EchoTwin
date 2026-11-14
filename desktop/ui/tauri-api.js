@@ -289,6 +289,9 @@
       app.muted = !enabled;
     },
 
+    async declineCall(deviceId) {
+      await invoke('decline_call', { device: deviceId || null });
+    },
     async ring(on, deviceId) {
       await invoke('ring', { on, device: deviceId || null });
     },

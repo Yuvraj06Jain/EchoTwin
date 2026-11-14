@@ -156,6 +156,11 @@ pub enum Request {
         device: Option<String>,
         url: String,
     },
+    /// Decline the call ringing on the phone. Replies `Done` once asked; the phone's
+    /// answer arrives as an `action_result` event.
+    DeclineCall {
+        device: Option<String>,
+    },
     /// Ring the connected phone loudly (even on silent), or stop it.
     Ring {
         device: Option<String>,
@@ -194,6 +199,13 @@ pub struct DeviceInfo {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WatchEvent {
+    /// A call on the phone: `phase` is "ringing", "active" or "idle" (ended).
+    CallChanged {
+        id: String,
+        name: String,
+        phase: String,
+        caller: String,
+    },
     Paired {
         id: String,
         name: String,

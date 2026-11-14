@@ -89,6 +89,9 @@
       connection: true,
       batterySaver: true,
       batteryAlerts: true,
+      pauseMediaOnCall: true,
+      openLinks: true,
+      allowRing: true,
       bluetoothStatus: '',
       apps: [
         { name: 'WhatsApp', enabled: true },
@@ -297,6 +300,9 @@
       await wait(mode === 'connected' ? 700 : 150);
       t.messages.push(msg);
       return clone(msg);
+    },
+    async declineCall(/* deviceId */) {
+      await wait(80);
     },
     async ring(/* on, deviceId */) {
       await wait(100);

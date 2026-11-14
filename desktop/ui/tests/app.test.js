@@ -77,7 +77,7 @@ function fakeTauri() {
         if (!fake.daemonUp) throw 'daemon-down';
         switch (cmd) {
           case 'status':
-            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66' }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, battery_saver: fake.saver !== false, switches: { battery_alerts: fake.alerts !== false }, devices: fake.devices };
+            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66' }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, battery_saver: fake.saver !== false, switches: { battery_alerts: fake.alerts !== false, pause_media_on_call: true, open_links: true, allow_ring: true }, devices: fake.devices };
           case 'notifications':
             if (fake.slowNext) {
               // Snapshot the data now, answer late (like a reload that started before news arrived).
@@ -168,6 +168,7 @@ function fakeTauri() {
           case 'open_url':
             return fake.deliveredNow;
           case 'ring':
+          case 'decline_call':
             return null;
           case 'unpair':
             fake.devices = fake.devices.filter((d) => d.id !== args.device);
@@ -267,6 +268,21 @@ function fakeTauri() {
   await page.waitForTimeout(250);
   check((await lastCall('ring'))[1].on === false, 'Stop ringing calls ring(off)');
   await page.evaluate(() => { delete window.__fake.devices[0].capabilities; });
+
+  console.log('Calls');
+  await page.evaluate(() => window.__emit('phonelink://event', { kind: 'call_changed', id: '9C21-7E04-B3A8-51DF', name: 'Galaxy S24 FE', phase: 'ringing', caller: 'Mom' }));
+  await page.waitForTimeout(150);
+  check(await visible('#offline-banner'), 'a ringing call shows a banner');
+  check((await txt('#offline-banner')).includes('Mom is calling'), 'banner names the caller');
+  await page.click('#offline-banner [data-action="decline-call"]');
+  await page.waitForTimeout(200);
+  check((await lastCall('decline_call'))[1].device === '9C21-7E04-B3A8-51DF', 'Decline goes to the service');
+  await page.evaluate(() => window.__emit('phonelink://event', { kind: 'call_changed', id: '9C21-7E04-B3A8-51DF', name: 'Galaxy S24 FE', phase: 'active', caller: 'Mom' }));
+  await page.waitForTimeout(150);
+  check((await page.$$eval('#offline-banner [data-action="decline-call"]', (b) => b.length)) === 0, 'no Decline once answered');
+  await page.evaluate(() => window.__emit('phonelink://event', { kind: 'call_changed', id: '9C21-7E04-B3A8-51DF', name: 'Galaxy S24 FE', phase: 'idle', caller: '' }));
+  await page.waitForTimeout(150);
+  check(!(await visible('#offline-banner')), 'the banner goes when the call ends');
   check((await txt('.device-model')) === 'Paired phone', 'no made-up phone model');
   check((await txt('#panel-notifications .empty')).includes('New notifications from Galaxy S24 FE'), 'notifications empty state');
   await page.click('#tab-messages');

@@ -128,6 +128,9 @@ struct State {
     battery_alerts: Mutex<HashMap<Fingerprint, phonelink_core::alerts::BatteryAlerts>>,
     battery_root: PathBuf,
     effects: Arc<dyn crate::effects::Effects>,
+    /// Phones with a call going on: (phase, caller, call notification key).
+    calls: Mutex<HashMap<Fingerprint, (phonelink_core::CallPhase, String, String)>>,
+    call_pause: crate::mpris::CallPause,
 }
 
 /// The "this computer is ringing" popup.
@@ -211,6 +214,8 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         phone_status: Mutex::new(HashMap::new()),
         status_sent: Mutex::new(HashMap::new()),
         battery_alerts: Mutex::new(HashMap::new()),
+        calls: Mutex::new(HashMap::new()),
+        call_pause: crate::mpris::CallPause::start(opts.buses.session.clone()),
         effects: opts
             .effects
             .clone()
@@ -275,7 +280,7 @@ async fn start_node(
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
         cfg.timings = timings(opts.config.battery_saver);
         cfg.capabilities.extend(
-            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING]
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS]
                 .map(String::from),
         );
         match Node::start(cfg).await {
@@ -449,6 +454,63 @@ impl State {
         self.popup_to(true, format!("status/battery/{}", peer.short()), title, body, crate::popups::Tab::Notifications);
     }
 
+    /// The phone's call situation changed: popup, pausing media, the window's banner.
+    fn call_changed(&self, peer: Fingerprint, phase: phonelink_core::CallPhase, caller: &str, key: &str) {
+        use phonelink_core::CallPhase;
+        let caller = phonelink_core::message::truncate_text(caller, phonelink_core::message::MAX_CALLER);
+        let any_call = {
+            let mut calls = lock(&self.calls);
+            if phase == CallPhase::Idle {
+                calls.remove(&peer);
+            } else {
+                calls.insert(peer, (phase, caller.clone(), key.to_string()));
+            }
+            !calls.is_empty()
+        };
+        let name = self.name_of(&peer);
+        let popup = format!("call/{}", peer.short());
+        if phase == CallPhase::Ringing && self.notifications_on() {
+            let title = if caller.is_empty() { "Incoming call".to_string() } else { format!("{caller} is calling") };
+            self.popup_with(
+                popup,
+                title,
+                format!("On {name}"),
+                crate::popups::Tab::Notifications,
+                vec![("call-decline".into(), "Decline".into())],
+                0,
+            );
+        } else {
+            self.popups.send(PopupCmd::Close { id: popup });
+        }
+        if !any_call {
+            self.call_pause.set(false);
+        } else if self.switch_on("pause_media_on_call") {
+            self.call_pause.set(true);
+        }
+        let phase = match phase {
+            CallPhase::Idle => "idle",
+            CallPhase::Ringing => "ringing",
+            CallPhase::Active => "active",
+        };
+        self.broadcast(WatchEvent::CallChanged {
+            id: peer.short(),
+            name,
+            phase: phase.into(),
+            caller,
+        });
+    }
+
+    fn decline_call(&self, peer: Fingerprint) -> Result<(), String> {
+        let key = lock(&self.calls)
+            .get(&peer)
+            .filter(|(phase, ..)| *phase == phonelink_core::CallPhase::Ringing)
+            .map(|(_, _, key)| key.clone())
+            .ok_or("no call is ringing on the phone")?;
+        self.to_phone(&peer, AppMessage::CallDecline { key })?;
+        self.popups.send(PopupCmd::Close { id: format!("call/{}", peer.short()) });
+        Ok(())
+    }
+
     /// The phone rings this computer (or stops).
     fn rung_by(&self, peer: Fingerprint, on: bool, sent_ms: u64) {
         use phonelink_core::message::{is_fresh, RING_MAX_AGE_MS};
@@ -571,6 +633,17 @@ impl State {
     /// A button on one of our popups.
     fn popup_action(&self, popup_id: &str, key: &str) {
         debug!(popup_id, key, "popup action");
+        if key == "call-decline" {
+            let peer = popup_id
+                .strip_prefix("call/")
+                .and_then(|short| lock(&self.calls).keys().copied().find(|fp| fp.short() == short));
+            if let Some(peer) = peer {
+                if let Err(e) = self.decline_call(peer) {
+                    warn!("could not decline: {e}");
+                }
+            }
+            return;
+        }
         if key == "ring-stop" {
             self.stop_ringing();
             return;
@@ -1065,6 +1138,10 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
             },
             Event::PeerDisconnected { peer } => {
                 last_disconnect.insert(peer, std::time::Instant::now());
+                if lock(&state.calls).contains_key(&peer) {
+                    // We'll never hear that the call ended: treat it as ended.
+                    state.call_changed(peer, phonelink_core::CallPhase::Idle, "", "");
+                }
                 lock(&state.caps).remove(&peer);
                 lock(&state.phone_status).remove(&peer);
                 lock(&state.status_sent).remove(&peer);
@@ -1258,7 +1335,10 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     state.rung_by(peer, on, sent_ms);
                     continue;
                 }
-                AppMessage::CallState { .. } => continue,
+                AppMessage::CallState { state: phase, caller, key } => {
+                    state.call_changed(peer, phase, &caller, &key);
+                    continue;
+                }
                 // Only ever computer → phone.
                 AppMessage::CallDecline { .. }
                 | AppMessage::MediaControl { .. }
@@ -1897,6 +1977,16 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                         Err(e) => Reply::Error {
                             message: e.to_string(),
                         },
+                    },
+                    Err(message) => Reply::Error { message },
+                };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::DeclineCall { device } => {
+                let reply = match state.resolve(device.as_deref()) {
+                    Ok(p) => match state.decline_call(p.fingerprint) {
+                        Ok(()) => Reply::Done,
+                        Err(message) => Reply::Error { message },
                     },
                     Err(message) => Reply::Error { message },
                 };

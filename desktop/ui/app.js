@@ -31,6 +31,9 @@
   // Simple on/off settings: shown when the service reports them.
   const SWITCH_ROWS = [
     ['batteryAlerts', 'Battery alerts', "A popup when your phone's battery is low (15%) or fully charged."],
+    ['pauseMediaOnCall', 'Pause music during calls', 'Music and videos playing here pause when your phone rings or you make a call, and continue when the call ends.'],
+    ['openLinks', 'Let your phone open links here', 'Share a link on your phone and choose "Open on computer": it opens in your browser here. Only web links.'],
+    ['allowRing', 'Let your phone ring this computer', 'Plays a loud sound for up to a minute, to find this computer. Stop it from the popup.'],
   ];
 
   const ICONS = {
@@ -313,8 +316,13 @@
     gear.title = gear.disabled ? 'Settings are available once the service is running' : 'Settings';
 
     const offline = view === 'main' && d && !d.connected;
-    el.banner.hidden = !offline;
-    if (offline && connectionOff()) {
+    const call = view === 'main' && state.call;
+    el.banner.hidden = !offline && !call;
+    if (call) {
+      const who = call.caller || (call.phase === 'ringing' ? 'Incoming call' : 'On a call');
+      const what = call.phase === 'ringing' ? (call.caller ? 'is calling' : '') : 'call in progress';
+      el.banner.innerHTML = `${icon('phone')}<span class="grow"><strong>${esc(who)}</strong> ${esc(what)} · ${esc(call.name)}</span>${call.phase === 'ringing' && api.declineCall ? '<button type="button" class="btn btn-sm" data-action="decline-call">Decline</button>' : ''}`;
+    } else if (offline && connectionOff()) {
       el.banner.innerHTML = `${icon('alert')}<span class="grow"><strong>The connection is switched off.</strong> ${esc(d.name)} won't connect and nothing searches for it until you turn it back on.</span><button type="button" class="btn btn-sm" data-action="toggle-connection">Turn on</button>`;
     } else if (offline && d.pausedByPeer) {
       el.banner.innerHTML = `${icon('alert')}<span class="grow"><strong>${esc(d.name)} switched its connection off.</strong> It reconnects as soon as it's turned back on in the phone app.</span>`;
@@ -1296,6 +1304,10 @@
       return undefined;
     }
     if (ev.kind === 'locked_by_phone') return undefined;
+    if (ev.kind === 'call_changed') {
+      state.call = ev.phase === 'idle' ? null : { id: ev.id, name: ev.name, phase: ev.phase, caller: ev.caller };
+      return renderChrome();
+    }
     if (ev.kind === 'phone_status_changed') return refreshDevice();
     if (ev.kind === 'media_changed') return refreshMedia();
     if (ev.kind === 'transfer_changed') return ev.item && upsertTransfer(ev.item);
@@ -1403,6 +1415,11 @@
         return undefined;
       case 'send-note':
         return openNoteDialog();
+      case 'decline-call': {
+        if (!state.call) return undefined;
+        await api.declineCall(state.call.id);
+        return toast('Declining…');
+      }
       case 'ring-phone': {
         const on = !state.ringing;
         await api.ring(on, state.device ? state.device.id : null);

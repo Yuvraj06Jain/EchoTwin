@@ -90,7 +90,9 @@ object StatusWatcher {
         if (telephonyCallback != null || Build.VERSION.SDK_INT < 31 || !allowed(app)) return
         val tm = app.getSystemService(TelephonyManager::class.java) ?: return
         val cb = object : TelephonyCallback(), TelephonyCallback.DisplayInfoListener,
-            TelephonyCallback.SignalStrengthsListener {
+            TelephonyCallback.SignalStrengthsListener, TelephonyCallback.CallStateListener {
+            override fun onCallStateChanged(state: Int) = CallWatcher.telephony(state)
+
             override fun onDisplayInfoChanged(info: TelephonyDisplayInfo) {
                 displayType = info.overrideNetworkType
                 changed()

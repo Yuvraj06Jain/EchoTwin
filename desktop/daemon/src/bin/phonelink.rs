@@ -318,6 +318,7 @@ fn print_devices(devices: &[DeviceInfo]) {
 fn print_event(e: &WatchEvent) {
     match e {
         WatchEvent::Paired { id, name } => println!("paired        {id}  {name}"),
+        WatchEvent::CallChanged { id, name, phase, caller } => println!("call          {id}  {name}: {phase} {caller}"),
         WatchEvent::Connected { id, name, via } => println!("connected     {id}  {name} ({via})"),
         WatchEvent::Disconnected { id, name } => println!("disconnected  {id}  {name}"),
         WatchEvent::Text { id, name, text } => println!("message       {id}  {name}: {text}"),

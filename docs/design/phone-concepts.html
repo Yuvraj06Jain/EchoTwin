@@ -1,0 +1,193 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+:root{--g:#3dbb82;--g2:#23905f;--t:#eef1f3;--t2:#aab2ba;--t3:#7b848d;--tile:rgba(255,255,255,.065);--line:rgba(255,255,255,.09)}
+*{box-sizing:border-box;margin:0}
+body{width:1180px;font:13px/1.4 "Noto Sans","Inter",system-ui,sans-serif;color:var(--t);padding:34px 40px 44px;
+ background:radial-gradient(760px 520px at 12% 12%,#1c7a70 0%,transparent 62%),radial-gradient(700px 600px at 92% 22%,#6b3fa0 0%,transparent 62%),radial-gradient(820px 520px at 45% 100%,#c06a2b 0%,transparent 60%),#0f141b}
+h1{font-size:20px;font-weight:650;margin-bottom:4px;text-shadow:0 1px 4px #0009}
+.lead{color:#e3e8ec;opacity:.85;margin-bottom:22px;text-shadow:0 1px 3px #000a}
+.grid{display:grid;grid-template-columns:520px 520px;gap:30px 40px;align-items:start}
+.cap{font-weight:650;font-size:14px;margin-bottom:3px;text-shadow:0 1px 3px #000}
+.cap b{color:var(--g)}
+.sub{font-size:12px;color:#dfe5ea;opacity:.8;margin-bottom:9px;text-shadow:0 1px 2px #000}
+.pop{width:520px;border-radius:18px;background:rgba(19,22,26,.74);border:1px solid var(--line);
+ backdrop-filter:blur(26px) saturate(1.35);box-shadow:0 18px 50px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.06);overflow:hidden}
+svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.row{display:flex;align-items:center}.grow{flex:1;min-width:0}
+.muted{color:var(--t2)}.faint{color:var(--t3)}.sm{font-size:11.5px}.b{font-weight:620}
+.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bars{display:inline-flex;align-items:flex-end;gap:1.5px;height:9px}.bars i{width:2.5px;border-radius:1px;background:#59616a}.bars i.on{background:var(--t2)}
+.chip{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;font-weight:700;font-size:11.5px;color:#fff;flex:none}
+.av{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:650;font-size:11.5px;color:#fff;flex:none}
+.rb{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;color:var(--t)}
+.rb.play{background:var(--g2);color:#fff;width:34px;height:34px}
+.art{background:linear-gradient(135deg,#d2452f,#8b3fb0 60%,#3b4fc4)}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:99px;background:rgba(61,187,130,.15);color:var(--g);font-size:11.5px;font-weight:560}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--g)}
+.badge{background:var(--g2);color:#fff;border-radius:99px;font-size:10.5px;font-weight:650;padding:0 6px;line-height:16px}
+
+/* 1 tile dashboard */
+.t-head{padding:14px 16px 10px;gap:10px}
+.bento{display:grid;grid-template-columns:150px 1fr 150px;gap:10px;padding:0 14px 14px}
+.tile{background:var(--tile);border:1px solid var(--line);border-radius:14px;padding:12px;position:relative;overflow:hidden}
+.ring{position:relative;width:92px;height:92px;margin:2px auto 6px}
+.ring svg{width:92px;height:92px;transform:rotate(-90deg)}
+.ring .v{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
+.ring .v b{font-size:21px;font-weight:680;line-height:1}.ring .v span{font-size:10.5px;color:var(--t2)}
+.np{grid-column:2/4;padding:0;min-height:138px}
+.np .bg{position:absolute;inset:-30px;filter:blur(26px) saturate(1.2);opacity:.75}
+.np .sh{position:absolute;inset:0;background:linear-gradient(90deg,rgba(14,16,19,.82),rgba(14,16,19,.35))}
+.np .in{position:relative;padding:13px 14px;display:flex;gap:12px;height:100%}
+.np .cover{width:74px;height:74px;border-radius:10px;box-shadow:0 6px 18px #0008;flex:none}
+.prog{height:3px;border-radius:2px;background:rgba(255,255,255,.18);margin-top:9px}.prog i{display:block;height:100%;width:38%;background:#fff;border-radius:2px}
+.wide{grid-column:1/3}
+.tt{font-size:10.5px;letter-spacing:.07em;font-weight:650;color:var(--t3);margin-bottom:8px;gap:6px}
+.li{gap:9px;padding:5px 0}
+.drop{grid-column:1/3;border:1.5px dashed rgba(61,187,130,.45);background:rgba(61,187,130,.06);display:flex;align-items:center;gap:10px;color:var(--g)}
+.qa{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px}
+.qa div{border-radius:10px;background:rgba(255,255,255,.07);display:grid;place-items:center;gap:2px;padding:7px 0;font-size:10.5px;color:var(--t2)}
+.qa svg{color:var(--g)}
+
+/* 2 control centre */
+.hero{padding:18px 18px 12px;gap:14px;background:linear-gradient(180deg,rgba(61,187,130,.14),transparent)}
+.hero .ring{margin:0;width:68px;height:68px}.hero .ring svg{width:68px;height:68px}.hero .ring .v b{font-size:16px}
+.tog{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;padding:4px 16px 12px;text-align:center;font-size:10.5px;color:var(--t2)}
+.tog .c{width:46px;height:46px;border-radius:50%;margin:0 auto 5px;display:grid;place-items:center;background:rgba(255,255,255,.08);color:var(--t)}
+.tog .c.on{background:var(--g2);color:#fff;box-shadow:0 0 0 4px rgba(61,187,130,.16)}
+.tog svg.i{width:19px;height:19px}
+.media{margin:0 14px 10px;padding:11px 12px;border-radius:14px;background:var(--tile);border:1px solid var(--line);gap:12px}
+.media .cover{width:52px;height:52px;border-radius:9px;flex:none}
+.sl{height:4px;border-radius:2px;background:rgba(255,255,255,.16);position:relative;flex:1}
+.sl i{position:absolute;left:0;top:0;bottom:0;width:56%;border-radius:2px;background:var(--g)}
+.sl i::after{content:"";position:absolute;right:-6px;top:-4.5px;width:13px;height:13px;border-radius:50%;background:#fff;box-shadow:0 1px 4px #0008}
+.stack{padding:0 14px 14px;display:grid;gap:6px}
+.card{background:var(--tile);border:1px solid var(--line);border-radius:12px;padding:8px 10px;gap:10px}
+.x{color:var(--t3);font-size:15px;width:20px;text-align:center}
+
+/* 3 feed */
+.f-head{padding:13px 16px;gap:10px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.03)}
+.act{padding:5px 11px;border-radius:99px;background:rgba(255,255,255,.08);font-size:11.5px;display:inline-flex;gap:6px;align-items:center}
+.act svg{width:13px;height:13px;color:var(--g)}
+.feed{padding:6px 16px 14px}
+.when{font-size:10.5px;color:var(--t3);letter-spacing:.05em;margin:9px 0 5px;text-transform:uppercase}
+.ev{display:flex;gap:10px;padding:8px 10px 8px 0;border-radius:10px;position:relative;margin-left:2px}
+.ev::before{content:"";width:3px;border-radius:2px;background:var(--c,#888);flex:none}
+.reply{margin-top:7px;border:1px solid var(--line);background:rgba(255,255,255,.05);border-radius:99px;padding:5px 6px 5px 12px;gap:8px;color:var(--t3);font-size:12px}
+.reply .send{width:22px;height:22px;border-radius:50%;background:var(--g2);display:grid;place-items:center;color:#fff}
+.reply .send svg{width:12px;height:12px}
+.bar{height:4px;border-radius:2px;background:rgba(255,255,255,.14);margin-top:7px}.bar i{display:block;height:100%;width:64%;border-radius:2px;background:var(--g)}
+
+/* 4 phone mirror */
+.mirror{display:flex;gap:26px;align-items:flex-start}
+.phone{width:262px;border-radius:38px;padding:9px;background:linear-gradient(160deg,#2c3238,#14171a);border:1.5px solid rgba(61,187,130,.7);
+ box-shadow:0 22px 55px rgba(0,0,0,.6),0 0 0 6px rgba(61,187,130,.07)}
+.screen{border-radius:30px;overflow:hidden;position:relative;height:476px;background:#0c0f12}
+.screen .bg{position:absolute;inset:-40px;filter:blur(34px);opacity:.6}
+.screen .sh{position:absolute;inset:0;background:linear-gradient(180deg,rgba(8,10,12,.45),rgba(8,10,12,.82))}
+.screen .in{position:relative;height:100%;display:flex;flex-direction:column;padding:10px 12px 12px}
+.sb{font-size:11px;font-weight:600;gap:6px}.cam{width:9px;height:9px;border-radius:50%;background:#000;margin:0 auto;box-shadow:0 0 0 1.5px #23282d}
+.clock{text-align:center;margin:14px 0 12px}.clock b{font-size:40px;font-weight:300;letter-spacing:.5px;line-height:1}.clock div{font-size:11.5px;color:var(--t2)}
+.lsm{border-radius:16px;background:rgba(255,255,255,.1);padding:9px 10px;gap:10px;margin-bottom:8px}
+.lsm .cover{width:38px;height:38px;border-radius:8px;flex:none}
+.nc{border-radius:16px;background:rgba(255,255,255,.1);padding:8px 10px;gap:9px;margin-bottom:6px}
+.dock{margin-top:auto;display:flex;justify-content:space-around;padding:8px 6px;border-radius:20px;background:rgba(255,255,255,.1)}
+.dock .c{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.12)}
+.dock .c.on{background:var(--g2)}
+.notes{font-size:12.5px;color:#e6ebef;text-shadow:0 1px 2px #000;display:grid;gap:8px;max-width:230px}
+.notes b{color:var(--g)}
+
+/* panel icons */
+.panel{height:46px;border-radius:12px;background:rgba(18,20,23,.93);display:inline-flex;align-items:center;gap:14px;padding:0 16px;margin-right:14px}
+.ph{position:relative;width:21px;height:30px;border-radius:6.5px;border:2px solid var(--g);overflow:hidden;display:flex;justify-content:center}
+.ph .cam2{width:3px;height:3px;border-radius:50%;background:var(--g);margin-top:3px;position:relative;z-index:1}
+.ph .fill{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(180deg,rgba(61,187,130,.75),rgba(35,144,95,.9))}
+.wrap{position:relative;display:inline-block}
+.dot{position:absolute;right:-5px;top:-4px;width:9px;height:9px;border-radius:50%;background:var(--g);border:1.5px solid #131517}
+.num{position:absolute;right:-9px;top:-7px;min-width:15px;height:15px;border-radius:8px;background:var(--g);color:#06140d;font-size:10px;font-weight:750;display:grid;place-items:center;padding:0 3px;border:1.5px solid #131517}
+.pulse{position:absolute;inset:-7px;border-radius:12px;border:2px solid rgba(61,187,130,.45)}
+.pulse.p2{inset:-12px;border-color:rgba(61,187,130,.2)}
+.tray{width:22px;height:22px;border-radius:50%;background:radial-gradient(circle,#111 0 30%,#7ef02f 31%)}
+.ic-l{font-size:11.5px;color:#e6ebef;text-shadow:0 1px 2px #000;margin:6px 14px 0 2px;display:inline-block;width:150px;vertical-align:top}
+
+body{width:1180px}
+.phones{display:grid;grid-template-columns:repeat(3,1fr);gap:34px}
+.dev{width:330px;border-radius:44px;padding:10px;background:linear-gradient(160deg,#2c3238,#121518);box-shadow:0 24px 60px rgba(0,0,0,.6)}
+.scr{border-radius:35px;height:770px;background:#111417;overflow:hidden;position:relative;display:flex;flex-direction:column}
+.st{display:flex;justify-content:space-between;padding:11px 20px 4px;font-size:11px;font-weight:600;color:#dfe4e8}
+.pad{padding:6px 14px 0;flex:1;display:flex;flex-direction:column;gap:10px;overflow:hidden}
+.ttl{font-size:21px;font-weight:700;margin:4px 2px 0}
+.tile2{background:#1a1e22;border:1px solid rgba(255,255,255,.07);border-radius:18px;padding:13px;position:relative;overflow:hidden}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.at{background:#1a1e22;border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:12px 6px;display:grid;justify-items:center;gap:6px;font-size:11px;color:var(--t2)}
+.at .ic{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;background:rgba(61,187,130,.14);color:var(--g)}
+.at svg.i,.orbbtn svg.i{width:19px;height:19px}
+.nav{display:flex;justify-content:space-around;padding:9px 10px 14px;background:#161a1d;border-top:1px solid rgba(255,255,255,.06);font-size:10.5px;color:var(--t3);text-align:center}
+.nav div.on{color:var(--g)}.nav .pillnav{width:52px;height:26px;border-radius:13px;display:grid;place-items:center;margin:0 auto 3px}.nav .on .pillnav{background:rgba(61,187,130,.16)}
+.sw{width:38px;height:22px;border-radius:11px;background:var(--g2);position:relative;flex:none}.sw::after{content:"";position:absolute;right:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff}
+.sw.off{background:#30353b}.sw.off::after{right:auto;left:3px;background:#8b949d}
+.mini{display:flex;align-items:center;gap:7px;padding:7px 10px;border-radius:99px;background:rgba(255,255,255,.06);font-size:11.5px}
+.mini i{width:8px;height:8px;border-radius:50%;background:var(--g)}
+.ringS{position:relative;width:62px;height:62px;flex:none}.ringS svg{width:62px;height:62px;transform:rotate(-90deg)}.ringS .v{position:absolute;inset:0;display:grid;place-content:center;color:var(--g)}
+.orbwrap{display:grid;place-items:center;padding:14px 0 6px;position:relative}
+.orb{width:150px;height:150px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 35% 30%,#49d597,#1f8556 70%);box-shadow:0 0 0 14px rgba(61,187,130,.10),0 0 0 30px rgba(61,187,130,.05),0 14px 40px rgba(35,144,95,.55);color:#fff}
+.orb svg.i{width:46px;height:46px;stroke-width:1.6}
+.hs{display:flex;gap:8px;overflow:hidden}
+.orbbtn{flex:none;display:flex;align-items:center;gap:7px;padding:9px 13px;border-radius:99px;background:#1c2024;border:1px solid rgba(255,255,255,.07);font-size:12px}
+.orbbtn svg{color:var(--g)}
+.twin{display:grid;grid-template-columns:1fr 84px 1fr;align-items:center;text-align:center;padding:16px 8px 12px;background:linear-gradient(180deg,rgba(61,187,130,.16),rgba(61,187,130,.02));border:1px solid rgba(61,187,130,.25)}
+.d1{width:34px;height:56px;border-radius:9px;border:2.5px solid var(--g);margin:0 auto 8px;position:relative;overflow:hidden}
+.d1 i{position:absolute;left:0;right:0;bottom:0;height:82%;background:rgba(61,187,130,.45)}
+.d2{width:78px;height:50px;border-radius:7px 7px 2px 2px;border:2.5px solid var(--g);margin:0 auto;position:relative;overflow:hidden}
+.d2 i{position:absolute;left:0;right:0;bottom:0;height:76%;background:rgba(61,187,130,.45)}
+.d2b{width:96px;height:6px;border-radius:0 0 6px 6px;background:var(--g);margin:0 auto 8px}
+.link{position:relative;height:30px}
+.link::before{content:"";position:absolute;left:0;right:0;top:14px;border-top:2.5px dashed var(--g)}
+.link span{position:absolute;left:50%;top:1px;transform:translateX(-50%);background:#16241d;border:1px solid rgba(61,187,130,.5);color:var(--g);font-size:10.5px;font-weight:650;padding:3px 8px;border-radius:99px}
+.npb{position:absolute;inset:-30px;filter:blur(24px);opacity:.7}.nps{position:absolute;inset:0;background:linear-gradient(90deg,rgba(14,16,19,.85),rgba(14,16,19,.4))}
+.pad>*{flex:none}.pill{white-space:nowrap}.link span{white-space:nowrap}.twin{overflow:visible}
+</style></head><body><svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="prev" viewBox="0 0 24 24"><path d="M19 5 9 12l10 7z"/><path d="M5 5v14"/></symbol>
+<symbol id="next" viewBox="0 0 24 24"><path d="m5 5 10 7-10 7z"/><path d="M19 5v14"/></symbol>
+<symbol id="pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></symbol>
+<symbol id="power" viewBox="0 0 24 24"><path d="M12 4v7.5"/><path d="M7.4 7.2a6.5 6.5 0 1 0 9.2 0"/></symbol>
+<symbol id="bell" viewBox="0 0 24 24"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 19a2 2 0 0 0 4 0"/></symbol>
+<symbol id="lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+<symbol id="clip" viewBox="0 0 24 24"><rect x="6" y="5" width="12" height="15" rx="2"/><path d="M9 5V4h6v1"/></symbol>
+<symbol id="up" viewBox="0 0 24 24"><path d="M12 16V5M7 10l5-5 5 5M5 19h14"/></symbol>
+<symbol id="note" viewBox="0 0 24 24"><path d="M4.5 12 20 4.5 15 20l-3.2-6.8z"/></symbol>
+<symbol id="win" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 8h18"/></symbol>
+<symbol id="vol" viewBox="0 0 24 24"><path d="M4 10v4h3l4 4V6l-4 4z"/><path d="M15 9a4 4 0 0 1 0 6"/></symbol>
+<symbol id="leaf" viewBox="0 0 24 24"><path d="M5 19c0-9 5-14 14-14 0 9-5 14-14 14z"/><path d="M5 19 13 11"/></symbol>
+<symbol id="file" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/></symbol>
+<symbol id="chat" viewBox="0 0 24 24"><path d="M5 5h14v10h-8l-4 3v-3H5z"/></symbol>
+</defs></svg>
+<h1>EchoTwin phone app: three Home-screen directions</h1>
+<div class="lead">Same tile language as the laptop widget. The "Playing on Kubuntu" card and the Ring / Remote tiles are the new v2 features in place.</div>
+<div class="phones">
+<div><div class="cap"><b>1</b> · Tile dashboard</div><div class="sub">Mirror of the laptop widget: status tile with a battery ring, six action tiles.</div><div class="dev"><div class="scr"><div class="st"><span>14:09</span><span>5G ▮▮▮▯ 82%</span></div><div class="pad">
+<div class="ttl">EchoTwin</div>
+<div class="tile2"><div class="row" style="gap:13px"><div class="ringS"><svg viewBox="0 0 62 62"><circle cx="31" cy="31" r="26" fill="none" stroke="rgba(255,255,255,.1)" stroke-width="6"/><circle cx="31" cy="31" r="26" fill="none" stroke="#3dbb82" stroke-width="6" stroke-linecap="round" stroke-dasharray="124.2 163.4"/></svg><div class="v"><svg class="i" style="width:24px;height:24px"><use href="#win"/></svg></div></div><div class="grow"><div class="b" style="font-size:16px">Kubuntu</div><div style="margin-top:4px"><span class="pill">Connected · Wi-Fi</span></div><div class="sm muted" style="margin-top:5px">Battery 76% · charging</div></div><div class="sw"></div></div></div>
+<div class="g3"><div class="at"><div class="ic"><svg class="i"><use href="#lock"/></svg></div>Lock</div><div class="at"><div class="ic"><svg class="i"><use href="#clip"/></svg></div>Clipboard</div><div class="at"><div class="ic"><svg class="i"><use href="#up"/></svg></div>Send files</div><div class="at"><div class="ic"><svg class="i"><use href="#note"/></svg></div>Note</div><div class="at"><div class="ic"><svg class="i"><use href="#bell"/></svg></div>Ring</div><div class="at"><div class="ic"><svg class="i"><use href="#next"/></svg></div>Remote</div></div>
+<div class="tile2" style="padding:0"><div class="npb art"></div><div class="nps"></div><div class="row" style="position:relative;padding:11px 12px;gap:10px"><div class="art" style="width:42px;height:42px;border-radius:9px;flex:none"></div><div class="grow"><div class="b ell">Lo-fi beats</div><div class="sm muted ell">Playing on Kubuntu · Firefox</div></div><svg class="i"><use href="#prev"/></svg><div class="rb play"><svg class="i"><use href="#pause"/></svg></div><svg class="i"><use href="#next"/></svg></div></div>
+<div class="tile2"><div class="row" style="gap:10px"><div class="chip" style="background:rgba(61,187,130,.16);color:#3dbb82"><svg class="i"><use href="#up"/></svg></div><div class="grow"><div class="b ell">holiday-video.mp4</div><div class="sm muted">64% · 12.4 MB/s · about 1 min left</div></div><span class="x">×</span></div><div class="bar"><i></i></div></div>
+<div class="sm faint" style="letter-spacing:.07em;font-weight:650;margin:2px 2px -2px">SHOWS ON YOUR COMPUTER</div><div class="row" style="gap:7px;flex-wrap:wrap"><span class="mini"><i></i>Notifications</span><span class="mini"><i></i>Messages</span><span class="mini"><i></i>Clipboard</span></div>
+</div><div class="nav"><div class="on"><div class="pillnav"><svg class="i"><use href="#win"/></svg></div>Home</div><div><div class="pillnav"><svg class="i"><use href="#file"/></svg></div>Files</div><div><div class="pillnav"><svg class="i"><use href="#leaf"/></svg></div>Settings</div></div></div></div></div>
+<div><div class="cap"><b>2</b> · Connection orb</div><div class="sub">One big glowing button is the connection switch; actions as a scrolling row.</div><div class="dev"><div class="scr"><div class="st"><span>14:09</span><span>5G ▮▮▮▯ 82%</span></div><div class="pad">
+<div class="row"><div class="ttl grow">EchoTwin</div><span class="pill">Wi-Fi</span></div>
+<div class="orbwrap"><div class="orb"><svg class="i"><use href="#power"/></svg></div></div>
+<div style="text-align:center"><div class="b" style="font-size:17px">Connected to Kubuntu</div><div class="sm muted" style="margin-top:2px">Tap the circle to disconnect · laptop battery 76%</div></div>
+<div class="hs"><span class="orbbtn"><svg class="i"><use href="#lock"/></svg>Lock</span><span class="orbbtn"><svg class="i"><use href="#clip"/></svg>Clipboard</span><span class="orbbtn"><svg class="i"><use href="#up"/></svg>Send files</span><span class="orbbtn"><svg class="i"><use href="#bell"/></svg>Ring</span></div>
+<div class="tile2" style="padding:0"><div class="npb art"></div><div class="nps"></div><div class="row" style="position:relative;padding:11px 12px;gap:10px"><div class="art" style="width:42px;height:42px;border-radius:9px;flex:none"></div><div class="grow"><div class="b ell">Lo-fi beats</div><div class="sm muted ell">Playing on Kubuntu · Firefox</div></div><svg class="i"><use href="#prev"/></svg><div class="rb play"><svg class="i"><use href="#pause"/></svg></div><svg class="i"><use href="#next"/></svg></div></div>
+<div class="tile2"><div class="row" style="gap:10px"><div class="chip" style="background:rgba(61,187,130,.16);color:#3dbb82"><svg class="i"><use href="#up"/></svg></div><div class="grow"><div class="b ell">holiday-video.mp4</div><div class="sm muted">64% · 12.4 MB/s · about 1 min left</div></div><span class="x">×</span></div><div class="bar"><i></i></div></div>
+<div class="tile2"><div class="row" style="gap:10px"><div class="grow"><div class="b">Notifications on your computer</div><div class="sm muted">Popups and the EchoTwin window</div></div><div class="sw"></div></div></div>
+</div><div class="nav"><div class="on"><div class="pillnav"><svg class="i"><use href="#win"/></svg></div>Home</div><div><div class="pillnav"><svg class="i"><use href="#file"/></svg></div>Files</div><div><div class="pillnav"><svg class="i"><use href="#leaf"/></svg></div>Settings</div></div></div></div></div>
+<div><div class="cap"><b>3</b> · Twin link</div><div class="sub">Both devices drawn side by side, filled to their battery level, joined by the live link.</div><div class="dev"><div class="scr"><div class="st"><span>14:09</span><span>5G ▮▮▮▯ 82%</span></div><div class="pad">
+<div class="ttl">EchoTwin</div>
+<div class="tile2 twin"><div><div class="d1"><i></i></div><div class="b sm">This phone</div><div class="sm muted">82% · 5G</div></div><div class="link"><span>Wi-Fi</span></div><div><div class="d2"><i></i></div><div class="d2b"></div><div class="b sm">Kubuntu</div><div class="sm muted">76% · charging</div></div></div>
+<div class="row tile2" style="padding:10px 13px;gap:10px"><svg class="i" style="color:var(--g)"><use href="#power"/></svg><div class="grow"><div class="b">Connection</div><div class="sm muted">On · reconnects by itself</div></div><div class="sw"></div></div>
+<div class="g3"><div class="at"><div class="ic"><svg class="i"><use href="#lock"/></svg></div>Lock</div><div class="at"><div class="ic"><svg class="i"><use href="#clip"/></svg></div>Clipboard</div><div class="at"><div class="ic"><svg class="i"><use href="#up"/></svg></div>Send files</div><div class="at"><div class="ic"><svg class="i"><use href="#note"/></svg></div>Note</div><div class="at"><div class="ic"><svg class="i"><use href="#bell"/></svg></div>Ring</div><div class="at"><div class="ic"><svg class="i"><use href="#next"/></svg></div>Remote</div></div>
+<div class="tile2" style="padding:0"><div class="npb art"></div><div class="nps"></div><div class="row" style="position:relative;padding:11px 12px;gap:10px"><div class="art" style="width:42px;height:42px;border-radius:9px;flex:none"></div><div class="grow"><div class="b ell">Lo-fi beats</div><div class="sm muted ell">Playing on Kubuntu · Firefox</div></div><svg class="i"><use href="#prev"/></svg><div class="rb play"><svg class="i"><use href="#pause"/></svg></div><svg class="i"><use href="#next"/></svg></div></div>
+<div class="tile2"><div class="row" style="gap:10px"><div class="chip" style="background:rgba(61,187,130,.16);color:#3dbb82"><svg class="i"><use href="#up"/></svg></div><div class="grow"><div class="b ell">holiday-video.mp4</div><div class="sm muted">64% · 12.4 MB/s · about 1 min left</div></div><span class="x">×</span></div><div class="bar"><i></i></div></div>
+<div class="row" style="gap:7px;flex-wrap:wrap"><span class="mini"><i></i>Notifications</span><span class="mini"><i></i>Messages</span><span class="mini"><i></i>Clipboard</span></div>
+</div><div class="nav"><div class="on"><div class="pillnav"><svg class="i"><use href="#win"/></svg></div>Home</div><div><div class="pillnav"><svg class="i"><use href="#file"/></svg></div>Files</div><div><div class="pillnav"><svg class="i"><use href="#leaf"/></svg></div>Settings</div></div></div></div></div>
+</div></body></html>

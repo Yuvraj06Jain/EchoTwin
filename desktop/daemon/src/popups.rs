@@ -43,6 +43,10 @@ pub enum PopupCmd {
         icon: Option<PathBuf>,
         /// The window tab a click opens.
         tab: Tab,
+        /// Buttons as (key, label). A press calls the [`ActionHandler`] with our id and key.
+        actions: Vec<(String, String)>,
+        /// Milliseconds; -1 = the server's default, 0 = stays until closed.
+        timeout_ms: i32,
     },
     Close {
         id: String,
@@ -71,23 +75,26 @@ impl Tab {
 /// (needed on Wayland for the window to be allowed to take focus).
 pub type Opener = Arc<dyn Fn(Tab, Option<String>) + Send + Sync>;
 
+/// A button on one of our popups was pressed: (our popup id, action key).
+pub type ActionHandler = Arc<dyn Fn(String, String) + Send + Sync>;
+
 #[derive(Clone)]
 pub struct Popups {
     tx: mpsc::Sender<PopupCmd>,
 }
 
 impl Popups {
-    /// Popups on the session bus; a click opens the EchoTwin window.
-    pub fn start() -> Self {
-        Self::start_with(None, Arc::new(open_app))
+    /// Popups on the session bus; a click opens the EchoTwin window, a button calls `on_action`.
+    pub fn start(on_action: ActionHandler) -> Self {
+        Self::start_with(None, Arc::new(open_app), on_action)
     }
 
     /// `bus`: a D-Bus address (tests), or `None` for the session bus.
-    pub fn start_with(bus: Option<String>, opener: Opener) -> Self {
+    pub fn start_with(bus: Option<String>, opener: Opener, on_action: ActionHandler) -> Self {
         let (tx, rx) = mpsc::channel::<PopupCmd>();
         std::thread::Builder::new()
             .name("phonelink-popups".into())
-            .spawn(move || popup_thread(rx, bus, opener))
+            .spawn(move || popup_thread(rx, bus, opener, on_action))
             .expect("spawn popup thread");
         Self { tx }
     }
@@ -109,6 +116,8 @@ struct Ours {
     ids: HashSet<u32>,
     tokens: HashMap<u32, String>,
     tabs: HashMap<u32, Tab>,
+    /// Server id -> our popup id, for popups with buttons.
+    names: HashMap<u32, String>,
 }
 
 impl Ours {
@@ -121,6 +130,7 @@ impl Ours {
                 self.ids.remove(&old);
                 self.tokens.remove(&old);
                 self.tabs.remove(&old);
+                self.names.remove(&old);
             }
         }
     }
@@ -133,7 +143,7 @@ fn connect(bus: &Option<String>) -> zbus::Result<Connection> {
     }
 }
 
-fn popup_thread(rx: mpsc::Receiver<PopupCmd>, bus: Option<String>, opener: Opener) {
+fn popup_thread(rx: mpsc::Receiver<PopupCmd>, bus: Option<String>, opener: Opener, on_action: ActionHandler) {
     let ours = Arc::new(Mutex::new(Ours::default()));
     let mut conn: Option<Connection> = None;
     // Our id -> the server's id, for updates and closing.
@@ -144,7 +154,7 @@ fn popup_thread(rx: mpsc::Receiver<PopupCmd>, bus: Option<String>, opener: Opene
         if conn.is_none() {
             match connect(&bus) {
                 Ok(c) => {
-                    if let Err(e) = start_listener(c.clone(), ours.clone(), opener.clone()) {
+                    if let Err(e) = start_listener(c.clone(), ours.clone(), opener.clone(), on_action.clone()) {
                         warn!("popup clicks will not open the window: {e}");
                     }
                     open.clear();
@@ -166,17 +176,25 @@ fn popup_thread(rx: mpsc::Receiver<PopupCmd>, bus: Option<String>, opener: Opene
                 body,
                 icon,
                 tab,
+                actions,
+                timeout_ms,
             } => {
                 let icon = icon
                     .filter(|p| p.exists())
                     .map(|p| p.to_string_lossy().into_owned())
                     .unwrap_or_else(|| "smartphone".into());
                 let replaces = open.get(&id).copied().unwrap_or(0);
-                notify(c, &app, replaces, &icon, &title, &body).map(|server_id| {
+                let has_buttons = !actions.is_empty();
+                notify(c, &app, replaces, &icon, &title, &body, &actions, timeout_ms).map(|server_id| {
                     {
                         let mut o = lock(&ours);
                         o.remember(server_id);
                         o.tabs.insert(server_id, tab);
+                        if has_buttons {
+                            o.names.insert(server_id, id.clone());
+                        } else {
+                            o.names.remove(&server_id);
+                        }
                     }
                     if open.insert(id.clone(), server_id).is_none() {
                         order.push_back(id);
@@ -206,6 +224,7 @@ fn popup_thread(rx: mpsc::Receiver<PopupCmd>, bus: Option<String>, opener: Opene
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn notify(
     c: &Connection,
     app: &str,
@@ -213,22 +232,37 @@ fn notify(
     icon: &str,
     summary: &str,
     body: &str,
+    buttons: &[(String, String)],
+    timeout_ms: i32,
 ) -> zbus::Result<u32> {
     // "default" = clicking the popup itself; servers don't show it as a button.
-    let actions = vec![DEFAULT_ACTION, "Open EchoTwin"];
-    let hints: HashMap<&str, Value<'_>> = HashMap::new();
+    let mut actions = vec![DEFAULT_ACTION, "Open EchoTwin"];
+    for (key, label) in buttons {
+        actions.push(key);
+        actions.push(label);
+    }
+    let mut hints: HashMap<&str, Value<'_>> = HashMap::new();
+    if timeout_ms == 0 {
+        // Calls and ringing stay on screen until handled.
+        hints.insert("urgency", Value::U8(2));
+    }
     c.call_method(
         Some(DEST),
         PATH,
         Some(IFACE),
         "Notify",
-        &(app, replaces, icon, summary, body, actions, hints, -1i32),
+        &(app, replaces, icon, summary, body, actions, hints, timeout_ms),
     )?
     .body()
     .deserialize::<u32>()
 }
 
-fn start_listener(conn: Connection, ours: Arc<Mutex<Ours>>, opener: Opener) -> zbus::Result<()> {
+fn start_listener(
+    conn: Connection,
+    ours: Arc<Mutex<Ours>>,
+    opener: Opener,
+    on_action: ActionHandler,
+) -> zbus::Result<()> {
     let rule = MatchRule::builder()
         .msg_type(Type::Signal)
         .interface(IFACE)?
@@ -256,9 +290,17 @@ fn start_listener(conn: Connection, ours: Arc<Mutex<Ours>>, opener: Opener) -> z
                         let Ok((id, action)) = msg.body().deserialize::<(u32, String)>() else {
                             continue;
                         };
+                        if action != DEFAULT_ACTION {
+                            let name = lock(&ours).names.get(&id).cloned();
+                            if let Some(name) = name {
+                                info!(%action, "popup button pressed");
+                                on_action(name, action);
+                            }
+                            continue;
+                        }
                         let (token, tab) = {
                             let mut o = lock(&ours);
-                            if action != DEFAULT_ACTION || !o.ids.contains(&id) {
+                            if !o.ids.contains(&id) {
                                 continue;
                             }
                             (o.tokens.remove(&id), o.tabs.get(&id).copied().unwrap_or(Tab::Notifications))

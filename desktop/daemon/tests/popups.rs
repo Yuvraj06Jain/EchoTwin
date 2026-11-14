@@ -20,6 +20,7 @@ struct Call {
     replaces: u32,
     summary: String,
     actions: Vec<String>,
+    timeout: i32,
 }
 
 #[derive(Default)]
@@ -46,7 +47,7 @@ impl Fake {
         _body: &str,
         actions: Vec<String>,
         _hints: HashMap<String, OwnedValue>,
-        _expire_timeout: i32,
+        expire_timeout: i32,
     ) -> u32 {
         let id = if replaces_id != 0 {
             replaces_id
@@ -59,6 +60,7 @@ impl Fake {
             replaces: replaces_id,
             summary: summary.into(),
             actions,
+            timeout: expire_timeout,
         });
         id
     }
@@ -113,6 +115,8 @@ fn show(id: &str, title: &str) -> PopupCmd {
         body: "hi".into(),
         icon: None,
         tab: if id == "dev/b" { Tab::Files } else { Tab::Notifications },
+        actions: if id == "dev/c" { vec![("otp:dev/c".into(), "Copy 482913".into())] } else { vec![] },
+        timeout_ms: if id == "dev/c" { 0 } else { -1 },
     }
 }
 
@@ -145,10 +149,15 @@ fn clicking_our_popup_opens_the_window_with_its_activation_token() {
 
     let (open_tx, opened) = mpsc::channel::<(Tab, Option<String>)>();
     let open_tx = Mutex::new(open_tx);
+    let (act_tx, acted) = mpsc::channel::<(String, String)>();
+    let act_tx = Mutex::new(act_tx);
     let popups = Popups::start_with(
         Some(bus.address.clone()),
         Arc::new(move |tab, token| {
             let _ = open_tx.lock().unwrap().send((tab, token));
+        }),
+        Arc::new(move |id, key| {
+            let _ = act_tx.lock().unwrap().send((id, key));
         }),
     );
 
@@ -210,6 +219,28 @@ fn clicking_our_popup_opens_the_window_with_its_activation_token() {
     // Removed on the phone: the popup is closed.
     popups.send(PopupCmd::Close { id: "dev/a".into() });
     eventually("closed", || seen.lock().unwrap().closed == vec![1]);
+    // A popup with a button: the button is offered, it stays until closed, and pressing it
+    // reaches the handler with our id. "default" still opens the window.
+    popups.send(show("dev/c", "OTP"));
+    eventually("button popup", || seen.lock().unwrap().calls.len() == 4);
+    let third = seen.lock().unwrap().calls[3].clone();
+    assert_eq!(third.actions, ["default", "Open EchoTwin", "otp:dev/c", "Copy 482913"]);
+    assert_eq!(third.timeout, 0);
+    server
+        .emit_signal(to_us, path, iface, "ActionInvoked", &(3u32, "otp:dev/c"))
+        .unwrap();
+    assert_eq!(
+        acted.recv_timeout(Duration::from_secs(5)).unwrap(),
+        ("dev/c".to_string(), "otp:dev/c".to_string())
+    );
+    assert!(opened.recv_timeout(Duration::from_millis(300)).is_err(), "a button doesn't open the window");
+    server
+        .emit_signal(to_us, path, iface, "ActionInvoked", &(3u32, "default"))
+        .unwrap();
+    assert_eq!(opened.recv_timeout(Duration::from_secs(5)).unwrap().0, Tab::Notifications);
+    // Buttons on popups without any (the "archive" press above) reached nobody.
+    assert!(acted.try_recv().is_err());
+
     // All popups came from one connection (that's what makes the click reach us).
     let calls = seen.lock().unwrap().calls.clone();
     assert!(calls.iter().all(|c| c.sender == first.sender));

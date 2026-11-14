@@ -123,6 +123,13 @@ struct State {
     battery_root: PathBuf,
 }
 
+/// Buttons pressed on our popups: (popup id, action key).
+async fn popup_actions(state: Arc<State>, mut rx: tokio::sync::mpsc::UnboundedReceiver<(String, String)>) {
+    while let Some((id, key)) = rx.recv().await {
+        state.popup_action(&id, &key);
+    }
+}
+
 /// Run until `shutdown` resolves.
 pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> anyhow::Result<()> {
     // Reading copied pictures needs the desktop session's display, which a service started
@@ -142,6 +149,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
     let port = node.local_addr()?.port();
     let (watchers, _) = broadcast::channel(256);
     let (copies_tx, copies) = tokio::sync::mpsc::unbounded_channel();
+    let (actions_tx, popup_actions_rx) = tokio::sync::mpsc::unbounded_channel::<(String, String)>();
     let (transfers, transfer_events) = Transfers::start(
         node.clone(),
         TransferConfig {
@@ -167,7 +175,11 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
             battery_saver: opts.config.battery_saver,
         }),
         store: Mutex::new(Store::default()),
-        popups: opts.popups.clone().unwrap_or_else(Popups::start),
+        popups: opts.popups.clone().unwrap_or_else(|| {
+            Popups::start(Arc::new(move |id: String, key: String| {
+                let _ = actions_tx.send((id, key));
+            }))
+        }),
         icons_dir: opts.data_dir.join("icons"),
         watchers,
         keepers: Mutex::new(HashMap::new()),
@@ -219,6 +231,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
     tokio::spawn(transfer_updates(state.clone(), transfer_events));
     tokio::spawn(bluetooth_backup(state.clone()));
     tokio::spawn(battery_watch(state.clone()));
+    tokio::spawn(popup_actions(state.clone(), popup_actions_rx));
     let server = tokio::spawn(serve(state.clone(), listener));
 
     shutdown.await;
@@ -424,9 +437,21 @@ impl State {
     }
 
     fn popup_to(&self, enabled: bool, id: String, title: String, body: String, tab: crate::popups::Tab) {
-        if !enabled {
-            return;
+        if enabled {
+            self.popup_with(id, title, body, tab, vec![], -1);
         }
+    }
+
+    /// An EchoTwin popup with buttons (key, label); `timeout_ms` 0 = stays until closed.
+    fn popup_with(
+        &self,
+        id: String,
+        title: String,
+        body: String,
+        tab: crate::popups::Tab,
+        actions: Vec<(String, String)>,
+        timeout_ms: i32,
+    ) {
         self.popups.send(PopupCmd::Show {
             id,
             app: "EchoTwin".into(),
@@ -434,7 +459,14 @@ impl State {
             body: notifications::escape_markup(&body),
             icon: None,
             tab,
+            actions,
+            timeout_ms,
         });
+    }
+
+    /// A button on one of our popups.
+    fn popup_action(&self, popup_id: &str, key: &str) {
+        debug!(popup_id, key, "popup action");
     }
 
     fn maybe_popup(&self, info: &NotificationInfo) {
@@ -449,6 +481,8 @@ impl State {
             body: notifications::escape_markup(&info.text),
             icon: notifications::icon_path(&self.icons_dir, &info.package),
             tab: crate::popups::Tab::Notifications,
+            actions: vec![],
+            timeout_ms: -1,
         });
     }
 

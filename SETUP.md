@@ -204,6 +204,14 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 59 | Phone home screen | the app is called **EchoTwin** with the green dot-and-ring icon |
 | 60 | EchoTwin app → Settings → **Battery saver** off and on (or `phonelink saver off/on`) | the switch is remembered after restarting the service; with it on, the phone still connects at once, and walking away is noticed within ~30 s |
 | 61 | Take a screenshot (or copy an image file in Dolphin) on the laptop, then paste in WhatsApp on the phone | the full-quality image is pasted; a toast says "Image copied from …" |
+| 62 | Get an OTP by SMS (or any app) | the laptop popup and the Notifications card show **Copy 482913**; pressing it puts only the code on the laptop clipboard |
+| 63 | Let the phone run down to 15% (or the laptop) | one "battery low" alert on the other device; plugging in and charging to 100% gives one "fully charged" |
+| 64 | In Chrome on the phone: Share → **Open on computer** | the page opens in the laptop's browser; a popup says "Opened a link from …" |
+| 65 | In the window, Send a note that is only a link (or `phonelink open-url https://example.org`) | the phone shows "Link from …"; tapping it opens the page |
+| 66 | Put the phone on silent, then window → **Ring phone** (or `phonelink ring`) | it rings loudly and vibrates; Stop on the phone or **Stop ringing** silences it; it stops by itself after a minute and the alarm volume is back to what it was |
+| 67 | Phone Home → **Ring** | the laptop plays a loud beeping with a Stop popup; the volume goes back afterwards |
+| 68 | Play music on the laptop, call the phone from another phone | "… is calling" popup with **Decline**; the music pauses; Decline ends the call; when the call ends the music continues |
+| 69 | Same with a WhatsApp call, and with an outgoing call | the music pauses and resumes; for WhatsApp the popup appears too |
 
 When something fails, include:
 - the step number

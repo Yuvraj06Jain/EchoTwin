@@ -435,3 +435,109 @@ replies. To add one: a variant in `enum Cmd`, a match arm in `run`, usually one 
   allow-list**, deliberately.
 - Camera is handed back after the scan (`MainActivity.giveUpCamera`).
 - Laptop stores notification/SMS/clipboard/music content in memory only.
+
+## 18. One-time codes (OTP copy)
+
+**What:** a notification carrying a one-time code ("482913 is your OTP…") gets a
+**Copy 482913** button: on the popup, on the card in the window, and in the widget. The
+code goes on the laptop clipboard (never back to the phone). Nothing is copied by itself.
+
+**How:** `otp::find_code(title, text)` only answers when the text talks about a code
+(keyword), takes 4–8 digit runs (also `482 913`, `4821-2290`, `G-482913`) and skips amounts,
+card/account digits, dates, times, phone numbers. The closest candidate to a keyword wins.
+The result is `NotificationInfo.code`.
+
+| Layer | File | Functions |
+|---|---|---|
+| Laptop | `desktop/daemon/src/otp.rs` | `find_code` |
+| Laptop | `desktop/daemon/src/daemon.rs` | `maybe_popup` (button `otp:<id>`), `copy_code`, `popup_action`, `Request::CopyCode` |
+| Window | `app.js` `renderNotifications` (`copy-code`); `tauri-api.js` `copyCode` | |
+| Widget | `FullRepresentation.qml` (copy button → `phonelink copy-code <id>`) | |
+
+**Tests:** `otp.rs` unit tests (16 real-world samples), `tests/notifications.rs`
+`one_time_codes_get_a_copy_button`, `tests/lock_clipboard.rs` (clipboard set, nothing sent
+back), UI suite.
+
+## 19. Battery alerts
+
+**What:** "Galaxy S24 FE battery low · 15% left" and "… is fully charged" on the laptop;
+"Battery low" / "Fully charged" for the laptop on the phone.
+
+**How:** one rule set for both sides in `core/src/alerts.rs` (`BatteryAlerts::update`):
+low at ≤ 15% while not charging, once per discharge (re-armed above 20% or when plugged
+in); full at 100% while charging, once per charge and only if this charge was seen below
+100%. The laptop keeps one per phone (`State::battery_alert`); the phone gets
+`LinkEvent::ComputerStatus.alert` from the core. Switches: `battery_alerts` (laptop),
+Settings → Battery alerts (phone, `Prefs.batteryAlerts`).
+
+**Tests:** `alerts.rs` unit tests, `tests/status.rs` `low_and_full_battery_popups_come_once`,
+FFI `status_both_ways`.
+
+## 20. Open a link on the other device
+
+**What:** phone: Share → **Open on computer** opens the link in the laptop's browser.
+Laptop: `phonelink open-url <url>`, or a note that is only a link, arrives on the phone as
+a "Link from …" notification; tapping opens it (Android doesn't let a background app open
+a page by itself).
+
+**How:** `AppMessage::OpenUrl`. Both sides accept only `is_web_link` (http/https, a host, no
+spaces or control characters, ≤ 2048 bytes). The laptop also needs it fresh (2 min) and the
+`open_links` switch on, then runs `xdg-open <url>` (one argument, no shell) through
+`Effects::open_url`. Laptop → phone is queued.
+
+| Layer | File | Functions |
+|---|---|---|
+| Phone | `OpenLinkActivity.kt`, `LinkManager.openOnComputer`, `Notifications.link` | |
+| FFI | `core-ffi/src/lib.rs` | `open_url`, `LinkEvent::OpenUrlRequested` |
+| Laptop | `daemon.rs` `open_link_from`, `Request::OpenUrl`; `effects.rs`; `open.rs` `open_url` | |
+| Window | `app.js` `submitNote` (a link-only note → `openUrl`) | |
+
+**Tests:** `message.rs` `only_plain_web_links_are_accepted`, `tests/status.rs` `links_…`,
+FFI `lock_and_clipboard_call_sequence`, UI suite.
+
+## 21. Ring my phone / laptop
+
+**What:** find a device by making it ring. The phone plays its alarm sound at full alarm
+volume (heard on silent) and vibrates, with a Stop button; the laptop loops a two-tone
+sound loud and unmuted, with a Stop popup. Both stop after a minute and put the volume
+back.
+
+**How:** `AppMessage::Ring { on, sent_ms }`, connected only, fresh within 2 min. Laptop:
+`ring.rs` writes `ring.wav` once (generated, no files shipped), plays it with `pw-play`,
+`paplay` or `aplay`, sets the volume with `wpctl` (remembered and restored). `allow_ring`
+switch. Controls: window quick action, widget header button, `phonelink ring [stop]`;
+phone Home "Ring" tile.
+
+| Layer | File | Functions |
+|---|---|---|
+| Phone | `Ringer.kt` (`Ringer`, `StopRingReceiver`), `LinkManager.ringComputer` | |
+| FFI | `core-ffi/src/lib.rs` | `ring_computer`, `LinkEvent::RingRequested`, `Device.can_ring` |
+| Laptop | `ring.rs` `Ringer`, `ring_wav`; `effects.rs`; `daemon.rs` `rung_by`, `stop_ringing`, `Request::Ring` | |
+
+**Permission:** `VIBRATE` (no prompt). **Tests:** `ring.rs` unit tests (WAV header,
+`wpctl` parsing), `tests/status.rs` `ringing_both_ways`, FFI test, UI suite.
+
+## 22. Calls
+
+**What:** when the phone rings, the laptop shows "Mom is calling · On Galaxy S24 FE" with
+**Decline** (the popup stays until the call is answered or ends) and a banner in the
+window. Music or video playing on the laptop pauses during the call and resumes after.
+
+**How:** the phone reads call notifications (`Notification.CATEGORY_CALL`: Samsung's dialer,
+WhatsApp and others): incoming if `android.callType` is 1 or a button says
+Answer/Accept; caller from `android.callPerson`, else the title. If no call notification
+shows up within 1.5 s of the phone's own "ringing" state, it sends Ringing without a name.
+Decline presses the notification's Decline/Reject/Hang up button. The laptop pauses every
+MPRIS player that is *Playing* and later resumes only those, if they are still paused
+(`mpris::CallPause`, one thread so pause/resume never overtake each other). A phone that
+disconnects mid-call counts as the call ending. Switch: `pause_media_on_call`.
+
+| Layer | File | Functions |
+|---|---|---|
+| Phone | `CallWatcher.kt` (`posted`, `removed`, `telephony`, `decline`), `MirrorService`, `StatusWatcher` | |
+| FFI | `core-ffi/src/lib.rs` | `send_call_state`, `LinkEvent::CallDeclineRequested` |
+| Laptop | `mpris.rs` (`players`, `status`, `call`, `CallPause`); `daemon.rs` `call_changed`, `decline_call`, `Request::DeclineCall`, `WatchEvent::CallChanged` | |
+| Window | `app.js` `renderChrome` call banner, `decline-call` | |
+
+**No "Silence":** Android only lets an app mute the ringer with Do Not Disturb access.
+**Tests:** `tests/calls.rs` (stand-in media players on a private D-Bus), FFI test, UI suite.

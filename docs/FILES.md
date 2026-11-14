@@ -58,6 +58,7 @@ The same code runs on the laptop (inside `phonelinkd`) and on the phone (inside 
 | `core/src/trust.rs` | Who may connect: pinned peers (`peers.json`, with last addresses and Bluetooth address) and the pairing window (one-time secret, TTL). | `TrustStore`, `PeerRecord`, `AccessGate::{admit, open_pairing, consume_pairing}` |
 | `core/src/tls.rs` | Mutual TLS 1.3 with fingerprint pinning instead of certificate authorities. QUIC config (ALPN `phonelink/1`) and byte-stream config for Bluetooth (ALPN `phonelink-stream/1`, pairing never allowed). Keep-alive 4 s, idle timeout 20 s by default (`transport`; the laptop's battery saver uses 10 s / 30 s). | `PinnedServerVerifier`, `PinnedClientVerifier`, `server_config`, `client_config`, `stream_server_config`, `stream_client_config` |
 | `core/src/wire.rs` | Framing `[u32 length][postcard]` on any byte stream; the `Control` enum (Hello, Deliver, Ack, pairing, Ping, Links, file stream frames). Append-only. | `Control`, `Frame`, `MsgId`, `read_frame`, `write_frame`, `MAX_FRAME_LEN` |
+| `core/src/alerts.rs` | Battery low / fully charged rules, shared by laptop and phone. | `BatteryAlerts::update`, `BatteryAlert` |
 | `core/src/message.rs` | Application messages carried inside `Deliver` (notifications, SMS, media, clipboard, lock, status, …), capability strings, size limits, freshness rules. Append-only. | `AppMessage`, `PhoneNotification`, `NowPlaying`, `SmsThread`, `PhoneStatus`, `CAP_*`, `is_fresh`, `truncate_text` |
 | `core/src/node.rs` | The heart: one QUIC endpoint that listens and dials, sessions (QUIC or Bluetooth stream), Hello/capabilities, durable delivery with acks, reconnect loop with backoff, address probing, pairing on the wire, data streams for files. | `Node::{start, send, maintain, nudge, pair_with, start_pairing, connect_stream, accept_stream, open_data, data_streams, peer_supports, transport, unpair, shutdown}`, `Event`, `Transport` |
 | `core/src/outbox.rs` | SQLite (WAL) durable outbox and duplicate filter: messages are stored before sending, deleted on ack, re-sent after reconnect; pending kept 7 days, seen-IDs 30 days. File `outbox.sqlite3`. | `Outbox::{enqueue, pending, ack, first_seen, prune_pending}` |
@@ -110,7 +111,11 @@ widget) talks to it over a private Unix socket with line-delimited JSON.
 | `src/bluetooth.rs` | Registers the EchoTwin RFCOMM profile with BlueZ (`ProfileManager1`), gets each connection as a socket fd, reports the adapter address. UUID `7a1d5c3e-9b4f-4e8a-a2c6-5f0e3d1b8c94`. | `register`, `Registered`, `PROFILE_UUID` |
 | `src/battery.rs` | This computer's battery from `/sys/class/power_supply` (ignores mouse/keyboard batteries). | `read` |
 | `src/netaddrs.rs` | Which LAN addresses go into the QR code; detects address changes to nudge reconnects. | `lan_addrs`, `NetWatch` |
-| `src/open.rs` | Open a received file or show it in the file manager (`FileManager1.ShowItems`), MIME guess. | `open_file`, `reveal_file`, `guess_mime` |
+| `src/open.rs` | Open a received file or show it in the file manager (`FileManager1.ShowItems`), open a web link, MIME guess. | `open_file`, `reveal_file`, `open_url`, `guess_mime` |
+| `src/otp.rs` | Finds one-time codes in notification text (cautiously). | `find_code` |
+| `src/effects.rs` | What the daemon does to the desktop for the phone (open a link, ring), behind a trait so tests record it. | `Effects`, `System`, `Recorded` |
+| `src/ring.rs` | Ringing this computer: generated WAV, player loop (max 1 min), volume up and restored with `wpctl`. | `Ringer`, `ring_wav`, `parse_volume` |
+| `src/mpris.rs` | Media players on this computer (MPRIS): list, status, pause/play; pausing for calls and resuming the same players. | `players`, `status`, `call`, `CallPause` |
 | `tests/daemon.rs` | Real daemon over its socket with a simulated phone: pairing, messages, CLI errors. | |
 | `tests/notifications.rs` | Notification flow end to end (post, update, remove, snapshot, reply/action/dismiss, mute). | |
 | `tests/popups.rs` | Popups against a stand-in notification server on a private D-Bus (replace, close, click). | |
@@ -119,7 +124,8 @@ widget) talks to it over a private Unix socket with line-delimited JSON.
 | `tests/files.rs` | File transfers through the service, refusal reasons, cancel from the app. | |
 | `tests/sms.rs` | Conversations, sending, older messages. | |
 | `tests/bluetooth.rs` | Bluetooth backup against a stand-in BlueZ (socketpair as RFCOMM). | |
-| `tests/status.rs` | Battery/network both ways and the widget JSON through the real CLI. | |
+| `tests/status.rs` | Battery/network both ways, the widget JSON through the real CLI, battery alerts, switches, links and ringing both ways. | |
+| `tests/calls.rs` | Call popups with Decline, media paused and resumed, against stand-in MPRIS players. | |
 
 ## desktop/app/ (Tauri window)
 
@@ -171,6 +177,9 @@ Package `dev.phonelink.app` in `android/app/src/main/java/dev/phonelink/app/`.
 | `SmsSync.kt` | Reads conversations from `content://sms` (+ contact names), watches for changes, sends SMS (`SmsManager`, multipart, sent results). |
 | `FileShare.kt` | Opens files the core sends (content URI → fd), publishes received files to `Download/EchoTwin` (MediaStore), progress notification. |
 | `ShareActivity.kt` | "EchoTwin" in Android's Share menu (files → send; text → computer clipboard). |
+| `OpenLinkActivity.kt` | Share → "Open on computer": the first web link in the shared text opens on the laptop. |
+| `Ringer.kt` | The computer rings this phone: alarm sound at full alarm volume, vibration, Stop button (`StopRingReceiver`), 1 min limit. |
+| `CallWatcher.kt` | Calls from call notifications (and the phone state as fallback) → `send_call_state`; Decline from the computer. |
 | `ClipboardActivity.kt` | Invisible activity that reads the phone clipboard while focused and sends it. |
 | `Tiles.kt` | Quick Settings tiles: Lock computer, Send clipboard. |
 | `LockReceiver.kt` | "Lock computer" button on the status notification. |

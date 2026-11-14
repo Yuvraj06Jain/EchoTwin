@@ -105,11 +105,20 @@ blur). Use the numbered checklist in [SETUP.md](../SETUP.md).
 | `bluetooth_backup` | true | accept the Bluetooth backup link |
 | `connection` | true | the connection switch (`phonelink on/off`) |
 | `battery_saver` | true | fewer background wake-ups (`phonelink saver on/off`; see FEATURES.md "Battery saver") |
+| `battery_alerts` | true | popups when the phone's battery is low or full |
+| `open_links` | true | the phone may open web links here |
+| `allow_ring` | true | the phone may ring this computer |
+| `pause_media_on_call` | true | pause music/videos here during phone calls |
 | `power_supply_dir` | `/sys/class/power_supply` | tests only |
 
 Window appearance is stored by the page (`localStorage` keys `phonelink.opacity`,
 `phonelink.blur`). Widget: `backgroundOpacity` (Plasma's widget config). Phone:
-`Prefs.kt` (`clipboard_sharing`, `queue_notifications`).
+`Prefs.kt` (`clipboard_sharing`, `queue_notifications`, `connection`, `battery_alerts`).
+
+Simple on/off settings go through one path: add the field to `Config`, its name to
+`config::SWITCHES` and the two `match`es (`switch`, `set_switch`); read it with
+`State::switch_on`. The window shows it once `SWITCH_ROWS` in `app.js` has a row for it
+(camelCase key); `Request::SetSwitch` saves it.
 
 ## Recipes
 

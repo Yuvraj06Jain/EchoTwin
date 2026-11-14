@@ -78,6 +78,10 @@ Carried inside `Deliver.body`, postcard-encoded. Anything this build doesn't kno
 | 22 | `PhoneStatus(PhoneStatus)` | P→C | `status/1` | `phone_status` map → `DeviceInfo.status` | `send_phone_status` (StatusWatcher) |
 | 23 | `ComputerStatus { battery, charging }` | C→P | `status/1` | sent by `send_battery` / `battery_watch` | `LinkEvent::ComputerStatus` → `Device.battery` |
 | 24 | `ClipboardImage { transfer_id, copied_ms }` | C→P | `clipimage/1` | `State::send_clipboard_image` (after `send_file`) | `LinkEvent::ClipboardImageIncoming` → `FileShare.expectClipboard` → clipboard |
+| 25 | `CallState { state: CallPhase, caller, key }` | P→C | `calls/1` | `State::call_changed` (popup, pause media, `call_changed` event) | `send_call_state` (CallWatcher) |
+| 26 | `CallDecline { key }` | C→P | `calls/1` | `State::decline_call` (`DeclineCall`, popup button) | `LinkEvent::CallDeclineRequested` → `CallWatcher.decline` |
+| 27 | `OpenUrl { url, sent_ms }` | both | `links/1` | received: `State::open_link_from`; sent: `Request::OpenUrl` (queued) | received: `LinkEvent::OpenUrlRequested` → `Notifications.link`; sent: `open_url` |
+| 28 | `Ring { on, sent_ms }` | both | `ring/1` | received: `State::rung_by` → `Effects::ring`; sent: `Request::Ring` | received: `LinkEvent::RingRequested` → `Ringer`; sent: `ring_computer` |
 
 Payload types (`message.rs`): `PhoneNotification { key, package, app, title, text,
 posted_ms, can_reply, actions }`, `NowPlaying { app, package, title, artist, album,
@@ -85,7 +89,8 @@ duration_ms, position_ms, playing, can_previous, can_next, volume, max_volume, a
 `SmsThread { id, address, name, messages, has_older }`, `SmsMessage { id, from_me, body,
 date_ms, state, read }`, `SmsState { Received, Sent, Sending, Failed }`,
 `MediaAction { PlayPause, Next, Previous, VolumeUp, VolumeDown, SetVolume(u32) }`,
-`PhoneStatus { battery: Option<u8>, charging, network, signal }`.
+`PhoneStatus { battery: Option<u8>, charging, network, signal }`,
+`CallPhase { Idle, Ringing, Active }`.
 
 ## Capabilities
 
@@ -103,6 +108,10 @@ hide what's missing. That is how an older phone app keeps working with a newer l
 | `files/1` | `transfer::CAP_FILES` | File transfers |
 | `sms/1` | `CAP_SMS` | SMS |
 | `status/1` | `CAP_STATUS` | Battery and network both ways |
+| `clipimage/1` | `CAP_CLIPBOARD_IMAGE` | Images copied on the laptop go to the phone's clipboard |
+| `calls/1` | `CAP_CALLS` | Call popups with Decline |
+| `links/1` | `CAP_LINKS` | Open a web link on the other device |
+| `ring/1` | `CAP_RING` | Ring the other device |
 
 Lists: laptop `start_node` in `desktop/daemon/src/daemon.rs`; phone `PhoneLink::start` in
 `core-ffi/src/lib.rs`.
@@ -116,8 +125,9 @@ The difference is **who gets it**:
 |---|---|---|
 | **Queued** for every paired device (arrives after reconnect, up to 7 days) | `send_all`, or `node.send` to a chosen device | `Text` (notes), `NotificationSnapshot`, `ActionResult`, `FileCancel`, laptop → phone requests (Dismiss/Reply/Action) |
 | **Notifications** | queued only if the phone's *Queue notifications while disconnected* is on (default off); otherwise connected computers only | `NotificationPosted`, `NotificationRemoved`, `AppIcon` |
-| **Connected only** (sent again on every connect) | `send_connected(cap, …)` / `connected_with(cap)` | `NowPlaying`, `MediaArt`, `SmsSnapshot`, `SmsThreadUpdate`, `PhoneStatus`, `ComputerStatus` |
-| **Now or never** (refused when offline, plus a timestamp check) | `connected_one` / `is_connected` + `is_fresh` | `LockComputer` (2 min), `Clipboard` (2 min), `SmsSend` (laptop refuses if not connected) |
+| **Connected only** (sent again on every connect) | `send_connected(cap, …)` / `connected_with(cap)` | `NowPlaying`, `MediaArt`, `SmsSnapshot`, `SmsThreadUpdate`, `PhoneStatus`, `ComputerStatus`, `CallState` |
+| **Now or never** (refused when offline, plus a timestamp check) | `connected_one` / `is_connected` + `is_fresh` | `LockComputer` (2 min), `Clipboard` (2 min), `SmsSend` (laptop refuses if not connected), `CallDecline`, `Ring` (2 min), `OpenUrl` phone → laptop (2 min) |
+| **Queued, no time limit** | `node.send` | `OpenUrl` laptop → phone (it becomes a notification, so late is fine) |
 
 ## Limits and freshness
 
@@ -131,7 +141,9 @@ All in `message.rs` unless noted.
 | `MAX_CLIPBOARD_TEXT` | 64 KiB | clipboard text |
 | `MAX_ART_BYTES` | 64 KiB | album art (JPEG/PNG only, `is_art_image`) |
 | `SMS_MAX_THREADS` / `SMS_MAX_MESSAGES` / `SMS_MAX_BODY` | 30 / 30 / 4000 | SMS sync sizes |
-| `LOCK_MAX_AGE_MS`, `CLIPBOARD_MAX_AGE_MS` | 2 min | `is_fresh` window (either clock direction) |
+| `LOCK_MAX_AGE_MS`, `CLIPBOARD_MAX_AGE_MS`, `LINK_MAX_AGE_MS`, `RING_MAX_AGE_MS` | 2 min | `is_fresh` window (either clock direction) |
+| `MAX_CALLER` | 100 bytes | caller name |
+| `MAX_URL` | 2048 bytes | links; `is_web_link` also requires `http(s)://`, a host, no spaces or control characters |
 | `POPUP_MAX_AGE_MS` (`desktop/daemon/src/notifications.rs`) | 2 min | older notifications go to the list without a popup |
 | `MAX_STORED` (`notifications.rs`) | 200 | notifications kept on the laptop |
 | `PENDING_RETENTION_SECS` (`node.rs`) | 7 days | unsent messages are dropped after this |

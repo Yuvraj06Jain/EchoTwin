@@ -27,6 +27,9 @@ your messages in memory only.
 - **Lock the laptop** from the phone (button or Quick Settings tile)
 - **Battery and 5G/4G status** of the phone on the laptop, laptop battery on the phone
 - **KDE panel widget**: a little phone in your panel; click for everything, drop files on it
+- **One-time codes**: "Copy 482913" right on the laptop popup
+- **Calls**: "Mom is calling" on the laptop with Decline; laptop music pauses during the call
+- **Open links** on the other device, **ring** a lost phone or laptop, **battery alerts**
 - **Notes** between the devices
 - **Stays connected** after reboots, new IPs and sleep, with Bluetooth backup when Wi-Fi is gone
 

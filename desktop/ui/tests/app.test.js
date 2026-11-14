@@ -581,6 +581,11 @@ function fakeTauri() {
   await page.evaluate(() => window.__emit('phonelink://open', null));
   await page.waitForTimeout(200);
   check((await selectedTab()) === 'messages', 'unknown or empty requests change nothing');
+  await page.evaluate(() => window.__emit('phonelink://open', { tab: 'note' }));
+  await page.waitForTimeout(300);
+  check(await visible('[data-form="note"]'), "the widget's Note button opens the note dialog");
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
   await page.click('[data-tab="notifications"]');
 
   console.log('SMS');

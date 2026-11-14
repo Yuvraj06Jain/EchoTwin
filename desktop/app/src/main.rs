@@ -512,7 +512,7 @@ fn launch_request(args: &[String]) -> LaunchRequest {
     let mut req = LaunchRequest::default();
     for a in args {
         if let Some(t) = a.strip_prefix("--show=") {
-            if ["notifications", "messages", "files"].contains(&t) {
+            if ["notifications", "messages", "files", "note"].contains(&t) {
                 req.tab = Some(t.to_string());
             }
         } else if let Some(t) = a.strip_prefix("--activation-token=") {
@@ -750,6 +750,7 @@ mod launch_tests {
                 token: Some("kwin-1".into())
             }
         );
+        assert_eq!(launch_request(&args(&["x", "--show=note"])).tab.as_deref(), Some("note"), "the widget's Note button");
         let bad = launch_request(&args(&["x", "--show=\";alert(1)//", "--activation-token=a b"]));
         assert_eq!(bad, LaunchRequest::default());
     }

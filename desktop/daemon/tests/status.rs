@@ -157,6 +157,7 @@ async fn status_both_ways_and_widget_json() {
     assert_eq!(v["phone"]["name"], "Galaxy S24 FE");
     assert_eq!(v["phone"]["connected"], true);
     assert_eq!(v["phone"]["can_ring"], false, "this phone did not say it can ring");
+    assert_eq!(v["battery_saver"], true, "the widget's saver button shows the real state");
     assert_eq!(v["phone"]["status"]["battery"], 82);
     assert_eq!(v["phone"]["status"]["network"], "5G");
     assert!(v["notifications"].is_array() && v["sms"].is_array() && v["transfers"].is_array());

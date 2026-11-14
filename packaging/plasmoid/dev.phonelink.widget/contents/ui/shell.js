@@ -44,3 +44,30 @@ function left(secs, rate) {
     if (secs < 3600) return " · " + Math.round(secs / 60) + " min left";
     return " · " + Math.floor(secs / 3600) + " h " + Math.round((secs % 3600) / 60) + " min left";
 }
+
+// A steady colour per name (app or contact) for letter chips and avatars.
+var PALETTE = ["#4f7cff", "#e0662f", "#2fa67a", "#b65ad8", "#d9a441", "#e0455b", "#2f9fd0", "#7d8a3a"];
+function colorFor(name) {
+    var s = String(name || "?"), h = 0;
+    for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return PALETTE[h % PALETTE.length];
+}
+
+function initial(name) {
+    var s = String(name || "").replace(/^[^0-9A-Za-zÀ-￿]+/, "");
+    return s ? s.charAt(0).toUpperCase() : "?";
+}
+
+// New things since the popup was last opened: notifications after `seenMs` plus unread texts.
+function newCount(st, seenMs) {
+    var n = 0, i;
+    var ns = (st && st.notifications) || [];
+    for (i = 0; i < ns.length; i++) if (ns[i].posted_ms > seenMs) n++;
+    var ss = (st && st.sms) || [];
+    for (i = 0; i < ss.length; i++) n += ss[i].unread || 0;
+    return n;
+}
+
+function badge(n) {
+    return n > 9 ? "9+" : String(n);
+}

@@ -11,6 +11,8 @@ PlasmoidItem {
 
     readonly property color green: "#3dbb82"
     readonly property color grey: "#8a9096"
+    readonly property color greenDark: "#23905f"
+    readonly property color amber: "#d9a441"
 
     // Last state from `phonelink widget` (see desktop/daemon/src/bin/phonelink.rs).
     property var st: ({ paired: false, phone: null, media: null, notifications: [], sms: [], transfers: [] })
@@ -23,12 +25,14 @@ PlasmoidItem {
     readonly property bool online: !!(phone && phone.connected)
     readonly property bool switchedOff: st.connection === false
     readonly property var status: phone && phone.status ? phone.status : null
-    readonly property bool unread: {
-        var n = st.notifications || [];
-        for (var i = 0; i < n.length; i++) if (n[i].posted_ms > seenMs) return true;
-        var s = st.sms || [];
-        for (var j = 0; j < s.length; j++) if (s[j].unread > 0) return true;
-        return false;
+    // New notifications since the popup was last opened, plus unread texts.
+    readonly property int newCount: Shell.newCount(st, seenMs)
+    readonly property bool unread: newCount > 0
+    readonly property int battery: status && status.battery !== null && status.battery !== undefined ? status.battery : -1
+    readonly property var activeTransfer: {
+        var t = st.transfers || [];
+        for (var i = 0; i < t.length; i++) if (t[i].state === "active") return t[i];
+        return null;
     }
 
     function statusText() {

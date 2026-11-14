@@ -119,7 +119,10 @@ async fn widget_state(c: &mut Client) -> anyhow::Result<serde_json::Value> {
     let status = c.request(&Request::Status).await?;
     fail_on_error(&status)?;
     let Reply::Status {
-        devices, connection, ..
+        devices,
+        connection,
+        battery_saver,
+        ..
     } = status
     else {
         bail!("unexpected reply from phonelinkd")
@@ -129,14 +132,19 @@ async fn widget_state(c: &mut Client) -> anyhow::Result<serde_json::Value> {
         Reply::Media { items } => items.into_iter().next(),
         _ => None,
     };
+    let icons = phonelink_desktop::paths::data_dir().join("icons");
     let notifications: Vec<_> = match c.request(&Request::Notifications).await? {
         Reply::Notifications { items, .. } => items
             .into_iter()
             .filter(|n| !n.removed_on_phone)
             .take(30)
             .map(|n| {
+                // The app's icon, if the phone sent it (a file the widget can show).
+                let icon = phonelink_desktop::notifications::icon_path(&icons, &n.package)
+                    .filter(|p| p.is_file())
+                    .map(|p| p.to_string_lossy().into_owned());
                 json!({ "id": n.id, "app": n.app, "package": n.package, "title": n.title,
-                        "text": n.text, "posted_ms": n.posted_ms, "code": n.code })
+                        "text": n.text, "posted_ms": n.posted_ms, "code": n.code, "icon": icon })
             })
             .collect(),
         _ => vec![],
@@ -181,6 +189,7 @@ async fn widget_state(c: &mut Client) -> anyhow::Result<serde_json::Value> {
     Ok(json!({
         "paired": phone.is_some(),
         "connection": connection,
+        "battery_saver": battery_saver,
         "phone": phone.map(|d| json!({
             "id": d.id, "name": d.name, "connected": d.connected, "via": d.via, "status": d.status,
             "paused_by_peer": d.paused_by_peer,

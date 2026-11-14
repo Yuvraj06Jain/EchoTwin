@@ -8,6 +8,7 @@ object Prefs {
     private const val CLIPBOARD = "clipboard_sharing"
     private const val QUEUE = "queue_notifications"
     private const val CONNECTION = "connection"
+    private const val BATTERY_ALERTS = "battery_alerts"
 
     private fun prefs(context: Context) = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
@@ -28,4 +29,10 @@ object Prefs {
 
     fun setConnection(context: Context, on: Boolean) =
         prefs(context).edit().putBoolean(CONNECTION, on).apply()
+
+    /** "Computer battery low / fully charged" notifications (on by default). */
+    fun batteryAlerts(context: Context): Boolean = prefs(context).getBoolean(BATTERY_ALERTS, true)
+
+    fun setBatteryAlerts(context: Context, on: Boolean) =
+        prefs(context).edit().putBoolean(BATTERY_ALERTS, on).apply()
 }

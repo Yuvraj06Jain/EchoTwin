@@ -34,6 +34,9 @@ pub struct NotificationInfo {
     pub actions: Vec<String>,
     /// Cleared on the phone, kept here because "dismiss on both devices" is off.
     pub removed_on_phone: bool,
+    /// A one-time code found in the text, offered as "Copy 482913".
+    #[serde(default)]
+    pub code: Option<String>,
 }
 
 /// An app that has sent notifications, for the "Show notifications from" settings.
@@ -60,7 +63,7 @@ pub struct Store {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Effect {
     /// New or updated: show / update the popup if it is fresh and not muted.
-    Posted(NotificationInfo),
+    Posted(Box<NotificationInfo>),
     /// Close the popup; `deleted` tells whether it also left the list.
     Removed {
         id: String,
@@ -108,6 +111,7 @@ impl Store {
             can_reply: n.can_reply,
             actions: n.actions.clone(),
             removed_on_phone: false,
+            code: crate::otp::find_code(&n.title, &n.text),
         }
     }
 
@@ -127,7 +131,7 @@ impl Store {
                 self.items.pop_front();
             }
         }
-        Effect::Posted(info)
+        Effect::Posted(Box::new(info))
     }
 
     /// The phone cleared it. With `sync` the entry goes; otherwise it is only marked.

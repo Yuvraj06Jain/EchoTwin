@@ -73,6 +73,10 @@
   let bluetoothStatus = '';
   let connection = true;
   let batterySaver = true;
+  // Simple on/off settings from the service, by snake_case name (battery_alerts …).
+  let switches = {};
+  const camel = (n) => n.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+  const snake = (k) => k.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
   let knownApps = []; // [{ package, app, muted }] from the service
 
   T.event.listen('phonelink://drop', ({ payload }) => listeners.drop.forEach((cb) => cb(payload)));
@@ -139,6 +143,7 @@
       bluetoothStatus = s.bluetooth_status || '';
       connection = s.connection !== false;
       batterySaver = s.battery_saver !== false;
+      switches = s.switches || {};
       const devices = s.devices.map(toDevice);
       const device = devices.find((d) => d.connected) || devices[0] || null;
       return {
@@ -163,8 +168,12 @@
         canReply: n.can_reply,
         actions: n.actions,
         removedOnPhone: n.removed_on_phone,
+        code: n.code || null,
       }));
       return [...notes.map((n) => ({ ...n })), ...mirrored];
+    },
+    async copyCode(id) {
+      await invoke('copy_code', { id });
     },
     async dismiss(id) {
       if (id.startsWith('note-')) {
@@ -238,6 +247,7 @@
         bluetoothStatus,
         connection,
         batterySaver,
+        ...Object.fromEntries(Object.entries(switches).map(([n, on]) => [camel(n), on])),
         apps: knownApps.map((a) => ({ name: a.app, package: a.package, enabled: !a.muted })),
       };
     },
@@ -266,6 +276,9 @@
       } else if (key === 'batterySaver') {
         await invoke('set_battery_saver', { on: value });
         batterySaver = value;
+      } else if (snake(key) in switches) {
+        await invoke('set_switch', { name: snake(key), on: value });
+        switches[snake(key)] = value;
       }
     },
     async setAppMirrored(name, enabled) {

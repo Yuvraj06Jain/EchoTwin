@@ -28,6 +28,11 @@
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const pad = (n) => String(n).padStart(2, '0');
 
+  // Simple on/off settings: shown when the service reports them.
+  const SWITCH_ROWS = [
+    ['batteryAlerts', 'Battery alerts', "A popup when your phone's battery is low (15%) or fully charged."],
+  ];
+
   const ICONS = {
     settings: '<circle cx="12" cy="12" r="2.6"/><path d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M6 6l1.6 1.6M16.4 16.4L18 18M6 18l1.6-1.6M16.4 7.6L18 6"/><circle cx="12" cy="12" r="6.2"/>',
     power: '<path d="M12 4v7.5"/><path d="M7.4 7.2a6.5 6.5 0 1 0 9.2 0"/>',
@@ -546,6 +551,7 @@
           ${(() => {
             const buttons = caps.notificationButtons && !n.removedOnPhone ? n.actions || [] : [];
             const parts = [
+              n.code && api.copyCode ? `<button type="button" class="btn btn-sm" data-action="copy-code">${icon('clipboard')}Copy ${esc(n.code)}</button>` : '',
               n.canReply && !replying && !n.removedOnPhone ? `<button type="button" class="btn btn-sm" data-action="reply-open">${icon('reply')}Reply</button>` : '',
               ...buttons.map((label, i) => `<button type="button" class="btn btn-ghost btn-sm" data-action="notif-button" data-index="${i}">${esc(label)}</button>`),
               state.replied.has(n.id) ? `<span class="notif-note">${icon('check')}Replied</span>` : '',
@@ -1143,6 +1149,7 @@
       <div class="sheet-section"><p class="section-label">General</p>
         ${'connection' in s ? switchRow('Connection', 'Off: disconnect from your phone and stop searching for it (nothing runs in the background). Turn on to reconnect.', 'toggle-setting', s.connection !== false, 'data-key="connection"') : ''}
         ${'batterySaver' in s ? switchRow('Battery saver', "Fewer background checks: notices that the phone left ~10 s later and searches less often while it's away.", 'toggle-setting', s.batterySaver !== false, 'data-key="batterySaver"') : ''}
+        ${SWITCH_ROWS.filter(([key]) => key in s).map(([key, title, desc]) => switchRow(title, desc, 'toggle-setting', s[key] !== false, `data-key="${key}"`)).join('')}
         ${switchRow('Desktop notifications', 'Show messages from your phone as system notifications.', 'toggle-setting', !!s.desktopNotifications, 'data-key="desktopNotifications"')}
         ${caps.syncDismissals ? switchRow('Dismiss on both devices', 'Clearing a notification here also clears it on your phone, and the other way round.', 'toggle-setting', !!s.syncDismissals, 'data-key="syncDismissals"') : ''}
         ${caps.clipboard ? switchRow('Share clipboard with your phone', 'Text you copy here can be pasted on your phone. Passwords copied from a password manager are never sent.', 'toggle-setting', !!s.clipboardSync, 'data-key="clipboardSync"') : ''}
@@ -1448,6 +1455,10 @@
       }
       case 'dismiss':
         return dismiss(id);
+      case 'copy-code': {
+        await api.copyCode(id);
+        return toast('Code copied');
+      }
       case 'notif-button': {
         const n = state.notifications.find((x) => x.id === id);
         const index = Number(a.dataset.index);

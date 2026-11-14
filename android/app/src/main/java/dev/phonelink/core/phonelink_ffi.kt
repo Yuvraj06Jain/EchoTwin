@@ -4452,6 +4452,44 @@ public object FfiConverterTypePhoneSmsThread: FfiConverterRustBuffer<PhoneSmsThr
 
 
 
+/**
+ * A music button pressed on the computer.
+ * The computer's battery just went low or full.
+ */
+
+enum class BatteryAlertKind {
+    
+    LOW,
+    FULL;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeBatteryAlertKind: FfiConverterRustBuffer<BatteryAlertKind> {
+    override fun read(buf: ByteBuffer) = try {
+        BatteryAlertKind.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: BatteryAlertKind) = 4UL
+
+    override fun write(value: BatteryAlertKind, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
 
 
 sealed class LinkException(message: String): kotlin.Exception(message) {
@@ -4596,12 +4634,15 @@ sealed class LinkEvent {
     }
     
     /**
-     * The computer's battery changed (refresh `devices()`).
+     * The computer's battery changed (refresh `devices()`). `alert`: show "battery low" /
+     * "fully charged" now (same once-only rules as the computer uses for the phone).
      */
     data class ComputerStatus(
         val `id`: kotlin.String, 
+        val `name`: kotlin.String, 
         val `battery`: kotlin.UByte?, 
-        val `charging`: kotlin.Boolean) : LinkEvent()
+        val `charging`: kotlin.Boolean, 
+        val `alert`: dev.phonelink.core.BatteryAlertKind?) : LinkEvent()
         
     {
         
@@ -4762,8 +4803,10 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 )
             9 -> LinkEvent.ComputerStatus(
                 FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
                 FfiConverterOptionalUByte.read(buf),
                 FfiConverterBoolean.read(buf),
+                FfiConverterOptionalTypeBatteryAlertKind.read(buf),
                 )
             10 -> LinkEvent.ClipboardImageIncoming(
                 FfiConverterString.read(buf),
@@ -4878,8 +4921,10 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
             (
                 4UL
                 + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterString.allocationSize(value.`name`)
                 + FfiConverterOptionalUByte.allocationSize(value.`battery`)
                 + FfiConverterBoolean.allocationSize(value.`charging`)
+                + FfiConverterOptionalTypeBatteryAlertKind.allocationSize(value.`alert`)
             )
         }
         is LinkEvent.ClipboardImageIncoming -> {
@@ -5004,8 +5049,10 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
             is LinkEvent.ComputerStatus -> {
                 buf.putInt(9)
                 FfiConverterString.write(value.`id`, buf)
+                FfiConverterString.write(value.`name`, buf)
                 FfiConverterOptionalUByte.write(value.`battery`, buf)
                 FfiConverterBoolean.write(value.`charging`, buf)
+                FfiConverterOptionalTypeBatteryAlertKind.write(value.`alert`, buf)
                 Unit
             }
             is LinkEvent.ClipboardImageIncoming -> {
@@ -5066,9 +5113,6 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
 
 
 
-/**
- * A music button pressed on the computer.
- */
 sealed class MediaCommand {
     
     object PlayPause : MediaCommand()
@@ -5320,6 +5364,38 @@ public object FfiConverterOptionalTypePhoneMedia: FfiConverterRustBuffer<PhoneMe
         } else {
             buf.put(1)
             FfiConverterTypePhoneMedia.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeBatteryAlertKind: FfiConverterRustBuffer<BatteryAlertKind?> {
+    override fun read(buf: ByteBuffer): BatteryAlertKind? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeBatteryAlertKind.read(buf)
+    }
+
+    override fun allocationSize(value: BatteryAlertKind?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeBatteryAlertKind.allocationSize(value)
+        }
+    }
+
+    override fun write(value: BatteryAlertKind?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeBatteryAlertKind.write(value, buf)
         }
     }
 }

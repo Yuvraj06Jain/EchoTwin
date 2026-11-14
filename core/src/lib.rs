@@ -7,6 +7,7 @@
 //! * [`discovery`]: rotating opaque tokens so the LAN never learns who you are.
 //! * [`limiter`]: handshake flood protection for hostile networks.
 
+pub mod alerts;
 pub mod discovery;
 pub mod error;
 pub mod identity;

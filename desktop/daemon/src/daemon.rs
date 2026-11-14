@@ -71,6 +71,8 @@ struct Settings {
     bluetooth: bool,
     connection: bool,
     battery_saver: bool,
+    /// `config::SWITCHES` by name.
+    switches: Config,
 }
 
 /// Keep-alive and search timers for the battery saver switch.
@@ -120,6 +122,8 @@ struct State {
     /// Each connected phone's battery and network.
     phone_status: Mutex<HashMap<Fingerprint, PhoneStatus>>,
     status_sent: Mutex<HashMap<Fingerprint, StatusSent>>,
+    /// What each phone's battery alerts already announced.
+    battery_alerts: Mutex<HashMap<Fingerprint, phonelink_core::alerts::BatteryAlerts>>,
     battery_root: PathBuf,
 }
 
@@ -173,6 +177,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
             bluetooth: opts.config.bluetooth_backup,
             connection: opts.config.connection,
             battery_saver: opts.config.battery_saver,
+            switches: opts.config.clone(),
         }),
         store: Mutex::new(Store::default()),
         popups: opts.popups.clone().unwrap_or_else(|| {
@@ -199,6 +204,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         bt_wake: Arc::new(Notify::new()),
         phone_status: Mutex::new(HashMap::new()),
         status_sent: Mutex::new(HashMap::new()),
+        battery_alerts: Mutex::new(HashMap::new()),
         lan: Mutex::new(None),
         discovery: opts.config.discovery,
         battery_root: opts
@@ -417,6 +423,27 @@ impl State {
         }
     }
 
+    /// "Phone battery low" / "fully charged" popups.
+    fn battery_alert(&self, peer: Fingerprint, battery: Option<u8>, charging: bool) {
+        use phonelink_core::alerts::BatteryAlert;
+        let alert = lock(&self.battery_alerts).entry(peer).or_default().update(battery, charging);
+        let Some(alert) = alert else { return };
+        if !self.switch_on("battery_alerts") {
+            return;
+        }
+        let name = self.name_of(&peer);
+        let (title, body) = match alert {
+            BatteryAlert::Low(b) => (format!("{name} battery low"), format!("{b}% left. Plug it in soon.")),
+            BatteryAlert::Full => (format!("{name} is fully charged"), "You can unplug it.".to_string()),
+        };
+        self.popup_to(true, format!("status/battery/{}", peer.short()), title, body, crate::popups::Tab::Notifications);
+    }
+
+    /// One of the simple on/off settings (`config::SWITCHES`).
+    fn switch_on(&self, name: &str) -> bool {
+        lock(&self.settings).switches.switch(name).unwrap_or(false)
+    }
+
     fn persist(&self, change: impl FnOnce(&mut Config)) -> Reply {
         let Some(path) = &self.config_path else {
             return Reply::Done;
@@ -467,6 +494,22 @@ impl State {
     /// A button on one of our popups.
     fn popup_action(&self, popup_id: &str, key: &str) {
         debug!(popup_id, key, "popup action");
+        if let Some(id) = key.strip_prefix("otp:") {
+            if let Err(e) = self.copy_code(id) {
+                warn!("could not copy the code: {e}");
+            }
+        }
+    }
+
+    /// Put a notification's one-time code on the clipboard (marked as ours, so it isn't
+    /// sent back to the phone).
+    fn copy_code(&self, id: &str) -> Result<String, String> {
+        let code = lock(&self.store)
+            .get(id)
+            .and_then(|(_, info)| info.code.clone())
+            .ok_or_else(|| "that notification has no code".to_string())?;
+        self.clipboard.set(code.clone());
+        Ok(code)
     }
 
     fn maybe_popup(&self, info: &NotificationInfo) {
@@ -481,7 +524,11 @@ impl State {
             body: notifications::escape_markup(&info.text),
             icon: notifications::icon_path(&self.icons_dir, &info.package),
             tab: crate::popups::Tab::Notifications,
-            actions: vec![],
+            actions: info
+                .code
+                .as_ref()
+                .map(|c| vec![(format!("otp:{}", info.id), format!("Copy {c}"))])
+                .unwrap_or_default(),
             timeout_ms: -1,
         });
     }
@@ -1006,7 +1053,7 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                         continue;
                     };
                     state.maybe_popup(&info);
-                    WatchEvent::NotificationPosted { item: info }
+                    WatchEvent::NotificationPosted { item: *info }
                 }
                 AppMessage::NotificationRemoved { key } => {
                     let sync = state.sync_on();
@@ -1106,6 +1153,7 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     s.network = phonelink_core::message::truncate_text(&s.network, 16);
                     // Always stored, so the next status request shows the latest bars.
                     let prev = lock(&state.phone_status).insert(peer, s.clone());
+                    state.battery_alert(peer, s.battery, s.charging);
                     if prev.as_ref() == Some(&s) {
                         continue;
                     }
@@ -1408,6 +1456,26 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                 };
                 write_reply(&mut w, &reply).await?;
             }
+            Request::SetSwitch { name, on } => {
+                let known = lock(&state.settings).switches.set_switch(&name, on);
+                let reply = if known {
+                    state.persist(|c| {
+                        c.set_switch(&name, on);
+                    })
+                } else {
+                    Reply::Error {
+                        message: format!("unknown setting {name:?}"),
+                    }
+                };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::CopyCode { id } => {
+                let reply = match state.copy_code(&id) {
+                    Ok(_) => Reply::Done,
+                    Err(message) => Reply::Error { message },
+                };
+                write_reply(&mut w, &reply).await?;
+            }
             Request::SetAllowLock { enabled } => {
                 lock(&state.settings).allow_lock = enabled;
                 let reply = state.persist(|c| c.allow_lock = enabled);
@@ -1679,9 +1747,9 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                 let node = &state.node;
                 // Read settings first: two `lock()` temporaries in one expression would
                 // deadlock (the first guard lives until the end of the statement).
-                let (allow_lock, bluetooth_backup, battery_saver) = {
+                let (allow_lock, bluetooth_backup, battery_saver, switches) = {
                     let s = lock(&state.settings);
-                    (s.allow_lock, s.bluetooth, s.battery_saver)
+                    (s.allow_lock, s.bluetooth, s.battery_saver, s.switches.switches())
                 };
                 let bluetooth_status = lock(&state.bt_status).clone();
                 let reply = Reply::Status {
@@ -1698,6 +1766,7 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                     bluetooth_status,
                     connection: !node.is_paused(),
                     battery_saver,
+                    switches,
                 };
                 write_reply(&mut w, &reply).await?;
             }

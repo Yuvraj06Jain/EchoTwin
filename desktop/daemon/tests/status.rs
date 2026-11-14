@@ -11,7 +11,7 @@ use phonelink_desktop::{
     daemon::{run, DaemonOptions},
     ipc::{Reply, Request, WatchEvent},
     lock::Buses,
-    notifications::Popups,
+    notifications::{PopupCmd, Popups},
 };
 use tokio::{sync::mpsc::UnboundedReceiver, time::timeout};
 
@@ -24,6 +24,7 @@ struct Rig {
     phone_rx: UnboundedReceiver<Event>,
     laptop: Fingerprint,
     watch: Client,
+    popups: std::sync::mpsc::Receiver<PopupCmd>,
     _stop: tokio::sync::oneshot::Sender<()>,
 }
 
@@ -35,6 +36,7 @@ async fn setup(phone_caps: &[&str]) -> Rig {
         std::fs::write(bat.join(f), v).unwrap();
     }
     let socket = dir.path().join("pl.sock");
+    let (popups, popup_rx) = Popups::recording();
     let opts = DaemonOptions {
         data_dir: dir.path().join("data"),
         socket: socket.clone(),
@@ -45,7 +47,7 @@ async fn setup(phone_caps: &[&str]) -> Rig {
             ..Config::default()
         },
         config_path: None,
-        popups: Some(Popups::recording().0),
+        popups: Some(popups),
         buses: Buses::unreachable(),
         download_dir: dir.path().join("downloads"),
     };
@@ -88,6 +90,7 @@ async fn setup(phone_caps: &[&str]) -> Rig {
         phone_rx,
         laptop: offer.fingerprint,
         watch,
+        popups: popup_rx,
         _stop: stop,
     }
 }
@@ -371,4 +374,45 @@ async fn the_battery_saver_switch_is_saved() {
     assert!(matches!(c.request(&Request::SetBatterySaver { on: true }).await.unwrap(), Reply::Done));
     assert!(saver(c.request(&Request::Status).await.unwrap()));
     assert!(Config::load(&config_path).unwrap().battery_saver);
+
+    // The simple switches: listed in the status, saved, unknown names refused.
+    let switches = |r: Reply| match r {
+        Reply::Status { switches, .. } => switches,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(switches(c.request(&Request::Status).await.unwrap()).get("battery_alerts"), Some(&true));
+    let off = Request::SetSwitch { name: "battery_alerts".into(), on: false };
+    assert!(matches!(c.request(&off).await.unwrap(), Reply::Done));
+    assert_eq!(switches(c.request(&Request::Status).await.unwrap()).get("battery_alerts"), Some(&false));
+    assert!(!Config::load(&config_path).unwrap().battery_alerts, "saved");
+    let bad = Request::SetSwitch { name: "port".into(), on: false };
+    assert!(matches!(c.request(&bad).await.unwrap(), Reply::Error { .. }));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn low_and_full_battery_popups_come_once() {
+    let rig = setup(&[CAP_STATUS]).await;
+    let send = |b: u8, charging: bool| {
+        let s = PhoneStatus { battery: Some(b), charging, network: "5G".into(), signal: 3 };
+        rig.phone.send(&rig.laptop, AppMessage::PhoneStatus(s).encode().unwrap()).unwrap();
+    };
+    let battery_popups = |d: Duration| {
+        std::thread::sleep(d);
+        rig.popups
+            .try_iter()
+            .filter_map(|p| match p {
+                PopupCmd::Show { id, title, .. } if id.starts_with("status/battery/") => Some(title),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    battery_popups(Duration::from_millis(300)); // the "connected" popup etc.
+    for (b, c) in [(40, false), (15, false), (12, false), (14, false)] {
+        send(b, c);
+    }
+    assert_eq!(battery_popups(Duration::from_millis(800)), ["Galaxy S24 FE battery low"]);
+    for (b, c) in [(30, true), (99, true), (100, true), (100, true)] {
+        send(b, c);
+    }
+    assert_eq!(battery_popups(Duration::from_millis(800)), ["Galaxy S24 FE is fully charged"]);
 }

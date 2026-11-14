@@ -145,6 +145,15 @@ pub enum Request {
     SetBatterySaver {
         on: bool,
     },
+    /// One of the simple on/off settings (`config::SWITCHES`), saved to config.toml.
+    SetSwitch {
+        name: String,
+        on: bool,
+    },
+    /// Put a notification's one-time code on this computer's clipboard.
+    CopyCode {
+        id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -284,6 +293,9 @@ pub enum Reply {
         /// The battery saver switch (absent from older daemons = on).
         #[serde(default = "yes")]
         battery_saver: bool,
+        /// The simple on/off settings by name (`config::SWITCHES`).
+        #[serde(default)]
+        switches: BTreeMap<String, bool>,
     },
     Notifications {
         items: Vec<NotificationInfo>,

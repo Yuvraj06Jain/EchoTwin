@@ -115,6 +115,11 @@ fun SettingsScreen(state: UiState, actions: Actions, onOpenSetup: () -> Unit, mo
                         "(you already saw them here). On: they're delivered when it reconnects.",
                     checked = state.queueOn,
                 ) { actions.setQueue(it) }
+                SwitchRow(
+                    "Battery alerts",
+                    "A notification when the computer's battery is low (15%) or fully charged.",
+                    checked = state.batteryAlertsOn,
+                ) { actions.setBatteryAlerts(it) }
             }
         }
         item { SectionTitle("Bluetooth backup") }

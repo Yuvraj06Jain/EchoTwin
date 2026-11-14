@@ -86,6 +86,8 @@ enum Cmd {
     },
     /// Dismiss a mirrored notification (id from `notifications --json`).
     Dismiss { id: String },
+    /// Copy a notification's one-time code to this computer's clipboard.
+    CopyCode { id: String },
     /// Mark an SMS conversation as read here (id from the widget/app).
     SmsRead { thread: String },
     /// Switch the connection on (reconnect to your phone).
@@ -123,7 +125,7 @@ async fn widget_state(c: &mut Client) -> anyhow::Result<serde_json::Value> {
             .take(30)
             .map(|n| {
                 json!({ "id": n.id, "app": n.app, "package": n.package, "title": n.title,
-                        "text": n.text, "posted_ms": n.posted_ms })
+                        "text": n.text, "posted_ms": n.posted_ms, "code": n.code })
             })
             .collect(),
         _ => vec![],
@@ -594,6 +596,11 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             let r = c.request(&Request::DismissNotification { id }).await?;
             fail_on_error(&r)?;
             show(&r);
+        }
+        Cmd::CopyCode { id } => {
+            let r = c.request(&Request::CopyCode { id }).await?;
+            fail_on_error(&r)?;
+            println!("Code copied");
         }
         Cmd::On | Cmd::Off => {
             let on = matches!(cli.cmd, Cmd::On);

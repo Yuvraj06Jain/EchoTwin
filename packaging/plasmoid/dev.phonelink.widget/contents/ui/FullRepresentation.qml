@@ -252,6 +252,16 @@ PlasmaExtras.Representation {
                                 }
                             }
                             PlasmaComponents.ToolButton {
+                                visible: !!modelData.code
+                                icon.name: "edit-copy"
+                                text: modelData.code || ""
+                                onClicked: {
+                                    root.run(["copy-code", modelData.id]);
+                                    root.flash("Code copied");
+                                }
+                                PlasmaComponents.ToolTip { text: "Copy the code" }
+                            }
+                            PlasmaComponents.ToolButton {
                                 icon.name: "window-close"
                                 onClicked: root.run(["dismiss", modelData.id])
                                 PlasmaComponents.ToolTip { text: "Dismiss" }

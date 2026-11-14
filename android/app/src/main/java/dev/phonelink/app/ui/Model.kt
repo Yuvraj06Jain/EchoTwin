@@ -22,6 +22,7 @@ data class UiState(
     val access: Access,
     val clipboardOn: Boolean,
     val queueOn: Boolean,
+    val batteryAlertsOn: Boolean,
     /** The connection switch (off: disconnected, nothing searching). */
     val connectionOn: Boolean,
     val busy: Boolean,
@@ -41,6 +42,7 @@ interface Actions {
     fun clearTransfers()
     fun setClipboard(on: Boolean)
     fun setQueue(on: Boolean)
+    fun setBatteryAlerts(on: Boolean)
     fun setConnection(on: Boolean)
     fun allowNotifications()
     fun allowBattery()

@@ -37,6 +37,7 @@
       { id: 'n3', app: 'Gmail', title: 'Placement Cell', text: 'Registration for the November drive closes tomorrow at 5 pm.', time: ago(26), canReply: false },
       { id: 'n4', app: 'Calendar', title: 'Operating Systems lab', text: 'Today, 2:00 – 5:00 pm · Lab complex, room 214', time: ago(48), canReply: false },
       { id: 'n5', app: 'Messages', title: 'Mom', text: 'Call me when you are free', time: ago(75), canReply: true },
+      { id: 'n7', app: 'Messages', title: 'AX-HDFCBK', text: '482913 is your OTP for login. Do not share it with anyone.', time: ago(120), canReply: false, code: '482913' },
       { id: 'n6', app: 'Swiggy', title: 'Order delivered', text: 'Your order from Campus Cafe has been delivered.', time: ago(190), canReply: false },
     ],
     threads: [
@@ -86,6 +87,7 @@
       bluetoothBackup: true,
       connection: true,
       batterySaver: true,
+      batteryAlerts: true,
       bluetoothStatus: '',
       apps: [
         { name: 'WhatsApp', enabled: true },
@@ -241,6 +243,10 @@
       await wait(60);
       const enabled = new Set(db.settings.apps.filter((a) => a.enabled).map((a) => a.name));
       return clone(db.notifications.filter((n) => enabled.has(n.app)));
+    },
+    async copyCode(id) {
+      await wait(40);
+      if (!db.notifications.some((n) => n.id === id && n.code)) throw new Error('that notification has no code');
     },
     async dismiss(id) {
       await wait(80);

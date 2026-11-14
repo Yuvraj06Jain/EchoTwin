@@ -581,3 +581,40 @@ async fn notifications_flow_from_phone_to_laptop() {
         Some(AppMessage::DismissNotification { key: "s1".into() })
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn one_time_codes_get_a_copy_button() {
+    let mut r = setup().await;
+    r.phone_sends(AppMessage::NotificationPosted(notif(
+        "otp1",
+        "Messages",
+        "AX-HDFCBK",
+        "482913 is your OTP for txn of INR 5,000.00 on card ending 4321",
+    )));
+    let WatchEvent::NotificationPosted { item } = r
+        .event("otp posted", |e| matches!(e, WatchEvent::NotificationPosted { .. }))
+        .await
+    else {
+        unreachable!()
+    };
+    assert_eq!(item.code.as_deref(), Some("482913"));
+    let shown = r.popups();
+    let want = vec![(format!("otp:{}", item.id), "Copy 482913".to_string())];
+    assert!(
+        matches!(shown.as_slice(), [PopupCmd::Show { actions, .. }] if *actions == want),
+        "popup offers the code"
+    );
+    assert_eq!(r.request(Request::CopyCode { id: item.id.clone() }).await, Reply::Done);
+
+    // A plain message has no code and no button.
+    r.phone_sends(AppMessage::NotificationPosted(notif("plain", "WhatsApp", "Rahul", "Lab at 3pm?")));
+    let WatchEvent::NotificationPosted { item } = r
+        .event("plain posted", |e| matches!(e, WatchEvent::NotificationPosted { .. }))
+        .await
+    else {
+        unreachable!()
+    };
+    assert_eq!(item.code, None);
+    assert!(matches!(r.popups().as_slice(), [PopupCmd::Show { actions, .. }] if actions.is_empty()));
+    assert!(matches!(r.request(Request::CopyCode { id: item.id }).await, Reply::Error { .. }));
+}

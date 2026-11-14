@@ -9,6 +9,7 @@ import android.os.Looper
 import android.os.PersistableBundle
 import android.provider.Settings
 import android.widget.Toast
+import dev.phonelink.core.BatteryAlertKind
 import dev.phonelink.core.Device
 import dev.phonelink.core.EventListener
 import dev.phonelink.core.LinkEvent
@@ -293,6 +294,15 @@ object LinkManager {
                     io.execute {
                         FileShare.onChanged(event.transfer, all)
                         _transfers.value = all().take(20)
+                    }
+                }
+                is LinkEvent.ComputerStatus -> event.alert?.let { alert ->
+                    if (Prefs.batteryAlerts(app)) {
+                        val text = when (alert) {
+                            BatteryAlertKind.LOW -> "Battery low (${event.battery ?: 0u}%). Plug it in soon."
+                            BatteryAlertKind.FULL -> "Fully charged. You can unplug it."
+                        }
+                        Notifications.message(app, event.name, text)
                     }
                 }
                 is LinkEvent.RequestResult -> if (event.key == "lock") {

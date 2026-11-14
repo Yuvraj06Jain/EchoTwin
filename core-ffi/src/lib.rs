@@ -118,11 +118,14 @@ pub enum LinkEvent {
     ComputerPaused {
         id: String,
     },
-    /// The computer's battery changed (refresh `devices()`).
+    /// The computer's battery changed (refresh `devices()`). `alert`: show "battery low" /
+    /// "fully charged" now (same once-only rules as the computer uses for the phone).
     ComputerStatus {
         id: String,
+        name: String,
         battery: Option<u8>,
         charging: bool,
+        alert: Option<BatteryAlertKind>,
     },
     /// An image copied on the computer arrives as file transfer `transfer_id`: when it is
     /// done, put it on the clipboard instead of saving it in Downloads.
@@ -171,6 +174,13 @@ pub enum LinkEvent {
 }
 
 /// A music button pressed on the computer.
+/// The computer's battery just went low or full.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum BatteryAlertKind {
+    Low,
+    Full,
+}
+
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
 pub enum MediaCommand {
     PlayPause,
@@ -623,6 +633,7 @@ impl PhoneLink {
         let caps: Caps = Arc::new(Mutex::new(HashMap::new()));
         let power: Power = Arc::new(Mutex::new(HashMap::new()));
         let pump_power = power.clone();
+        let mut alerts: HashMap<Fingerprint, phonelink_core::alerts::BatteryAlerts> = HashMap::new();
         let (pump_node, pump_keepers, pump_caps) = (node.clone(), keepers.clone(), caps.clone());
         let pump_files = transfers.clone();
         let (file_tx, file_node) = (tx.clone(), node.clone());
@@ -755,10 +766,16 @@ impl PhoneLink {
                                 .lock()
                                 .unwrap_or_else(|e| e.into_inner())
                                 .insert(peer, (battery, charging));
+                            let alert = alerts.entry(peer).or_default().update(battery, charging).map(|a| match a {
+                                phonelink_core::alerts::BatteryAlert::Low(_) => BatteryAlertKind::Low,
+                                phonelink_core::alerts::BatteryAlert::Full => BatteryAlertKind::Full,
+                            });
                             LinkEvent::ComputerStatus {
                                 id: peer.short(),
+                                name: name_of(&pump_node, &peer),
                                 battery,
                                 charging,
+                                alert,
                             }
                         }
                         AppMessage::MediaControl { action } => LinkEvent::MediaControlRequested {
@@ -1451,9 +1468,15 @@ mod tests {
                 .unwrap(),
             )
             .unwrap();
-        wait(&rx, |e| matches!(e, LinkEvent::ComputerStatus { battery: Some(76), .. }));
+        wait(&rx, |e| matches!(e, LinkEvent::ComputerStatus { battery: Some(76), alert: None, .. }));
         let d = &phone.devices()[0];
         assert_eq!((d.battery, d.charging), (Some(76), true));
+        for (b, alert) in [(Some(14), Some(BatteryAlertKind::Low)), (Some(12), None)] {
+            laptop
+                .send(&phone_fp, AppMessage::ComputerStatus { battery: b, charging: false }.encode().unwrap())
+                .unwrap();
+            wait(&rx, |e| matches!(e, LinkEvent::ComputerStatus { battery, alert: a, .. } if *battery == b && *a == alert));
+        }
 
         // The connection switch: the laptop is told, the phone stays off until switched on.
         phone.set_paused(true);

@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
     private var mirrorOn by mutableStateOf(true)
     private var clipboardOn by mutableStateOf(true)
     private var queueOn by mutableStateOf(false)
+    private var batteryAlertsOn by mutableStateOf(true)
     private var pairedOnDisk by mutableStateOf(false)
 
     private val scan = registerForActivityResult(ScanContract()) { result ->
@@ -135,6 +136,7 @@ class MainActivity : ComponentActivity() {
                     access = Access(mirrorOn, batteryOk, smsOn, bluetoothOn, phoneStatusOn),
                     clipboardOn = clipboardOn,
                     queueOn = queueOn,
+                    batteryAlertsOn = batteryAlertsOn,
                     connectionOn = connectionOn,
                     busy = busy,
                     bluetoothProblem = BluetoothBackup.problem,
@@ -192,6 +194,11 @@ class MainActivity : ComponentActivity() {
             LinkManager.setConnection(on)
             notice = if (on) "Connection on: looking for your computer" else "Connection off"
         }
+        override fun setBatteryAlerts(on: Boolean) {
+            Prefs.setBatteryAlerts(this@MainActivity, on)
+            batteryAlertsOn = on
+        }
+
         override fun setQueue(on: Boolean) {
             LinkManager.setQueueNotifications(on)
             queueOn = on
@@ -215,6 +222,7 @@ class MainActivity : ComponentActivity() {
         mirrorOn = LinkManager.mirrorEnabled(this)
         clipboardOn = Prefs.clipboardSharing(this)
         queueOn = Prefs.queueNotifications(this)
+        batteryAlertsOn = Prefs.batteryAlerts(this)
         pairedOnDisk = LinkManager.hasPairedDevice(this)
         smsOn = SmsSync.canRead()
         bluetoothOn = BluetoothBackup.allowed()

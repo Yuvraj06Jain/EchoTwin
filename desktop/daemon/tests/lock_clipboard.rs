@@ -500,3 +500,29 @@ fn without_a_screen_saver_logind_locks_only_this_users_graphical_session() {
     // Nothing at all to lock with: an error, not a pretend success.
     assert!(lock_screen(&Buses::unreachable()).is_err());
 }
+
+#[tokio::test]
+async fn copying_a_code_puts_it_on_the_clipboard_without_sending_it_back() {
+    let Some(mut r) = setup().await else {
+        eprintln!("dbus-daemon not installed; skipping");
+        return;
+    };
+    r.phone_sends(AppMessage::NotificationPosted(phonelink_core::PhoneNotification {
+        key: "otp".into(),
+        package: "com.google.android.apps.messaging".into(),
+        app: "Messages".into(),
+        title: "Google".into(),
+        text: "G-482913 is your Google verification code".into(),
+        posted_ms: now_ms(),
+        can_reply: false,
+        actions: vec![],
+    }));
+    let ev = r.event("posted", |e| matches!(e, WatchEvent::NotificationPosted { .. })).await;
+    let WatchEvent::NotificationPosted { item } = ev else { unreachable!() };
+    assert_eq!(r.request(Request::CopyCode { id: item.id }).await, Reply::Done);
+    eventually("code on the clipboard", || r.laptop_clipboard() == "482913").await;
+    assert!(
+        r.phone_gets(Duration::from_millis(800)).await.iter().all(|m| !is_clip(m)),
+        "the code isn't sent to the phone"
+    );
+}

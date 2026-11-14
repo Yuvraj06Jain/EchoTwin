@@ -77,7 +77,7 @@ function fakeTauri() {
         if (!fake.daemonUp) throw 'daemon-down';
         switch (cmd) {
           case 'status':
-            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66' }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, battery_saver: fake.saver !== false, devices: fake.devices };
+            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66' }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, battery_saver: fake.saver !== false, switches: { battery_alerts: fake.alerts !== false }, devices: fake.devices };
           case 'notifications':
             if (fake.slowNext) {
               // Snapshot the data now, answer late (like a reload that started before news arrived).
@@ -93,6 +93,8 @@ function fakeTauri() {
             };
           case 'app_icons':
             return fake.icons || {};
+          case 'copy_code':
+            return null;
           case 'dismiss_notification':
             fake.notifs = fake.notifs.filter((n) => n.id !== args.id);
             return null;
@@ -139,6 +141,9 @@ function fakeTauri() {
           case 'set_connection':
             fake.connection = args.on;
             if (!args.on) fake.devices = fake.devices.map((d) => ({ ...d, connected: false }));
+            return null;
+          case 'set_switch':
+            if (args.name === 'battery_alerts') fake.alerts = args.on;
             return null;
           case 'set_battery_saver':
             fake.saver = args.on;
@@ -274,7 +279,7 @@ function fakeTauri() {
     window.__fake.icons = { 'com.whatsapp': icon };
     window.__fake.notifs = [
       { id: 'P/k1', device: 'P', device_name: 'Galaxy S24 FE', package: 'com.whatsapp', app: 'WhatsApp', title: 'Rahul', text: 'Coming to the lab?', posted_ms: now, can_reply: true, actions: ['Mark as read'], removed_on_phone: false },
-      { id: 'P/k2', device: 'P', device_name: 'Galaxy S24 FE', package: 'com.whatsapp', app: 'WhatsApp', title: 'Mom', text: 'Call me', posted_ms: now - 60000, can_reply: true, actions: [], removed_on_phone: true },
+      { id: 'P/k2', device: 'P', device_name: 'Galaxy S24 FE', package: 'com.whatsapp', app: 'WhatsApp', title: 'Mom', text: 'Call me', posted_ms: now - 60000, can_reply: true, actions: [], removed_on_phone: true, code: '4821' },
     ];
     window.__emit('phonelink://event', { kind: 'app_icon', package: 'com.whatsapp' });
     window.__emit('phonelink://event', { kind: 'notification_posted', item: {} });
@@ -298,6 +303,13 @@ function fakeTauri() {
   const act = await lastCall('notification_action');
   check(act && act[1].id === 'P/k1' && act[1].index === 0, 'action button goes to the service');
   check((await toast()).includes('Mark as read'), 'action toast names the button');
+  check((await txt('.notif[data-id="P/k2"] [data-action="copy-code"]')).trim() === 'Copy 4821', 'a one-time code gets a Copy button');
+  check((await page.$$eval('.notif[data-id="P/k1"] [data-action="copy-code"]', (b) => b.length)) === 0, 'no Copy button without a code');
+  await page.click('.notif[data-id="P/k2"] [data-action="copy-code"]');
+  await page.waitForTimeout(250);
+  const cc = await lastCall('copy_code');
+  check(cc && cc[1].id === 'P/k2', 'Copy goes to the service');
+  check((await toast()) === 'Code copied', 'copy toast');
   await page.evaluate(() => window.__emit('phonelink://event', { kind: 'action_result', id: 'P/k1', ok: false, message: 'That notification is no longer on your phone' }));
   await page.waitForTimeout(100);
   check((await toast()).startsWith("Your phone couldn't do that"), 'phone-side failure is reported');
@@ -453,6 +465,12 @@ function fakeTauri() {
   await page.click(saver);
   await page.waitForTimeout(150);
   check((await lastCall('set_battery_saver'))[1].on === true && (await page.evaluate(() => window.__fake.saver)) === true, 'and back on');
+  const alerts = '.sheet [data-key="batteryAlerts"]';
+  check((await page.getAttribute(alerts, 'aria-checked')) === 'true', 'battery alerts switch on (from the service)');
+  await page.click(alerts);
+  await page.waitForTimeout(150);
+  const sw = await lastCall('set_switch');
+  check(sw && sw[1].name === 'battery_alerts' && sw[1].on === false && (await page.evaluate(() => window.__fake.alerts)) === false, 'battery alerts switch goes to set_switch');
   await page.screenshot({ path: `${OUT}/app-5-settings.png` });
   await page.keyboard.press('Escape');
 

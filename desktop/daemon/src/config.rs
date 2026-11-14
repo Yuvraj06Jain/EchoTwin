@@ -34,6 +34,8 @@ pub struct Config {
     /// Fewer background wake-ups: slower keep-alive, and a phone that is away is looked
     /// for less often.
     pub battery_saver: bool,
+    /// Popups when the phone's battery is low or full.
+    pub battery_alerts: bool,
     /// Where batteries are read from (tests only). Default: `/sys/class/power_supply`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub power_supply_dir: Option<String>,
@@ -54,8 +56,38 @@ impl Default for Config {
             bluetooth_backup: true,
             connection: true,
             battery_saver: true,
+            battery_alerts: true,
             power_supply_dir: None,
         }
+    }
+}
+
+/// Simple on/off settings, set with `Request::SetSwitch` and listed in `Reply::Status`.
+pub const SWITCHES: &[&str] = &["battery_alerts"];
+
+impl Config {
+    pub fn switch(&self, name: &str) -> Option<bool> {
+        Some(match name {
+            "battery_alerts" => self.battery_alerts,
+            _ => return None,
+        })
+    }
+
+    /// False for an unknown name.
+    pub fn set_switch(&mut self, name: &str, on: bool) -> bool {
+        let slot = match name {
+            "battery_alerts" => &mut self.battery_alerts,
+            _ => return false,
+        };
+        *slot = on;
+        true
+    }
+
+    pub fn switches(&self) -> std::collections::BTreeMap<String, bool> {
+        SWITCHES
+            .iter()
+            .filter_map(|n| Some((n.to_string(), self.switch(n)?)))
+            .collect()
     }
 }
 

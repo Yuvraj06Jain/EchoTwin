@@ -23,6 +23,10 @@ data class UiState(
     val clipboardOn: Boolean,
     val queueOn: Boolean,
     val batteryAlertsOn: Boolean,
+    /** This phone's battery (0–100, null if unknown), charging, and network label. */
+    val myBattery: Int? = null,
+    val myCharging: Boolean = false,
+    val myNetwork: String = "",
     /** The connection switch (off: disconnected, nothing searching). */
     val connectionOn: Boolean,
     val busy: Boolean,

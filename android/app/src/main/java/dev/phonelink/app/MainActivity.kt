@@ -120,6 +120,9 @@ class MainActivity : ComponentActivity() {
         if (Prefs.connection(this)) {
             ContextCompat.startForegroundService(this, Intent(this, LinkService::class.java))
         }
+        // This phone's battery for the Home screen, also while the connection is off (nothing
+        // is sent then: LinkManager drops sends while switched off).
+        StatusWatcher.start(this)
 
         setContent {
             PhoneLinkTheme {
@@ -128,6 +131,7 @@ class MainActivity : ComponentActivity() {
                 val myId by LinkManager.myId.collectAsStateWithLifecycle()
                 val transfers by LinkManager.transfers.collectAsStateWithLifecycle()
                 val connectionOn by LinkManager.connectionOn.collectAsStateWithLifecycle()
+                val mine by StatusWatcher.mine.collectAsStateWithLifecycle()
                 val state = UiState(
                     myId = myId,
                     devices = devices,
@@ -137,6 +141,9 @@ class MainActivity : ComponentActivity() {
                     clipboardOn = clipboardOn,
                     queueOn = queueOn,
                     batteryAlertsOn = batteryAlertsOn,
+                    myBattery = mine.battery,
+                    myCharging = mine.charging,
+                    myNetwork = mine.network,
                     connectionOn = connectionOn,
                     busy = busy,
                     bluetoothProblem = BluetoothBackup.problem,

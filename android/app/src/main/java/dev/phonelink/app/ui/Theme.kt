@@ -30,8 +30,10 @@ import androidx.compose.ui.unit.sp
 
 /** The same calm dark palette as the laptop app. */
 object Pl {
-    val Bg = Color(0xFF16181B)
-    val Panel = Color(0xFF1D2024)
+    val Bg = Color(0xFF111417)
+    val Panel = Color(0xFF1A1E22)
+    /** Tile border: white at 7%. */
+    val Edge = Color(0x12FFFFFF)
     val Raised = Color(0xFF25292E)
     val Line = Color(0xFF2A2E33)
     val Text = Color(0xFFE6E8EA)
@@ -74,13 +76,13 @@ fun PhoneLinkTheme(content: @Composable () -> Unit) {
 fun Panel(
     modifier: Modifier = Modifier,
     color: Color = Pl.Panel,
-    border: Color = Pl.Line,
+    border: Color = Pl.Edge,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = color,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(18.dp),
         border = BorderStroke(1.dp, border),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)

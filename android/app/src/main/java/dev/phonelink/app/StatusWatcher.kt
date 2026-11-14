@@ -19,6 +19,8 @@ import android.telephony.TelephonyCallback
 import android.telephony.TelephonyDisplayInfo
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * This phone's battery and network ("5G", "4G", "Wi-Fi"…) for the computer's status display.
@@ -38,6 +40,12 @@ object StatusWatcher {
     @Volatile private var displayType = TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE
     @Volatile private var signal = 0
     private var lastSent: List<Any?>? = null
+
+    /** This phone's battery and network, for the app's own Home screen. */
+    data class Mine(val battery: Int?, val charging: Boolean, val network: String)
+
+    private val _mine = MutableStateFlow(Mine(null, false, ""))
+    val mine: StateFlow<Mine> = _mine
     private var telephonyCallback: Any? = null
 
     fun allowed(context: Context): Boolean =
@@ -154,6 +162,7 @@ object StatusWatcher {
     fun send(force: Boolean) {
         if (!::app.isInitialized) return
         val now = current()
+        _mine.value = Mine(now[0] as Int?, now[1] as Boolean, now[2] as String)
         if (!force && now == lastSent) return
         lastSent = now
         LinkManager.sendPhoneStatus(now[0] as Int?, now[1] as Boolean, now[2] as String, now[3] as Int)

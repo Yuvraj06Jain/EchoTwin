@@ -1,6 +1,16 @@
 package dev.phonelink.app.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -66,8 +76,26 @@ fun HomeScreen(state: UiState, actions: Actions, onOpenSetup: () -> Unit, modifi
         }
 
         if (main != null) {
-            item { ComputerCard(main, state, actions, onNote = { writingNote = true }) }
-            if (main.connected && main.via == "bluetooth") {
+            val bluetooth = main.connected && main.via == "bluetooth"
+            item {
+                TwinHeader(
+                    computer = main.name,
+                    computerBattery = main.battery?.toInt(),
+                    computerCharging = main.charging,
+                    myBattery = state.myBattery,
+                    myCharging = state.myCharging,
+                    myNetwork = state.myNetwork,
+                    link = when {
+                        !state.connectionOn -> Link.Off
+                        bluetooth -> Link.Bluetooth
+                        main.connected -> Link.Wifi
+                        main.pausedByPeer -> Link.PausedThere
+                        else -> Link.Offline
+                    },
+                )
+            }
+            item { ConnectionTile(main, state, actions) }
+            if (bluetooth) {
                 item {
                     WarnCard(
                         "Using the Bluetooth backup. Notifications, messages and the clipboard still " +
@@ -75,6 +103,7 @@ fun HomeScreen(state: UiState, actions: Actions, onOpenSetup: () -> Unit, modifi
                     )
                 }
             }
+            item { ActionGrid(main, state, actions, onNote = { writingNote = true }) }
         }
 
         if (active.isNotEmpty()) {
@@ -82,25 +111,14 @@ fun HomeScreen(state: UiState, actions: Actions, onOpenSetup: () -> Unit, modifi
             items(active.take(3), key = { "now-" + it.id }) { TransferCard(it, actions) }
         }
 
-        item { SectionTitle("On your computer") }
+        item { SectionTitle("Shows on your computer") }
         item {
-            Panel {
-                SwitchRow(
-                    "Notifications",
-                    if (state.access.notifications) "Shown as popups and in the EchoTwin window"
-                    else "Needs notification access",
-                    checked = state.access.notifications,
-                ) { actions.allowNotifications() }
-                SwitchRow(
-                    "Messages (SMS)",
-                    if (state.access.sms) "Read and answer texts from the computer" else "Needs SMS access",
-                    checked = state.access.sms,
-                ) { if (it) actions.allowSms() else actions.openAppInfo() }
-                SwitchRow(
-                    "Share clipboard",
-                    "Copy on the computer, paste here",
-                    checked = state.clipboardOn,
-                ) { actions.setClipboard(it) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ShowChip("Notifications", state.access.notifications, Modifier.weight(1f)) { actions.allowNotifications() }
+                ShowChip("Messages", state.access.sms, Modifier.weight(1f)) {
+                    if (state.access.sms) actions.openAppInfo() else actions.allowSms()
+                }
+                ShowChip("Clipboard", state.clipboardOn, Modifier.weight(1f)) { actions.setClipboard(!state.clipboardOn) }
             }
         }
 
@@ -147,70 +165,107 @@ fun statusLabel(d: Device, connectionOn: Boolean = true): String = when {
     else -> "Offline"
 }
 
+/** The connection switch, with what's going on and Reconnect when it can't reach the computer. */
 @Composable
-private fun ComputerCard(d: Device, state: UiState, actions: Actions, onNote: () -> Unit) {
+private fun ConnectionTile(d: Device, state: UiState, actions: Actions) {
     val bluetooth = d.connected && d.via == "bluetooth"
     Panel {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            IconSquare(Icons.Filled.Refresh, if (d.connected) Pl.AccentText else Pl.Muted)
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(d.name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(6.dp))
-                Chip(
-                    statusLabel(d, state.connectionOn),
-                    when {
-                        bluetooth -> Pl.Warn
-                        d.connected -> Pl.AccentText
-                        else -> Pl.Muted
-                    },
-                )
+                Text("Connection", fontWeight = FontWeight.SemiBold)
+                Hint(if (state.connectionOn) "On · reconnects by itself" else "Off · nothing runs")
             }
-            if (!d.connected && state.connectionOn && !d.pausedByPeer) {
-                TextButton(onClick = actions::reconnect) { Text("Reconnect", color = Pl.AccentText) }
-            }
-        }
-        SwitchRow(
-            "Connection",
-            if (state.connectionOn) "Off: disconnect and stop running in the background"
-            else "Off: not connected, nothing running. Turn on to reconnect.",
-            checked = state.connectionOn,
-        ) { actions.setConnection(it) }
-        d.battery?.let { level ->
-            Hint("Computer battery $level%" + if (d.charging) " · charging" else "", color = if (level.toInt() < 20 && !d.charging) Pl.Warn else Pl.Muted)
+            SwitchOnly(state.connectionOn) { actions.setConnection(it) }
         }
         when {
             !state.connectionOn -> {}
             bluetooth -> Hint("Wi-Fi can't reach the computer right now.")
             d.pausedByPeer && !d.connected -> Hint("The connection was switched off on the computer. It reconnects as soon as it's turned back on there.")
-            !d.connected -> Hint(
-                (state.bluetoothProblem?.let { "$it. " } ?: "") +
-                    "Make sure both are on the same Wi-Fi (or your hotspot)." +
-                    if (d.pending > 0uL) " ${d.pending} waiting to send." else ""
-            )
+            !d.connected -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) {
+                    Hint(
+                        (state.bluetoothProblem?.let { "$it. " } ?: "") +
+                            "Make sure both are on the same Wi-Fi (or your hotspot)." +
+                            if (d.pending > 0uL) " ${d.pending} waiting to send." else ""
+                    )
+                }
+                TextButton(onClick = actions::reconnect) { Text("Reconnect", color = Pl.AccentText) }
+            }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ActionTile("Lock", Icons.Filled.Lock, d.canLock, Modifier.weight(1f), actions::lock)
-            ActionTile(
-                "Clipboard", Icons.Filled.Share, d.canClipboard && state.clipboardOn,
-                Modifier.weight(1f), actions::sendClipboard,
-            )
-            ActionTile(
-                "Send files", Icons.AutoMirrored.Filled.Send, !bluetooth,
-                Modifier.weight(1f), actions::sendFiles,
-            )
-            ActionTile("Note", Icons.Filled.Edit, true, Modifier.weight(1f), onNote)
-        }
+    }
+}
+
+/** Lock, Clipboard, Send files / Note, Ring: three to a row. */
+@Composable
+private fun ActionGrid(d: Device, state: UiState, actions: Actions, onNote: () -> Unit) {
+    val bluetooth = d.connected && d.via == "bluetooth"
+    var ringing by remember { mutableStateOf(false) }
+    val tiles = buildList<@Composable (Modifier) -> Unit> {
+        add { m -> ActionTile("Lock", Icons.Filled.Lock, d.canLock, m, actions::lock) }
+        add { m -> ActionTile("Clipboard", Icons.Filled.Share, d.canClipboard && state.clipboardOn, m, actions::sendClipboard) }
+        add { m -> ActionTile("Send files", Icons.AutoMirrored.Filled.Send, !bluetooth, m, actions::sendFiles) }
+        add { m -> ActionTile("Note", Icons.Filled.Edit, true, m, onNote) }
         if (d.canRing) {
-            var ringing by remember { mutableStateOf(false) }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ActionTile(
-                    if (ringing) "Stop" else "Ring", Icons.Filled.Notifications, true, Modifier.weight(1f),
-                ) {
+            add { m ->
+                ActionTile(if (ringing) "Stop" else "Ring", Icons.Filled.Notifications, true, m) {
                     ringing = !ringing
                     actions.ring(ringing)
                 }
-                Spacer(Modifier.weight(3f))
             }
         }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        tiles.chunked(3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { it(Modifier.weight(1f)) }
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+/** A tinted rounded square holding an icon. */
+@Composable
+private fun IconSquare(icon: ImageVector, tint: Color) {
+    Box(
+        Modifier.size(36.dp).background(tint.copy(alpha = 0.16f), RoundedCornerShape(10.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+    }
+}
+
+@Composable
+private fun SwitchOnly(checked: Boolean, onChange: (Boolean) -> Unit) {
+    Switch(
+        checked = checked,
+        onCheckedChange = onChange,
+        colors = SwitchDefaults.colors(
+            checkedTrackColor = Pl.Accent,
+            checkedThumbColor = Color.White,
+            uncheckedTrackColor = Pl.Raised,
+            uncheckedBorderColor = Pl.Line,
+            uncheckedThumbColor = Pl.Muted,
+        ),
+    )
+}
+
+/** "Notifications ●": what this phone shows on the computer; a tap changes it. */
+@Composable
+private fun ShowChip(label: String, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Row(
+        modifier
+            .background(Pl.Panel, RoundedCornerShape(14.dp))
+            .border(1.dp, Pl.Edge, RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(8.dp).background(if (on) Pl.AccentText else Pl.Muted.copy(alpha = 0.5f), CircleShape))
+        Spacer(Modifier.width(7.dp))
+        Text(label, fontSize = 12.sp, color = if (on) Pl.Text else Pl.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -219,15 +274,16 @@ private fun ActionTile(label: String, icon: ImageVector, enabled: Boolean, modif
     val tint = if (enabled) Pl.AccentText else Pl.Muted.copy(alpha = 0.5f)
     Surface(
         modifier = modifier.clickable(enabled = enabled, onClick = onClick),
-        color = Pl.Raised,
-        shape = RoundedCornerShape(12.dp),
+        color = Pl.Panel,
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, Pl.Edge),
     ) {
         Column(
-            Modifier.padding(vertical = 12.dp),
+            Modifier.padding(vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+            IconSquare(icon, tint)
             Text(label, fontSize = 12.sp, color = if (enabled) Pl.Text else Pl.Muted, maxLines = 1)
         }
     }

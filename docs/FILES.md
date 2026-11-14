@@ -190,7 +190,8 @@ Package `dev.phonelink.app` in `android/app/src/main/java/dev/phonelink/app/`.
 | `MainActivity.kt` | Activity: permission launchers, QR scan + pairing confirm, bottom navigation, implements `ui.Actions`. |
 | `ui/Theme.kt` | Dark palette (`Pl`), `PhoneLinkTheme`, shared components (`Panel`, `SwitchRow`, `Chip`, `Hint`, `SectionTitle`). |
 | `ui/Model.kt` | `UiState`, `Access` (setup checklist state), `Actions` interface, transfer helpers. |
-| `ui/HomeScreen.kt` | Home: computer card (status chip, laptop battery, Reconnect, Lock/Clipboard/Send files/Note), Bluetooth warning, Now (active transfers), "On your computer" switches, note dialog. |
+| `ui/HomeScreen.kt` | Home: Twin header, connection tile (switch, Reconnect), Bluetooth warning, action tiles (Lock, Clipboard, Send files, Note, Ring), Now (active transfers), "Shows on your computer" chips, note dialog. |
+| `ui/TwinHeader.kt` | The phone and laptop drawn on a `Canvas`, filled to their battery levels, with the animated link and its pill. |
 | `ui/OtherScreens.kt` | Files tab, Settings tab (clipboard, queue switch, computers, phone id), Finish-setup checklist, pairing screen, confirm-pair dialog. |
 | `android/app/src/main/java/dev/phonelink/core/phonelink_ffi.kt` | **Generated** Kotlin bindings (by `scripts/gen-kotlin-bindings.sh`). Never edit by hand; regenerate after any change to `core-ffi/src/lib.rs`. |
 
@@ -205,12 +206,15 @@ Package `dev.phonelink.app` in `android/app/src/main/java/dev/phonelink/app/`.
 | `dolphin/phonelink-send.desktop.in` | Dolphin right-click → "Send to phone" (`phonelink send-file --notify %F`). |
 | `plasmoid/dev.phonelink.widget/metadata.json` | Plasma 6 widget package metadata (id `dev.phonelink.widget`). |
 | `…/contents/ui/main.qml` | Widget root: keeps one `phonelink widget --wait <hash>` running through Plasma's executable data source (output only on change), runs actions, unread logic, tooltip. |
-| `…/contents/ui/CompactRepresentation.qml` | The panel icon: green phone outline, unread dot, click/middle-click, drop files. |
-| `…/contents/ui/FullRepresentation.qml` | The popup: header status, music card, tabs Notifications/Messages/Files, file picker, drop area, translucent background. |
+| `…/contents/ui/CompactRepresentation.qml` | The live panel icon: battery fill, count badge, one pulse per new arrival, transfer ring, click/middle-click, drop files. |
+| `…/contents/ui/FullRepresentation.qml` | The popup (Tile dashboard): header pill, battery / now playing / notifications / messages / drop / quick-button tiles, full-list pages in a `StackView`, file picker, translucent background. |
+| `…/contents/ui/Tile.qml`, `ListTile.qml`, `ListPage.qml` | Tile frame; tile with a caption that opens a list; a list page with a back arrow. |
+| `…/contents/ui/BatteryRing.qml`, `NowPlayingTile.qml`, `ArtBackdrop.qml`, `DropTile.qml`, `QuickButtons.qml`, `Chip.qml` | The pieces of the dashboard (`ArtBackdrop` needs Qt 6.5 and is loaded optionally). |
 | `…/contents/ui/Empty.qml` | Small green empty-state. |
 | `…/contents/ui/shell.js` | Safe shell quoting for every command, `file://` → path, helpers. |
 | `…/contents/ui/configAppearance.qml` | Widget settings page: background opacity, link to KDE blur settings. |
-| `plasmoid/tests/shell.test.js` | Node test: hostile file names (quotes, `$(…)`, backticks, newlines) survive `shell.js` quoting unchanged and run nothing. |
+| `plasmoid/tests/shell.test.js` | Node test: hostile file names (quotes, `$(…)`, backticks, newlines) survive `shell.js` quoting unchanged and run nothing; colours, initials, new-count. |
+| `plasmoid/tests/preview/` | `render.sh out.png` draws the widget with sample data (`harness.qml`) and stand-in Plasma/Kirigami modules (`stubs/`) under `qmlscene`, for layout checks without Plasma. |
 | `…/contents/config/main.xml`, `config.qml` | Widget settings schema (`backgroundOpacity`, default 75) and the settings page list. |
 
 ## scripts/ and CI

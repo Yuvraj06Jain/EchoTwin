@@ -349,10 +349,16 @@ listens for `ActionInvoked`/`ActivationToken`; the opener starts `phonelink-app
 
 ## 13. KDE panel widget
 
-**What:** a small green phone outline in the panel (grey offline, green dot for new
-things). Click: popup with phone status, music card, Notifications / Messages / Files. Drop
-files on it to send (queued if offline). Middle-click opens the window. Configurable
-background opacity.
+**What:** a "live" phone outline in the panel: it fills with the phone's battery level
+(amber under 20%, grey and empty offline), shows a count of new notifications and unread
+texts, pulses once when something arrives and draws a ring while a file moves. Click: the
+**Tile dashboard** (design: `docs/design/widget-concepts.html`, style 1): a battery ring
+with network and signal, now playing (blurred album art with Qt 6.5+, a tint otherwise),
+the newest notifications (app icon, Copy-code chip), recent texts with avatars, a drop tile
+that shows the running transfer, and quick buttons Ring · Note · Saver · Open. Captions
+open the full lists (back arrow); the popup always reopens on the dashboard. Drop files on
+the icon or anywhere on the popup. Middle-click opens the window. Configurable background
+opacity.
 
 **How:** pure QML, no compiled plugin. `main.qml` runs `phonelink widget` once through
 Plasma's `executable` data source, then always keeps one `phonelink widget --wait <hash>`
@@ -365,9 +371,11 @@ blurs behind it.
 
 | File | What to edit there |
 |---|---|
-| `plasmoid/…/ui/main.qml` | waiting loop (`poll`, `apply`, `refresh`), `run`, `sendUrls`, `openApp`, unread logic (`seenMs`), tooltip |
-| `plasmoid/…/ui/CompactRepresentation.qml` | icon size/shape (`body`), unread dot, drop handling |
-| `plasmoid/…/ui/FullRepresentation.qml` | popup size (`Layout.preferred*`), header, music card, tabs, `applyOpacity` |
+| `plasmoid/…/ui/main.qml` | waiting loop (`poll`, `apply`, `refresh`), `run`, `sendUrls`, `openApp`, `newCount` (`seenMs`), colours, tooltip |
+| `plasmoid/…/ui/CompactRepresentation.qml` | the live icon: `body` + battery fill, badge, `pulse`, transfer ring, drop handling |
+| `plasmoid/…/ui/FullRepresentation.qml` | popup size (`Layout.preferred*`), header pill, the dashboard rows, `openList` + the three list pages, `CodeChip`, `applyOpacity` |
+| `plasmoid/…/ui/Tile.qml`, `ListTile.qml`, `ListPage.qml` | the tile frame, a tile with a caption, a full-list page |
+| `plasmoid/…/ui/BatteryRing.qml`, `NowPlayingTile.qml`, `ArtBackdrop.qml`, `DropTile.qml`, `QuickButtons.qml`, `Chip.qml` | one tile or piece each (`ArtBackdrop` is loaded through a `Loader` so a Qt without `QtQuick.Effects` falls back) |
 | `plasmoid/…/ui/Empty.qml` | empty-state look |
 | `plasmoid/…/ui/shell.js` | `quote`, `command`, `localPath` (security-relevant) |
 | `plasmoid/…/ui/configAppearance.qml`, `config/main.xml`, `config/config.qml` | settings page and keys |
@@ -375,7 +383,9 @@ blurs behind it.
 
 Install/update: `./packaging/install.sh` (uses `kpackagetool6`), then
 `plasmashell --replace & disown`. **Tests:** `desktop/daemon/tests/status.rs` (widget JSON, `the_widget_waits_for_changes`);
-the quoting was tested with hostile names; QML is parse-checked (`qmlformat`).
+the quoting was tested with hostile names; QML is parse-checked (`qmlformat`);
+`packaging/plasmoid/tests/preview/render.sh out.png` renders the popup and icon with sample
+data and stand-in KDE modules, to check layout without Plasma.
 
 ## 14. Desktop app window
 
@@ -404,14 +414,21 @@ with a fake Tauri); see [DEVELOPING.md](DEVELOPING.md#ui-tests).
 
 ## 15. Phone app UI and setup checklist
 
-**What:** dark Compose app with Home · Files · Settings; a "Finish setup" checklist for
+**What:** dark Compose app with Home · Files · Settings. Home is the **Twin link** design
+(`docs/design/phone-concepts.html`, style 3): this phone and the computer drawn side by side
+and filled to their battery levels, the link between them (Wi-Fi green, Bluetooth amber,
+grey when off; the dashes drift only while connected and on screen), then the connection
+tile, action tiles (Lock, Clipboard, Send files, Note, Ring) and chips for what shows on the
+computer. A "Finish setup" checklist for
 notification access, background running, SMS, Nearby devices, Phone status; pairing screen
 when nothing is paired.
 
 | To change… | Edit |
 |---|---|
-| Colours, shared widgets | `android/…/ui/Theme.kt` (`Pl`, `Panel`, `SwitchRow`, `Chip`) |
-| Home | `android/…/ui/HomeScreen.kt` (`ComputerCard`, `ActionTile`, `TransferCard`, `NoteDialog`) |
+| Colours, shared widgets | `android/…/ui/Theme.kt` (`Pl`, `Panel` (18 dp tiles), `SwitchRow`, `Chip`) |
+| The phone + laptop picture | `android/…/ui/TwinHeader.kt` (`TwinHeader`, `Link`, `PhoneOutline`, `LaptopOutline`, `LinkLine`) |
+| Home | `android/…/ui/HomeScreen.kt` (`ConnectionTile`, `ActionGrid`, `ActionTile`, `ShowChip`, `TransferCard`, `NoteDialog`) |
+| This phone's battery/network on Home | `StatusWatcher.mine` (a `StateFlow`) → `UiState.my*` |
 | Files / Settings / Setup / Pair | `android/…/ui/OtherScreens.kt` (`FilesScreen`, `SettingsScreen`, `SetupScreen` + `Step`, `PairScreen`) |
 | What a button does | `MainActivity.kt` `actions` object (implements `ui/Model.kt` `Actions`) |
 | Setup items | `ui/Model.kt` `Access` + `MainActivity.onResume` (reads permission state) |

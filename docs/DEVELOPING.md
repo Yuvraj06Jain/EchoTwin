@@ -159,7 +159,12 @@ show it in `Status` if the UI needs it, then a switch in `app.js` `settingsBody`
 ### Change the widget
 Edit QML in `packaging/plasmoid/dev.phonelink.widget/contents/ui/`; new data → extend
 `widget_state` in `desktop/daemon/src/bin/phonelink.rs`; every command argument must go
-through `Shell.command`/`Shell.quote`.
+through `Shell.command`/`Shell.quote`. Look at the result with
+`packaging/plasmoid/tests/preview/render.sh /tmp/w.png` (needs `qmlscene-qt6` and the
+QtQuick Shapes/Controls modules). In layouts, a row with a fixed height needs
+`Layout.fillHeight: false`, or it grows along with a child that fills and squeezes the
+other rows. Stick to Qt 6.4 APIs in always-loaded files (no `preferredRendererType`);
+newer ones go behind a `Loader` with a fallback, like `ArtBackdrop.qml`.
 
 ## Pitfalls learned in v1
 

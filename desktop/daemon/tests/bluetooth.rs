@@ -139,6 +139,7 @@ async fn the_phone_reaches_the_laptop_over_bluetooth_when_wifi_is_gone() {
             system: Some(bus.address.clone()),
         },
         download_dir: dir.path().join("dl"),
+        effects: None,
     };
     let (_stop, stop_rx) = tokio::sync::oneshot::channel::<()>();
     tokio::spawn(run(opts, async move {
@@ -278,6 +279,7 @@ async fn without_bluez_the_backup_reports_why() {
         popups: Some(Popups::recording().0),
         buses: Buses::unreachable(),
         download_dir: dir.path().join("dl"),
+        effects: None,
     };
     let (_stop, stop_rx) = tokio::sync::oneshot::channel::<()>();
     tokio::spawn(run(opts, async move {

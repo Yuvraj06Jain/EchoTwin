@@ -165,6 +165,7 @@ function fakeTauri() {
           case 'cancel_pairing':
             return null;
           case 'send_note':
+          case 'open_url':
             return fake.deliveredNow;
           case 'unpair':
             fake.devices = fake.devices.filter((d) => d.id !== args.device);
@@ -355,6 +356,14 @@ function fakeTauri() {
   await page.keyboard.press('Control+Enter');
   await page.waitForTimeout(300);
   check((await toast()).startsWith('Queued'), 'queued toast when the phone is away');
+  await page.evaluate(() => (window.__fake.deliveredNow = true));
+  await page.click('[data-action="send-note"]');
+  await page.keyboard.type('https://example.org/notes?id=4');
+  await page.keyboard.press('Control+Enter');
+  await page.waitForTimeout(300);
+  const link = await lastCall('open_url');
+  check(link && link[1].url === 'https://example.org/notes?id=4', `a note that is just a link goes to open_url (${JSON.stringify(link)})`);
+  check((await toast()).startsWith('Link sent to Galaxy S24 FE'), 'link toast');
 
   await page.click('[data-action="clear-all"]');
   await page.waitForTimeout(300);

@@ -297,6 +297,10 @@
       t.messages.push(msg);
       return clone(msg);
     },
+    async openUrl(/* url, deviceId */) {
+      await wait(150);
+      return { queued: mode !== 'connected' };
+    },
     async sendText(text /* , deviceId */) {
       await wait(150);
       if (!text.trim()) throw new Error('empty text');

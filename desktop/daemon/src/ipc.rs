@@ -150,6 +150,12 @@ pub enum Request {
         name: String,
         on: bool,
     },
+    /// Open a web link on the phone (as a tap-to-open notification there). Queued while
+    /// the phone is away. Replies `Sent`.
+    OpenUrl {
+        device: Option<String>,
+        url: String,
+    },
     /// Put a notification's one-time code on this computer's clipboard.
     CopyCode {
         id: String,

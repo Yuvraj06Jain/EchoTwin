@@ -105,6 +105,23 @@
             </intent-filter>
         </activity>
 
+        <!-- Share → "Open on computer": opens a shared web link in the computer's browser.
+             Invisible; closes at once. -->
+        <activity
+            android:name=".OpenLinkActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="@string/open_on_computer"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <!-- "EchoTwin" in the Share menu: sends files (any type) to the computer. -->
         <activity
             android:name=".ShareActivity"

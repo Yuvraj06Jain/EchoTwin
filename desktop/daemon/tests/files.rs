@@ -49,6 +49,7 @@ async fn setup() -> Rig {
         popups: Some(popups),
         buses: Buses::unreachable(),
         download_dir: downloads.clone(),
+        effects: None,
     };
     let (stop, stop_rx) = tokio::sync::oneshot::channel::<()>();
     tokio::spawn(run(opts, async move {

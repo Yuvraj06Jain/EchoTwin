@@ -288,6 +288,10 @@
       app.muted = !enabled;
     },
 
+    async openUrl(url, deviceId) {
+      const deliveredNow = await invoke('open_url', { url, device: deviceId || null });
+      return { queued: !deliveredNow };
+    },
     async sendText(text, deviceId) {
       const deliveredNow = await invoke('send_note', { text, device: deviceId || null });
       return { queued: !deliveredNow };

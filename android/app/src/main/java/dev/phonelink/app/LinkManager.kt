@@ -205,6 +205,16 @@ object LinkManager {
         "Locking $name…"
     }
 
+    /** Share → "Open on computer": the first web link in `text`, in the computer's browser. */
+    fun openOnComputer(text: String) {
+        val url = Regex("""https?://\S+""", RegexOption.IGNORE_CASE).find(text)?.value
+        if (url == null) {
+            toast("No web link to open")
+            return
+        }
+        whenConnected { link -> "Opening on ${link.openUrl(null, url)}…" }
+    }
+
     /** Put `text` on the computer's clipboard. */
     fun sendClipboard(text: String) = whenConnected { link ->
         if (!Prefs.clipboardSharing(app)) throw IllegalStateException("Clipboard sharing is off in EchoTwin")
@@ -296,6 +306,7 @@ object LinkManager {
                         _transfers.value = all().take(20)
                     }
                 }
+                is LinkEvent.OpenUrlRequested -> Notifications.link(app, event.name, event.url)
                 is LinkEvent.ComputerStatus -> event.alert?.let { alert ->
                     if (Prefs.batteryAlerts(app)) {
                         val text = when (alert) {

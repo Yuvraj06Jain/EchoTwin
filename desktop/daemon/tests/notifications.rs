@@ -67,6 +67,7 @@ async fn setup() -> Rig {
         popups: Some(popups),
         buses: phonelink_desktop::lock::Buses::unreachable(),
         download_dir: dir.path().join("downloads"),
+        effects: None,
     };
     let (stop, stop_rx) = tokio::sync::oneshot::channel::<()>();
     tokio::spawn(run(opts, async move {

@@ -36,6 +36,8 @@ pub struct Config {
     pub battery_saver: bool,
     /// Popups when the phone's battery is low or full.
     pub battery_alerts: bool,
+    /// Let the phone open web links here ("Open on computer").
+    pub open_links: bool,
     /// Where batteries are read from (tests only). Default: `/sys/class/power_supply`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub power_supply_dir: Option<String>,
@@ -57,18 +59,20 @@ impl Default for Config {
             connection: true,
             battery_saver: true,
             battery_alerts: true,
+            open_links: true,
             power_supply_dir: None,
         }
     }
 }
 
 /// Simple on/off settings, set with `Request::SetSwitch` and listed in `Reply::Status`.
-pub const SWITCHES: &[&str] = &["battery_alerts"];
+pub const SWITCHES: &[&str] = &["battery_alerts", "open_links"];
 
 impl Config {
     pub fn switch(&self, name: &str) -> Option<bool> {
         Some(match name {
             "battery_alerts" => self.battery_alerts,
+            "open_links" => self.open_links,
             _ => return None,
         })
     }
@@ -77,6 +81,7 @@ impl Config {
     pub fn set_switch(&mut self, name: &str, on: bool) -> bool {
         let slot = match name {
             "battery_alerts" => &mut self.battery_alerts,
+            "open_links" => &mut self.open_links,
             _ => return false,
         };
         *slot = on;

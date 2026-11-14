@@ -1,4 +1,5 @@
-//! Battery and network status both ways, and the panel widget's JSON, with a simulated phone.
+//! Battery and network status both ways, the panel widget's JSON, battery alerts, and the
+//! small "do this on the other device" requests (open a link, ring), with a simulated phone.
 
 use std::{net::SocketAddr, time::Duration};
 
@@ -11,6 +12,7 @@ use phonelink_desktop::{
     daemon::{run, DaemonOptions},
     ipc::{Reply, Request, WatchEvent},
     lock::Buses,
+    effects::Recorded,
     notifications::{PopupCmd, Popups},
 };
 use tokio::{sync::mpsc::UnboundedReceiver, time::timeout};
@@ -25,10 +27,16 @@ struct Rig {
     laptop: Fingerprint,
     watch: Client,
     popups: std::sync::mpsc::Receiver<PopupCmd>,
+    effects: std::sync::Arc<Recorded>,
     _stop: tokio::sync::oneshot::Sender<()>,
 }
 
 async fn setup(phone_caps: &[&str]) -> Rig {
+    setup_with(phone_caps, Config::default()).await
+}
+
+async fn setup_with(phone_caps: &[&str], base: Config) -> Rig {
+    let effects = Recorded::new();
     let dir = tempfile::tempdir().unwrap();
     let bat = dir.path().join("power/BAT0");
     std::fs::create_dir_all(&bat).unwrap();
@@ -44,12 +52,13 @@ async fn setup(phone_caps: &[&str]) -> Rig {
             port: 0,
             discovery: false,
             power_supply_dir: Some(dir.path().join("power").to_string_lossy().into()),
-            ..Config::default()
+            ..base
         },
         config_path: None,
         popups: Some(popups),
         buses: Buses::unreachable(),
         download_dir: dir.path().join("downloads"),
+        effects: Some(effects.clone()),
     };
     let (stop, stop_rx) = tokio::sync::oneshot::channel::<()>();
     tokio::spawn(run(opts, async move {
@@ -91,6 +100,7 @@ async fn setup(phone_caps: &[&str]) -> Rig {
         laptop: offer.fingerprint,
         watch,
         popups: popup_rx,
+        effects,
         _stop: stop,
     }
 }
@@ -335,6 +345,7 @@ async fn the_battery_saver_switch_is_saved() {
         popups: Some(Popups::recording().0),
         buses: Buses::unreachable(),
         download_dir: dir.path().join("downloads"),
+        effects: None,
     };
     let (_stop, stop_rx) = tokio::sync::oneshot::channel::<()>();
     tokio::spawn(run(opts, async move {
@@ -415,4 +426,79 @@ async fn low_and_full_battery_popups_come_once() {
         send(b, c);
     }
     assert_eq!(battery_popups(Duration::from_millis(800)), ["Galaxy S24 FE is fully charged"]);
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn links_open_on_the_other_device_but_only_plain_fresh_web_links() {
+    let mut rig = setup(&[phonelink_core::CAP_LINKS]).await;
+    let send = |url: &str, sent_ms: u64| {
+        let m = AppMessage::OpenUrl { url: url.into(), sent_ms };
+        rig.phone.send(&rig.laptop, m.encode().unwrap()).unwrap();
+    };
+    send("https://example.org/notes?id=4", now());
+    for bad in ["file:///etc/passwd", "javascript:alert(1)", "https://exa mple.org"] {
+        send(bad, now());
+    }
+    send(&format!("https://example.org/{}", "a".repeat(3000)), now());
+    send("https://example.org/old", now() - 10 * 60_000);
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert_eq!(rig.effects.take(), ["open https://example.org/notes?id=4"], "only the good one, once");
+    let titles: Vec<_> = rig
+        .popups
+        .try_iter()
+        .filter_map(|p| match p {
+            PopupCmd::Show { id, title, body, .. } if id.starts_with("status/link/") => Some((title, body)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(titles, [("Opened a link from Galaxy S24 FE".to_string(), "example.org".to_string())]);
+
+    // Laptop → phone.
+    let c = Client::connect(&rig.socket).await.unwrap();
+    let mut c = c;
+    let r = c
+        .request(&Request::OpenUrl { device: None, url: "https://example.org/x".into() })
+        .await
+        .unwrap();
+    assert!(matches!(r, Reply::Sent { delivered_now: true, .. }), "{r:?}");
+    let got = timeout(WAIT, async {
+        loop {
+            if let Some(Event::Message { body, .. }) = rig.phone_rx.recv().await {
+                if let AppMessage::OpenUrl { url, sent_ms } = AppMessage::decode(&body) {
+                    return (url, sent_ms);
+                }
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(got.0, "https://example.org/x");
+    assert!(got.1.abs_diff(now()) < 10_000);
+    let r = c
+        .request(&Request::OpenUrl { device: None, url: "file:///etc/passwd".into() })
+        .await
+        .unwrap();
+    assert!(matches!(r, Reply::Error { .. }));
+
+    // Switched off: nothing opens.
+    let off = Request::SetSwitch { name: "open_links".into(), on: false };
+    assert!(matches!(c.request(&off).await.unwrap(), Reply::Done));
+    send("https://example.org/again", now());
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(rig.effects.take().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_phone_without_links_support_is_told_to_update() {
+    let rig = setup(&[]).await;
+    let mut c = Client::connect(&rig.socket).await.unwrap();
+    let r = c
+        .request(&Request::OpenUrl { device: None, url: "https://example.org".into() })
+        .await
+        .unwrap();
+    assert!(matches!(&r, Reply::Error { message } if message.contains("update")), "{r:?}");
 }

@@ -156,6 +156,7 @@ async fn setup() -> Option<Rig> {
             system: Buses::unreachable().system,
         },
         download_dir: dir.path().join("downloads"),
+        effects: None,
     };
     let (stop, stop_rx) = tokio::sync::oneshot::channel::<()>();
     tokio::spawn(run(opts, async move {

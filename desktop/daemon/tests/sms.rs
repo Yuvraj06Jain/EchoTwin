@@ -43,6 +43,7 @@ async fn setup(phone_caps: &[&str]) -> Rig {
         popups: Some(Popups::recording().0),
         buses: Buses::unreachable(),
         download_dir: dir.path().join("downloads"),
+        effects: None,
     };
     let (stop, stop_rx) = tokio::sync::oneshot::channel::<()>();
     tokio::spawn(run(opts, async move {

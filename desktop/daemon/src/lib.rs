@@ -10,6 +10,7 @@ pub mod client;
 pub mod clipboard;
 pub mod config;
 pub mod daemon;
+pub mod effects;
 pub mod ipc;
 pub mod lock;
 pub mod media;

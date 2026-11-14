@@ -769,6 +769,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_open_stream(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_open_url(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_pair(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_post_notification(
@@ -890,6 +892,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_open_stream(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`sink`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_open_url(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`url`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_phonelink_pair(`ptr`: Long,`uri`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_phonelink_post_notification(`ptr`: Long,`notification`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1106,6 +1110,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_open_stream() and 0xFFFF) != 26129) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_open_url() and 0xFFFF) != 18620) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_pair() and 0xFFFF) != 53184) {
@@ -2389,6 +2396,11 @@ public interface PhoneLinkInterface {
     fun `openStream`(`deviceId`: kotlin.String, `sink`: StreamSink): StreamPipe
     
     /**
+     * "Open on computer": open a web link in the computer's browser. Returns its name.
+     */
+    fun `openUrl`(`deviceId`: kotlin.String?, `url`: kotlin.String): kotlin.String
+    
+    /**
      * Pair with the laptop whose QR code was scanned. Blocks for up to ~10 s.
      */
     fun `pair`(`uri`: kotlin.String): Device
@@ -2759,6 +2771,25 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
         
         FfiConverterString.lower(`deviceId`),
         FfiConverterTypeStreamSink.lower(`sink`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * "Open on computer": open a web link in the computer's browser. Returns its name.
+     */
+    @Throws(LinkException::class)override fun `openUrl`(`deviceId`: kotlin.String?, `url`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_open_url(
+        it,
+        
+        FfiConverterOptionalString.lower(`deviceId`),
+        FfiConverterString.lower(`url`),_status)
 }
     }
     )
@@ -4666,6 +4697,21 @@ sealed class LinkEvent {
     }
     
     /**
+     * The computer sends a web link: show it as a tap-to-open notification (Android does
+     * not let a background app open it by itself). Already checked to be http(s).
+     */
+    data class OpenUrlRequested(
+        val `id`: kotlin.String, 
+        val `name`: kotlin.String, 
+        val `url`: kotlin.String) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
      * Text copied on the computer: put it on this phone's clipboard (if sharing is on).
      */
     data class ClipboardReceived(
@@ -4813,31 +4859,36 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            11 -> LinkEvent.ClipboardReceived(
+            11 -> LinkEvent.OpenUrlRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            12 -> LinkEvent.MediaControlRequested(
+            12 -> LinkEvent.ClipboardReceived(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                )
+            13 -> LinkEvent.MediaControlRequested(
                 FfiConverterString.read(buf),
                 FfiConverterTypeMediaCommand.read(buf),
                 )
-            13 -> LinkEvent.SmsSendRequested(
+            14 -> LinkEvent.SmsSendRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            14 -> LinkEvent.SmsOlderRequested(
+            15 -> LinkEvent.SmsOlderRequested(
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterULong.read(buf),
                 )
-            15 -> LinkEvent.TransferChanged(
+            16 -> LinkEvent.TransferChanged(
                 FfiConverterTypeFileTransfer.read(buf),
                 )
-            16 -> LinkEvent.RequestResult(
+            17 -> LinkEvent.RequestResult(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
@@ -4934,6 +4985,15 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 + FfiConverterString.allocationSize(value.`id`)
                 + FfiConverterString.allocationSize(value.`name`)
                 + FfiConverterString.allocationSize(value.`transferId`)
+            )
+        }
+        is LinkEvent.OpenUrlRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterString.allocationSize(value.`name`)
+                + FfiConverterString.allocationSize(value.`url`)
             )
         }
         is LinkEvent.ClipboardReceived -> {
@@ -5062,21 +5122,28 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.write(value.`transferId`, buf)
                 Unit
             }
-            is LinkEvent.ClipboardReceived -> {
+            is LinkEvent.OpenUrlRequested -> {
                 buf.putInt(11)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterString.write(value.`name`, buf)
+                FfiConverterString.write(value.`url`, buf)
+                Unit
+            }
+            is LinkEvent.ClipboardReceived -> {
+                buf.putInt(12)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`text`, buf)
                 Unit
             }
             is LinkEvent.MediaControlRequested -> {
-                buf.putInt(12)
+                buf.putInt(13)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterTypeMediaCommand.write(value.`command`, buf)
                 Unit
             }
             is LinkEvent.SmsSendRequested -> {
-                buf.putInt(13)
+                buf.putInt(14)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`clientId`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
@@ -5085,19 +5152,19 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 Unit
             }
             is LinkEvent.SmsOlderRequested -> {
-                buf.putInt(14)
+                buf.putInt(15)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
                 FfiConverterULong.write(value.`beforeMs`, buf)
                 Unit
             }
             is LinkEvent.TransferChanged -> {
-                buf.putInt(15)
+                buf.putInt(16)
                 FfiConverterTypeFileTransfer.write(value.`transfer`, buf)
                 Unit
             }
             is LinkEvent.RequestResult -> {
-                buf.putInt(16)
+                buf.putInt(17)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`key`, buf)

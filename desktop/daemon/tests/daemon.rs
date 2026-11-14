@@ -44,6 +44,7 @@ async fn start_daemon() -> TestDaemon {
         popups: Some(phonelink_desktop::notifications::Popups::recording().0),
         buses: phonelink_desktop::lock::Buses::unreachable(),
         download_dir: dir.path().join("downloads"),
+        effects: None,
     };
     let (tx, rx) = oneshot::channel::<()>();
     let task = tokio::spawn(run(opts, async move {
@@ -246,6 +247,7 @@ async fn full_pairing_and_messaging_through_the_daemon() {
         popups: Some(phonelink_desktop::notifications::Popups::recording().0),
         buses: phonelink_desktop::lock::Buses::unreachable(),
         download_dir: d._dir.path().join("downloads2"),
+        effects: None,
     };
     let err = run(dup, async {}).await.unwrap_err();
     assert!(err.to_string().contains("already running"), "{err}");

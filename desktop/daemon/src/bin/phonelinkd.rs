@@ -39,6 +39,7 @@ async fn main() -> anyhow::Result<()> {
         popups: None,
         buses: Default::default(),
         download_dir,
+        effects: None,
     };
     let mut term = signal(SignalKind::terminate())?;
     run(opts, async move {

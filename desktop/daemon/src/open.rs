@@ -23,6 +23,12 @@ pub fn file_uri(path: &Path) -> String {
     out
 }
 
+/// Open a web link in the default browser (the caller checked it with `is_web_link`).
+/// The link is one argument to `xdg-open`, never passed through a shell.
+pub fn open_url(url: &str) -> bool {
+    spawn("xdg-open", Path::new(url))
+}
+
 fn spawn(program: &str, arg: &Path) -> bool {
     let mut cmd = Command::new(program);
     cmd.arg(arg)

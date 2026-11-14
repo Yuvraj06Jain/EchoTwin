@@ -26,7 +26,7 @@ use phonelink_core::{
     transfer::{Direction, SourceOpener, TransferConfig, TransferInfo, Transfers, CAP_FILES},
     AppMessage, Event, Fingerprint, MediaAction, Node, NodeConfig, NowPlaying, PairingOffer,
     PeerRecord, PhoneNotification, SmsMessage, SmsState, SmsThread, CAP_CLIPBOARD, CAP_LOCK,
-    CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS,
+    CAP_CLIPBOARD_IMAGE, CAP_LINKS, CAP_MEDIA, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS,
 };
 use tokio::{runtime::Runtime, task::JoinHandle};
 
@@ -133,6 +133,13 @@ pub enum LinkEvent {
         id: String,
         name: String,
         transfer_id: String,
+    },
+    /// The computer sends a web link: show it as a tap-to-open notification (Android does
+    /// not let a background app open it by itself). Already checked to be http(s).
+    OpenUrlRequested {
+        id: String,
+        name: String,
+        url: String,
     },
     /// Text copied on the computer: put it on this phone's clipboard (if sharing is on).
     ClipboardReceived {
@@ -577,6 +584,7 @@ impl PhoneLink {
                             CAP_FILES,
                             CAP_SMS,
                             CAP_STATUS,
+                            CAP_LINKS,
                         ]
                         .map(String::from),
                     );
@@ -730,6 +738,16 @@ impl PhoneLink {
                                 id: peer.short(),
                                 name: name_of(&pump_node, &peer),
                                 text,
+                            }
+                        }
+                        AppMessage::OpenUrl { url, .. } => {
+                            if !phonelink_core::message::is_web_link(&url) {
+                                continue;
+                            }
+                            LinkEvent::OpenUrlRequested {
+                                id: peer.short(),
+                                name: name_of(&pump_node, &peer),
+                                url,
                             }
                         }
                         AppMessage::ClipboardImage { transfer_id, copied_ms } => {
@@ -1005,6 +1023,17 @@ impl PhoneLink {
         let fp = self.connected_one(device_id, CAP_LOCK, "locking from the phone")?;
         let body = AppMessage::LockComputer { sent_ms: now_ms() }.encode()?;
         self.node.send(&fp, body)?;
+        Ok(name_of(&self.node, &fp))
+    }
+
+    /// "Open on computer": open a web link in the computer's browser. Returns its name.
+    pub fn open_url(&self, device_id: Option<String>, url: String) -> Result<String, LinkError> {
+        let url = url.trim().to_string();
+        if !phonelink_core::message::is_web_link(&url) {
+            return Err(LinkError::Failed("only web links (http or https) can be opened".into()));
+        }
+        let fp = self.connected_one(device_id, CAP_LINKS, "opening links")?;
+        self.node.send(&fp, AppMessage::OpenUrl { url, sent_ms: now_ms() }.encode()?)?;
         Ok(name_of(&self.node, &fp))
     }
 
@@ -1723,7 +1752,7 @@ mod tests {
             cfg.capabilities.extend(caps.iter().map(|c| c.to_string()));
             rt.block_on(Node::start(cfg)).unwrap()
         };
-        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD]);
+        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS]);
         let uri = laptop
             .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
             .to_uri();
@@ -1788,6 +1817,19 @@ mod tests {
         assert!(phone
             .send_clipboard("x".repeat(MAX_CLIPBOARD_TEXT + 1))
             .is_err());
+
+        // Links: bad ones never leave the phone; a web link reaches the laptop, timestamped.
+        assert!(phone.open_url(None, "file:///etc/passwd".into()).is_err());
+        assert_eq!(phone.open_url(None, " https://example.org/a ".into()).unwrap(), "Kubuntu");
+        assert!(matches!(
+            next_from_phone(&mut lrx),
+            AppMessage::OpenUrl { url, sent_ms } if url == "https://example.org/a" && sent_ms.abs_diff(now_ms()) < 10_000
+        ));
+        // Laptop → phone: only a plain web link becomes a notification.
+        to_phone(AppMessage::OpenUrl { url: "javascript:alert(1)".into(), sent_ms: now_ms() });
+        to_phone(AppMessage::OpenUrl { url: "https://example.org/x".into(), sent_ms: 0 });
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::OpenUrlRequested { .. }));
+        assert!(matches!(ev, LinkEvent::OpenUrlRequested { url, name, .. } if url == "https://example.org/x" && name == "Kubuntu"));
 
         // Laptop → phone: fresh copies arrive; a stale one (queued for ages) does not.
         to_phone(AppMessage::Clipboard {

@@ -28,7 +28,7 @@ pub use error::{Error, Result};
 pub use identity::{Fingerprint, Identity};
 pub use message::{
     AppMessage, MediaAction, NowPlaying, PhoneNotification, PhoneStatus, SmsMessage, SmsState,
-    SmsThread, CAP_CLIPBOARD, CAP_CLIPBOARD_IMAGE, CAP_LOCK, CAP_MEDIA, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS,
+    SmsThread, CallPhase, CAP_CALLS, CAP_LINKS, CAP_RING, CAP_CLIPBOARD, CAP_CLIPBOARD_IMAGE, CAP_LOCK, CAP_MEDIA, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS,
 };
 pub use node::{Event, Node, NodeConfig, Transport};
 pub use pairing::PairingOffer;

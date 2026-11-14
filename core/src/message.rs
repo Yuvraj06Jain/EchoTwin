@@ -31,6 +31,44 @@ pub const CAP_CLIPBOARD_IMAGE: &str = "clipimage/1";
 
 /// Battery and network status in both directions (never queued: only "right now" matters).
 pub const CAP_STATUS: &str = "status/1";
+/// Incoming/ongoing calls shown on the computer, with Decline.
+pub const CAP_CALLS: &str = "calls/1";
+/// Open a web link on the other device.
+pub const CAP_LINKS: &str = "links/1";
+/// Ring the other device loudly (to find it).
+pub const CAP_RING: &str = "ring/1";
+
+/// Longest caller name sent (bytes).
+pub const MAX_CALLER: usize = 100;
+/// Longest link (bytes).
+pub const MAX_URL: usize = 2048;
+/// A link or ring request older than this is ignored (it waited somewhere too long).
+pub const LINK_MAX_AGE_MS: u64 = 2 * 60 * 1000;
+pub const RING_MAX_AGE_MS: u64 = 2 * 60 * 1000;
+
+/// Where a call is (`AppMessage::CallState`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CallPhase {
+    Idle,
+    Ringing,
+    Active,
+}
+
+/// A link that is safe to hand to a browser: `http`/`https` only, a host, no control
+/// characters or spaces, at most [`MAX_URL`] bytes.
+pub fn is_web_link(url: &str) -> bool {
+    let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();
+    let rest = if lower.starts_with("https://") {
+        &url[8..]
+    } else if lower.starts_with("http://") {
+        &url[7..]
+    } else {
+        return false;
+    };
+    url.len() <= MAX_URL
+        && !url.chars().any(|c| c.is_control() || c.is_whitespace())
+        && rest.split(['/', '?', '#']).next().is_some_and(|h| !h.is_empty() && !h.starts_with('@'))
+}
 
 /// Phone battery and mobile network, for the computer's status display.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -274,6 +312,15 @@ pub enum AppMessage {
     /// Computer → phone: file transfer `transfer_id` is an image copied on the computer; put
     /// it on the clipboard when it arrives (`CAP_CLIPBOARD_IMAGE`). `copied_ms`: sender's clock.
     ClipboardImage { transfer_id: String, copied_ms: u64 },
+    /// Phone → computer: the call situation changed (`CAP_CALLS`). `key`: the call
+    /// notification, for `CallDecline`; `caller` may be empty.
+    CallState { state: CallPhase, caller: String, key: String },
+    /// Computer → phone: decline that ringing call (`CAP_CALLS`).
+    CallDecline { key: String },
+    /// Open this web link on the other device (`CAP_LINKS`; check with [`is_web_link`]).
+    OpenUrl { url: String, sent_ms: u64 },
+    /// Start or stop ringing the other device (`CAP_RING`).
+    Ring { on: bool, sent_ms: u64 },
 }
 
 /// Album art must be a small JPEG or PNG.
@@ -347,8 +394,42 @@ mod tests {
                 transfer_id: "ab12".into(),
                 copied_ms: 7,
             },
+            AppMessage::CallState {
+                state: CallPhase::Ringing,
+                caller: "Mom".into(),
+                key: "0|com.samsung.android.incallui|1".into(),
+            },
+            AppMessage::CallDecline { key: "k".into() },
+            AppMessage::OpenUrl {
+                url: "https://example.org/a?b=1".into(),
+                sent_ms: 9,
+            },
+            AppMessage::Ring { on: true, sent_ms: 10 },
         ] {
             assert_eq!(AppMessage::decode(&m.encode().unwrap()), m);
+        }
+    }
+
+    #[test]
+    fn only_plain_web_links_are_accepted() {
+        for ok in ["https://example.org", "http://192.168.1.5:8080/x?y=1#z", "HTTPS://Example.org/path"] {
+            assert!(is_web_link(ok), "{ok}");
+        }
+        let long = format!("https://example.org/{}", "a".repeat(MAX_URL));
+        for bad in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "ftp://example.org",
+            "https://",
+            "https:///path",
+            "https://exa mple.org",
+            "https://example.org/\n",
+            "https://example.org/\u{7}",
+            "intent://scan#Intent;end",
+            "",
+            long.as_str(),
+        ] {
+            assert!(!is_web_link(bad), "{bad:?}");
         }
     }
 

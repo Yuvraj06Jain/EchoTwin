@@ -157,6 +157,14 @@ async fn send_note(text: String, device: Option<String>) -> Result<bool, String>
 }
 
 #[tauri::command]
+async fn open_url(url: String, device: Option<String>) -> Result<bool, String> {
+    match request(Request::OpenUrl { device, url }).await? {
+        Reply::Sent { delivered_now, .. } => Ok(delivered_now),
+        r => Err(unexpected(r)),
+    }
+}
+
+#[tauri::command]
 async fn unpair(device: String) -> Result<(), String> {
     match request(Request::Unpair { device }).await? {
         Reply::Done => Ok(()),
@@ -635,6 +643,7 @@ fn main() {
             app_icons,
             dismiss_notification,
             copy_code,
+            open_url,
             set_switch,
             clear_notifications,
             reply_notification,

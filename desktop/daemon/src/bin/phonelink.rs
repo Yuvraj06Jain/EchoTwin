@@ -47,6 +47,12 @@ enum Cmd {
         #[arg(required = true, num_args = 1..)]
         text: Vec<String>,
     },
+    /// Open a web link on the phone (it shows as a notification there; tap to open).
+    OpenUrl {
+        #[arg(long)]
+        to: Option<String>,
+        url: String,
+    },
     /// Print events (connections, messages) as they happen.
     Watch,
     /// List notifications mirrored from the phone.
@@ -433,6 +439,13 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             show(&r);
             if !cli.json {
                 println!("Unpaired {device}. It can no longer connect.");
+            }
+        }
+        Cmd::OpenUrl { to, url } => {
+            let r = c.request(&Request::OpenUrl { device: to, url }).await?;
+            fail_on_error(&r)?;
+            if let Reply::Sent { delivered_now, .. } = r {
+                println!("{}", if delivered_now { "Sent: tap the notification on the phone to open it" } else { "Queued until the phone reconnects" });
             }
         }
         Cmd::SendText { to, text } => {

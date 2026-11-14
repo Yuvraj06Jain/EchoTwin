@@ -59,6 +59,8 @@ pub struct DaemonOptions {
     pub buses: Buses,
     /// Where received files are saved.
     pub download_dir: PathBuf,
+    /// Opening links and ringing; `None` = the real desktop. Tests pass a recorder.
+    pub effects: Option<Arc<dyn crate::effects::Effects>>,
 }
 
 /// Settings that can change while running (mirrored to config.toml).
@@ -125,6 +127,7 @@ struct State {
     /// What each phone's battery alerts already announced.
     battery_alerts: Mutex<HashMap<Fingerprint, phonelink_core::alerts::BatteryAlerts>>,
     battery_root: PathBuf,
+    effects: Arc<dyn crate::effects::Effects>,
 }
 
 /// Buttons pressed on our popups: (popup id, action key).
@@ -205,6 +208,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         phone_status: Mutex::new(HashMap::new()),
         status_sent: Mutex::new(HashMap::new()),
         battery_alerts: Mutex::new(HashMap::new()),
+        effects: opts.effects.clone().unwrap_or_else(|| Arc::new(crate::effects::System)),
         lan: Mutex::new(None),
         discovery: opts.config.discovery,
         battery_root: opts
@@ -265,7 +269,7 @@ async fn start_node(
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
         cfg.timings = timings(opts.config.battery_saver);
         cfg.capabilities.extend(
-            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS]
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS]
                 .map(String::from),
         );
         match Node::start(cfg).await {
@@ -437,6 +441,38 @@ impl State {
             BatteryAlert::Full => (format!("{name} is fully charged"), "You can unplug it.".to_string()),
         };
         self.popup_to(true, format!("status/battery/{}", peer.short()), title, body, crate::popups::Tab::Notifications);
+    }
+
+    /// "Open on computer" from the phone.
+    fn open_link_from(&self, peer: Fingerprint, url: &str, sent_ms: u64) {
+        use phonelink_core::message::{is_fresh, is_web_link, LINK_MAX_AGE_MS};
+        if !is_web_link(url) {
+            warn!("refused a link from the phone that isn't a plain web link");
+            return;
+        }
+        if !is_fresh(sent_ms, now_ms(), LINK_MAX_AGE_MS) {
+            debug!("ignored an old link from the phone");
+            return;
+        }
+        let name = self.name_of(&peer);
+        if !self.switch_on("open_links") {
+            self.status_popup(
+                self.notifications_on(),
+                format!("status/link/{}", peer.short()),
+                format!("{name} tried to open a link"),
+                "Opening links from your phone is switched off in EchoTwin's settings.".into(),
+            );
+            return;
+        }
+        if self.effects.open_url(url) {
+            let host = url.split("//").nth(1).and_then(|r| r.split(['/', '?', '#']).next()).unwrap_or("");
+            self.status_popup(
+                self.notifications_on(),
+                format!("status/link/{}", peer.short()),
+                format!("Opened a link from {name}"),
+                host.to_string(),
+            );
+        }
     }
 
     /// One of the simple on/off settings (`config::SWITCHES`).
@@ -656,6 +692,10 @@ impl State {
         if let Ok(body) = msg.encode() {
             let _ = self.node.send(peer, body);
         }
+    }
+
+    fn has_cap(&self, fp: &Fingerprint, cap: &str) -> bool {
+        lock(&self.caps).get(fp).is_some_and(|caps| caps.iter().any(|c| c == cap))
     }
 
     fn connected_with(&self, cap: &str) -> Vec<Fingerprint> {
@@ -1165,8 +1205,14 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     }
                     WatchEvent::PhoneStatusChanged { id: peer.short() }
                 }
+                AppMessage::OpenUrl { url, sent_ms } => {
+                    state.open_link_from(peer, &url, sent_ms);
+                    continue;
+                }
+                AppMessage::CallState { .. } | AppMessage::Ring { .. } => continue,
                 // Only ever computer → phone.
-                AppMessage::MediaControl { .. }
+                AppMessage::CallDecline { .. }
+                | AppMessage::MediaControl { .. }
                 | AppMessage::ComputerStatus { .. }
                 | AppMessage::ClipboardImage { .. } => continue,
                 AppMessage::Unsupported => {
@@ -1804,6 +1850,31 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                         },
                     },
                     Err(message) => Reply::Error { message },
+                };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::OpenUrl { device, url } => {
+                let reply = if !phonelink_core::message::is_web_link(&url) {
+                    Reply::Error {
+                        message: "only http:// and https:// links can be opened on the phone".into(),
+                    }
+                } else {
+                    match state.resolve(device.as_deref()) {
+                        Ok(p) if state.node.is_connected(&p.fingerprint) && !state.has_cap(&p.fingerprint, phonelink_core::CAP_LINKS) => Reply::Error {
+                            message: "update EchoTwin on your phone to open links there".into(),
+                        },
+                        Ok(p) => {
+                            let body = AppMessage::OpenUrl { url, sent_ms: now_ms() }.encode()?;
+                            match state.node.send(&p.fingerprint, body) {
+                                Ok(id) => Reply::Sent {
+                                    message_id: format!("{id:?}"),
+                                    delivered_now: state.node.is_connected(&p.fingerprint),
+                                },
+                                Err(e) => Reply::Error { message: e.to_string() },
+                            }
+                        }
+                        Err(message) => Reply::Error { message },
+                    }
                 };
                 write_reply(&mut w, &reply).await?;
             }

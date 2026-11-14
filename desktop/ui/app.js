@@ -1063,9 +1063,12 @@
     if (!text) return;
     for (const c of form.elements) c.disabled = true;
     try {
-      const res = await api.sendText(text, state.device ? state.device.id : null);
+      const device = state.device ? state.device.id : null;
+      // A note that is just a web link arrives on the phone as a tap-to-open link.
+      const link = /^https?:\/\/\S+$/i.test(text) && api.openUrl;
+      const res = link ? await api.openUrl(text, device) : await api.sendText(text, device);
       closeDialog();
-      toast(res.queued ? `Queued. It will be delivered when ${deviceName()} reconnects.` : `Sent to ${deviceName()}`);
+      toast(res.queued ? `Queued. It will be delivered when ${deviceName()} reconnects.` : link ? `Link sent to ${deviceName()}: tap the notification to open it` : `Sent to ${deviceName()}`);
     } catch (err) {
       for (const c of form.elements) c.disabled = false;
       throw err;

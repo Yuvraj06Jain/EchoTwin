@@ -120,6 +120,24 @@ object Notifications {
     }
 
     /** A file arrived (tap opens it) or could not be sent. */
+    /** A link sent from the computer; tapping opens it (the browser asks nothing more). */
+    fun link(context: Context, from: String, url: String) {
+        if (!allowed(context)) return
+        val view = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+            .addCategory(Intent.CATEGORY_BROWSABLE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val tap = PendingIntent.getActivity(context, url.hashCode(), view, PendingIntent.FLAG_IMMUTABLE)
+        val n = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
+            .setSmallIcon(R.drawable.ic_link)
+            .setContentTitle("Link from $from")
+            .setContentText(url)
+            .setStyle(NotificationCompat.BigTextStyle().bigText("Tap to open: $url"))
+            .setAutoCancel(true)
+            .setContentIntent(tap)
+            .build()
+        NotificationManagerCompat.from(context).notify(nextMessageId++, n)
+    }
+
     fun fileResult(context: Context, id: String, title: String, text: String, open: Intent?) {
         if (!allowed(context)) return
         val tap = open?.let {

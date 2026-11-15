@@ -14,7 +14,7 @@
   let seq = 1000;
   const nextId = (prefix) => `${prefix}-${++seq}`;
 
-  const computer = { name: 'kubuntu-laptop', id: '405F-AEB0-D952-DF66' };
+  const computer = { name: 'kubuntu-laptop', id: '405F-AEB0-D952-DF66', battery: 64, charging: true };
 
   const phone = {
     id: '9C21-7E04-B3A8-51DF',

@@ -62,6 +62,7 @@
     music: '<path d="M9 17.5V6l10-2v11.5"/><circle cx="6.8" cy="17.5" r="2.2"/><circle cx="16.8" cy="15.5" r="2.2"/>',
     reply: '<path d="M9.5 7.5L5 12l4.5 4.5"/><path d="M5.5 12H14a5.5 5.5 0 0 1 5.5 5.5"/>',
     plus: '<path d="M12 5.5v13M5.5 12h13"/>',
+    leaf: '<path d="M5 19c0-8 5-13 14-14 0 9-5 14-13 14z"/><path d="M5 19l7-7"/>',
     file: '<path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z"/><path d="M14 3.5V8h4"/>',
   };
   const icon = (name) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -298,7 +299,7 @@
     if (!d) {
       el.pill.innerHTML = '<span class="dot"></span>No phone paired';
     } else if (d.connected) {
-      el.pill.innerHTML = `<span class="dot ok"></span>${esc(d.name)} · Connected${d.via === 'bluetooth' ? ' · Bluetooth' : ''}`;
+      el.pill.innerHTML = `<span class="dot ${d.via === 'bluetooth' ? 'warn' : 'ok'}"></span>${esc(d.name)} · Connected · ${d.via === 'bluetooth' ? 'Bluetooth' : 'Wi-Fi'}`;
     } else if (connectionOff()) {
       el.pill.innerHTML = `<span class="dot"></span>${esc(d.name)} · Connection off`;
     } else if (d.pausedByPeer) {
@@ -306,6 +307,7 @@
     } else {
       el.pill.innerHTML = `<span class="dot warn"></span>${esc(d.name)} · Offline`;
     }
+    el.pill.className = `conn-pill ${d && d.connected ? (d.via === 'bluetooth' ? 'amber' : 'ok') : ''}`;
     for (const b of document.querySelectorAll('[data-preview]')) {
       b.setAttribute('aria-pressed', String(b.dataset.preview === state.mode));
     }
@@ -342,52 +344,93 @@
     return `<span class="bars" aria-label="Signal ${lit} of 4">${[1, 2, 3, 4].map((i) => `<i class="${i <= lit ? 'on' : ''}" style="height:${2 + i * 2}px"></i>`).join('')}</span>`;
   }
 
+  /** Phone outline filled to `level` (null: outline only). */
+  function phoneSvg(level) {
+    const h = level == null ? 0 : (58 * Math.max(0, Math.min(100, level))) / 100;
+    return `<svg class="twin-art" viewBox="0 0 40 70" width="40" height="70" aria-hidden="true">
+      <rect class="outline" x="1" y="1" width="38" height="68" rx="9"/>
+      ${h ? `<rect class="fill" x="5.5" y="${(64.5 - h).toFixed(1)}" width="29" height="${h.toFixed(1)}" rx="4"/>` : ''}
+      <circle class="cam" cx="20" cy="6.5" r="1.8"/></svg>`;
+  }
+
+  /** Laptop outline (screen + base) filled to `level` (null: outline only). */
+  function laptopSvg(level) {
+    const h = level == null ? 0 : (37 * Math.max(0, Math.min(100, level))) / 100;
+    return `<svg class="twin-art" viewBox="0 0 92 58" width="92" height="58" aria-hidden="true">
+      <rect class="outline" x="9" y="1" width="74" height="47" rx="5"/>
+      ${h ? `<rect class="fill" x="13.5" y="${(43.5 - h).toFixed(1)}" width="65" height="${h.toFixed(1)}" rx="2.5"/>` : ''}
+      <rect class="base" x="1" y="51" width="90" height="5" rx="2.5"/></svg>`;
+  }
+
+  /** The link between the two: label and colour class. */
+  function linkState(d) {
+    if (connectionOff()) return ['Off', 'off'];
+    if (d.connected) return d.via === 'bluetooth' ? ['Bluetooth', 'amber'] : ['Wi-Fi', 'ok'];
+    if (d.pausedByPeer) return ['Off on the phone', 'off'];
+    return ['Offline', 'off'];
+  }
+
   function renderDevice() {
     const d = state.device;
     if (!d) {
       el.device.innerHTML = '';
       return;
     }
-    const now = new Date();
-    const date = now.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
-    const hasBattery = typeof d.battery === 'number';
-    const battWidth = hasBattery ? Math.round((14 * d.battery) / 100) : 0;
-    const statusRows = d.connected
-      ? `<li class="stat"><span class="dot ok"></span><span>${d.via === 'bluetooth' ? 'Connected over Bluetooth' : 'Connected'}</span></li>
-         ${d.via === 'bluetooth' ? `<li class="stat faint">${icon('bluetooth')}<span title="Wi-Fi is not available; files wait for it">Backup link · files wait for Wi-Fi</span></li>` : ''}
-         ${d.network ? `<li class="stat">${d.network === 'Wi-Fi' || typeof d.signal !== 'number' ? icon('wifi') : signalBars(d.signal)}<span>${esc(d.network)}</span></li>` : ''}
-         ${hasBattery ? `<li class="stat"><span class="battery${d.battery < 20 ? ' low' : ''}" aria-hidden="true"><i style="width:${battWidth}px"></i></span><span class="tnum">${d.battery}%${d.charging ? ' · charging' : ''}</span></li>` : ''}
-         ${d.pending ? `<li class="stat faint">${icon('send')}<span>${esc(plural(d.pending, 'message', 'messages'))} sending…</span></li>` : ''}`
-      : `<li class="stat"><span class="dot warn"></span><span>Offline${d.lastSeen ? ` · last seen <span data-ts="${d.lastSeen}" data-rel="ago">${esc(relTime(d.lastSeen))}</span>` : ''}</span></li>
-         ${caps.deviceDetails ? `<li class="stat faint">${icon('wifi')}<span>Not on this network</span></li>` : ''}
-         ${d.pending ? `<li class="stat faint">${icon('send')}<span>${esc(plural(d.pending, 'message', 'messages'))} waiting</span></li>` : ''}`;
+    const live = d.connected && !connectionOff();
+    const hasBattery = live && typeof d.battery === 'number';
+    const low = hasBattery && d.battery < 20 && !d.charging;
+    const comp = state.computer || {};
+    const compBattery = typeof comp.battery === 'number' ? comp.battery : null;
+    const compLow = compBattery != null && compBattery < 20 && !comp.charging;
+    const [linkLabel, linkClass] = linkState(d);
+    const mobile = live && d.network && d.network !== 'Wi-Fi' && typeof d.signal === 'number';
+    const phoneCaption = live
+      ? [hasBattery ? `${d.battery}%${d.charging ? ' · charging' : ''}` : '', d.network || ''].filter(Boolean).join(' · ') || 'Connected'
+      : linkLabel === 'Offline' ? 'Offline' : 'Not connected';
+    const compCaption = compBattery != null ? `${compBattery}%${comp.charging ? ' · charging' : ''}` : 'Plugged in';
+    // Only what the picture can't say.
+    const extra = [
+      d.connected && d.via === 'bluetooth' ? `<li class="stat faint">${icon('bluetooth')}<span title="Wi-Fi is not available; files wait for it">Connected over Bluetooth · files wait for Wi-Fi</span></li>` : '',
+      !d.connected && d.lastSeen ? `<li class="stat faint"><span class="dot warn"></span><span>Last seen <span data-ts="${d.lastSeen}" data-rel="ago">${esc(relTime(d.lastSeen))}</span></span></li>` : '',
+      !d.connected && caps.deviceDetails ? `<li class="stat faint">${icon('wifi')}<span>Not on this network</span></li>` : '',
+      d.pending ? `<li class="stat faint">${icon('send')}<span>${esc(plural(d.pending, 'message', 'messages'))} ${d.connected ? 'sending…' : 'waiting'}</span></li>` : '',
+    ].join('');
     const clipOn = !!state.settings?.clipboardSync;
+    const saverShown = !!state.settings && 'batterySaver' in state.settings;
+    const tile = (action, ic, label, extraAttrs = '') =>
+      `<button type="button" class="action" data-action="${action}"${extraAttrs}><span class="icon-square">${icon(ic)}</span><span class="action-label">${label}</span></button>`;
     el.device.innerHTML = `
-      <div class="phone-art${d.connected ? '' : ' off'}" aria-hidden="true">
-        <div class="clock tnum" data-clock>${esc(clock(now))}</div>
-        <div class="date">${esc(date)}</div>
-      </div>
-      <div class="device-head">
-        <div class="device-name" title="${esc(d.name)}">${esc(d.name)}</div>
-        <div class="device-model">${esc(d.model || 'Paired phone')}</div>
-      </div>
-      <ul class="stats">${statusRows}</ul>
-      <div data-np></div>
-      <div>
-        <p class="section-label">Quick actions</p>
-        <div class="actions">
-          <button type="button" class="action" data-action="send-note">${icon('send')}<span class="grow">Send a note</span></button>
-          ${caps.files ? `<button type="button" class="action" data-action="send-file">${icon('upload')}<span class="grow">Send files</span></button>` : ''}
-          ${d.connected && d.canRing && api.ring ? `<button type="button" class="action" data-action="ring-phone">${icon('bell')}<span class="grow">${state.ringing ? 'Stop ringing' : 'Ring phone'}</span></button>` : ''}
-          <button type="button" class="action" role="switch" aria-checked="${!connectionOff()}" data-action="toggle-connection">${icon('power')}<span class="grow">Connection</span><span class="switch" aria-hidden="true"></span></button>
-          ${caps.clipboard ? `<button type="button" class="action" role="switch" aria-checked="${clipOn}" data-action="toggle-clipboard">${icon('clipboard')}<span class="grow">Sync clipboard</span><span class="switch" aria-hidden="true"></span></button>` : ''}
+      <section class="tile twin ${live ? 'live' : ''} link-${linkClass}" aria-label="${esc(d.name)} and this computer">
+        <div class="twin-dev">
+          <span class="twin-pic ${low ? 'warn' : live ? '' : 'off'}${hasBattery ? ` battery${low ? ' low' : ''}` : ''}">${phoneSvg(hasBattery ? d.battery : null)}</span>
+          <div class="device-name" title="${esc(d.name)}">${esc(d.name)}</div>
+          <div class="twin-cap">${mobile ? signalBars(d.signal) : ''}<span class="tnum">${esc(phoneCaption)}</span></div>
         </div>
+        <div class="twin-link" aria-label="Link: ${esc(linkLabel)}"><span class="twin-line"></span><span class="pill ${linkClass}">${esc(linkLabel)}</span></div>
+        <div class="twin-dev">
+          <span class="twin-pic ${compLow ? 'warn' : live ? '' : 'off'}">${laptopSvg(compBattery)}</span>
+          <div class="twin-name" title="${esc(comp.name || 'This computer')}">${esc(comp.name || 'This computer')}</div>
+          <div class="twin-cap tnum">${esc(compCaption)}</div>
+        </div>
+      </section>
+      <button type="button" class="tile conn-tile" role="switch" aria-checked="${!connectionOff()}" data-action="toggle-connection">
+        <span class="icon-square${connectionOff() ? ' off' : ''}">${icon('power')}</span>
+        <span class="grow"><strong>Connection</strong><span class="row-desc">${connectionOff() ? 'Off · nothing runs' : 'On · reconnects by itself'}</span></span>
+        <span class="switch" aria-hidden="true"></span>
+      </button>
+      ${extra ? `<ul class="stats">${extra}</ul>` : ''}
+      <div class="actions">
+        ${tile('send-note', 'send', 'Note')}
+        ${caps.files ? tile('send-file', 'upload', 'Send files') : ''}
+        ${d.connected && d.canRing && api.ring ? tile('ring-phone', 'bell', state.ringing ? 'Stop ringing' : 'Ring phone') : ''}
+        ${caps.clipboard ? tile('toggle-clipboard', 'clipboard', 'Clipboard', ` role="switch" aria-checked="${clipOn}"`) : ''}
+        ${saverShown ? tile('toggle-setting', 'leaf', 'Saver', ` data-key="batterySaver" role="switch" aria-checked="${state.settings.batterySaver !== false}"`) : ''}
       </div>
+      <div data-np></div>
       <div class="devices-foot">
-        <p class="section-label">Devices</p>
-        ${state.devices
+        ${state.devices.length > 1 ? `<p class="section-label">Devices</p>${state.devices
           .map((x) => `<div class="dev-row">${icon('phone')}<span class="grow" title="${esc(x.name)}">${esc(x.name)}</span><span class="dot ${x.connected ? 'ok' : 'warn'}"></span></div>`)
-          .join('')}
+          .join('')}` : ''}
         <button type="button" class="link-btn" data-action="pair-new">Pair another device</button>
       </div>`;
     renderMedia();
@@ -442,7 +485,8 @@
     const pct = m.duration_ms > 0 ? (100 * pos) / m.duration_ms : 0;
     const max = Math.max(1, m.max_volume);
     slot.innerHTML = `
-      <section class="now-playing" aria-label="Playing on your phone">
+      <section class="now-playing tile${m.art ? ' has-art' : ''}" aria-label="Playing on your phone">
+        ${m.art && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(m.art) ? `<div class="np-backdrop" style="background-image:url('${m.art}')" aria-hidden="true"></div>` : ''}
         <div class="np-top">
           <div class="np-art">${m.art ? `<img src="${esc(m.art)}" alt="">` : icon('music')}</div>
           <div class="np-text">
@@ -1291,6 +1335,7 @@
       return scheduleLoad(); // e.g. the service stopped: the full load shows that
     }
     if (seq !== deviceSeq || state.serviceDown) return undefined;
+    state.computer = st.computer;
     state.device = st.device;
     state.devices = st.devices || (st.device ? [st.device] : []);
     renderDevice();
@@ -1313,7 +1358,7 @@
       state.call = ev.phase === 'idle' ? null : { id: ev.id, name: ev.name, phase: ev.phase, caller: ev.caller };
       return renderChrome();
     }
-    if (ev.kind === 'phone_status_changed') return refreshDevice();
+    if (ev.kind === 'phone_status_changed' || ev.kind === 'computer_battery_changed') return refreshDevice();
     if (ev.kind === 'media_changed') return refreshMedia();
     if (ev.kind === 'transfer_changed') return ev.item && upsertTransfer(ev.item);
     if (ev.kind === 'sms_changed') return refreshThreads();
@@ -1820,8 +1865,6 @@
 
   function tickClock() {
     if (document.visibilityState !== 'visible') return;
-    const c = $('[data-clock]', el.device);
-    if (c) c.textContent = clock(Date.now());
     for (const t of document.querySelectorAll('[data-ts]')) t.textContent = relTime(Number(t.dataset.ts));
   }
   setInterval(tickClock, 30 * 1000);
@@ -1836,6 +1879,12 @@
   });
 
   // ------------------------------------------------------------------ start
+
+  // The twin tile's link dashes move only while this window has focus (no timer: CSS).
+  const syncFocus = () => document.body.classList.toggle('focused', document.hasFocus());
+  window.addEventListener('focus', syncFocus);
+  window.addEventListener('blur', syncFocus);
+  syncFocus();
 
   for (const [action, name] of [['open-settings', 'settings'], ['win-minimize', 'minimize'], ['win-maximize', 'maximize'], ['win-close', 'close']]) {
     $(`.titlebar [data-action="${action}"]`).innerHTML = icon(name);

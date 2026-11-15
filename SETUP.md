@@ -215,6 +215,7 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 70 | Panel widget: look at the icon, then click it | the phone outline is filled to the phone's battery (amber below 20%), a number counts new things; the popup shows the tile dashboard; captions open full lists with a back arrow; reopening starts on the dashboard |
 | 71 | Drag a file onto the drop tile (or the icon) | it shows the file name, percent and time left; the icon gets a ring that fills as it goes |
 | 72 | Phone Home screen | phone and laptop pictures show the right battery levels; the link says Wi-Fi (green) or Bluetooth (amber); switching the connection off turns it grey and stops the dashes |
+| 73 | Open the EchoTwin window | the sidebar shows the phone and this laptop with their real battery levels and the link (Wi-Fi green / Bluetooth amber / grey when off); Settings → Appearance opacity and blur still work |
 
 When something fails, include:
 - the step number

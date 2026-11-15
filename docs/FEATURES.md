@@ -389,9 +389,15 @@ data and stand-in KDE modules, to check layout without Plasma.
 
 ## 14. Desktop app window
 
-**What:** the EchoTwin window: device panel (phone art, status, battery/5G, music card,
-quick actions), tabs Notifications / Messages / Files, Settings sheet, pairing screen,
-"service not running" screen. Translucent with optional blur.
+**What:** the EchoTwin window in the phone app's style (design:
+`docs/design/desktop-concepts.html`, layout A "Twin sidebar"). The sidebar is the phone's
+Home screen: the twin tile (phone and this computer drawn and filled to their battery
+levels, the link pill Wi-Fi / Bluetooth / Offline / Off between them; the dashes drift only
+while connected and the window has focus), the connection tile, action tiles (Note, Send
+files, Ring phone, Clipboard, Saver; toggles are tinted while on) and the now-playing tile
+(blurred album art behind). Right side: pill tabs Notifications / Messages / Files, 18 px
+cards. Settings sheet, pairing screen, "service not running" screen. Translucent with
+optional blur.
 
 **How:** `desktop/ui` is a framework-free page; `tauri-api.js` implements
 `window.PhoneLinkAPI` with `invoke(...)`; `app.js` holds state and renders. Every command
@@ -401,8 +407,8 @@ in `desktop/app/src/main.rs` opens the socket, sends one `Request`, maps the `Re
 
 | To change… | Edit |
 |---|---|
-| Colours, spacing | `desktop/ui/styles.css` `:root` tokens |
-| Device panel | `app.js` `renderDevice` |
+| Colours, spacing | `desktop/ui/styles.css` `:root` tokens (`--r-tile` for tiles); shared classes `.tile`, `.icon-square`, `.pill` |
+| Sidebar | `app.js` `renderDevice` (`phoneSvg`, `laptopSvg`, `linkState`), `renderMedia`; this computer's battery comes from `Reply::Status.battery` and `computer_battery_changed` |
 | A tab | `app.js` `renderNotifications` / `renderThreads` + `renderConversation` / `renderFiles` |
 | Settings sheet | `app.js` `settingsBody`, `appearanceSection`; click handling in the `onClick` switch (`case 'toggle-setting'` …) |
 | New backend call | command in `main.rs` (+ register in `generate_handler!`), method in `tauri-api.js`, fake in `mock-api.js` |

@@ -77,7 +77,7 @@ function fakeTauri() {
         if (!fake.daemonUp) throw 'daemon-down';
         switch (cmd) {
           case 'status':
-            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66' }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, battery_saver: fake.saver !== false, switches: { battery_alerts: fake.alerts !== false, pause_media_on_call: true, open_links: true, allow_ring: true }, devices: fake.devices };
+            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66', battery: fake.computerBattery ?? null, charging: true }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, battery_saver: fake.saver !== false, switches: { battery_alerts: fake.alerts !== false, pause_media_on_call: true, open_links: true, allow_ring: true }, devices: fake.devices };
           case 'notifications':
             if (fake.slowNext) {
               // Snapshot the data now, answer late (like a reload that started before news arrived).
@@ -283,7 +283,9 @@ function fakeTauri() {
   await page.evaluate(() => window.__emit('phonelink://event', { kind: 'call_changed', id: '9C21-7E04-B3A8-51DF', name: 'Galaxy S24 FE', phase: 'idle', caller: '' }));
   await page.waitForTimeout(150);
   check(!(await visible('#offline-banner')), 'the banner goes when the call ends');
-  check((await txt('.device-model')) === 'Paired phone', 'no made-up phone model');
+  check((await page.$$eval('[data-clock]', (e) => e.length)) === 0, 'no clock drawing any more (one timer fewer)');
+  check((await txt('#device-panel .twin')).includes('kubuntu'), 'the twin tile names this computer');
+  check((await txt('#device-panel .twin .pill')) === 'Wi-Fi', 'the link pill says Wi-Fi');
   check((await txt('#panel-notifications .empty')).includes('New notifications from Galaxy S24 FE'), 'notifications empty state');
   await page.click('#tab-messages');
   check(!(await visible('#panel-messages .soon')), 'Messages tab is live');
@@ -704,15 +706,19 @@ function fakeTauri() {
   await page.waitForTimeout(400);
   check((await txt('#conn-pill')).endsWith('Connected · Bluetooth'), 'title bar shows the Bluetooth link');
   check((await txt('#device-panel .stats')).includes('Connected over Bluetooth'), 'phone panel says so');
+  check((await txt('#device-panel .twin .pill')) === 'Bluetooth' && (await page.$$eval('#device-panel .twin.link-amber', (e) => e.length)) === 1, 'the link pill turns amber: Bluetooth');
   await page.evaluate(() => {
     window.__fake.devices = window.__fake.devices.map((d) => ({ ...d, via: 'wifi' }));
     window.__emit('phonelink://event', { kind: 'connected', id: 'x', name: 'x', via: 'wifi' });
   });
   await page.waitForTimeout(400);
-  check((await txt('#conn-pill')).endsWith('· Connected'), 'back to Wi-Fi');
+  check((await txt('#conn-pill')).endsWith('· Connected · Wi-Fi'), 'back to Wi-Fi');
 
   console.log('Phone battery and network');
-  check(!(await txt('#device-panel .stats')).includes('%'), 'no battery shown before the phone reports it');
+  const phoneCap = () => txt('#device-panel .twin-dev:first-child .twin-cap');
+  check(!(await phoneCap()).includes('%'), 'no battery shown before the phone reports it');
+  check((await txt('#device-panel .twin-dev:last-child .twin-cap')) === 'Plugged in', 'a computer without a battery says so');
+  check((await page.$$eval('#device-panel .twin-dev:last-child .fill', (e) => e.length)) === 0, 'and its picture stays empty');
   const callCount = (name) => page.evaluate((n) => window.__calls.filter((c) => c[0] === n).length, name);
   const before = [await callCount('status'), await callCount('notifications'), await callCount('transfers'), await callCount('sms_threads')];
   await page.evaluate(() => {
@@ -720,8 +726,9 @@ function fakeTauri() {
     window.__emit('phonelink://event', { kind: 'phone_status_changed', id: '9C21-7E04-B3A8-51DF' });
   });
   await page.waitForTimeout(400);
-  const stats = await txt('#device-panel .stats');
+  const stats = await phoneCap();
   check(stats.includes('82% · charging') && stats.includes('5G'), 'battery and 5G shown: ' + stats.replace(/\s+/g, ' '));
+  check((await page.$$eval('#device-panel .twin-dev:first-child .fill', (e) => e.length)) === 1, 'the phone picture is filled to its level');
   check((await page.$$eval('#device-panel .bars > i.on', (e) => e.length)) === 3, 'three of four signal bars lit');
   const after = [await callCount('status'), await callCount('notifications'), await callCount('transfers'), await callCount('sms_threads')];
   check(after[0] === before[0] + 1 && after.slice(1).join() === before.slice(1).join(), `a status change reloads only the device (${before} -> ${after})`);
@@ -732,6 +739,28 @@ function fakeTauri() {
   await page.waitForTimeout(400);
   check((await page.$$eval('#device-panel .battery.low', (e) => e.length)) === 1, 'low battery is marked');
   check((await page.$$eval('#device-panel .bars', (e) => e.length)) === 0, 'no bars on Wi-Fi');
+  check((await page.$$eval('#device-panel .twin-pic.warn', (e) => e.length)) === 1, 'the low phone is drawn amber');
+
+  console.log("This computer's battery");
+  const callsBefore = await callCount('status');
+  await page.evaluate(() => {
+    window.__fake.computerBattery = 47;
+    window.__emit('phonelink://event', { kind: 'computer_battery_changed' });
+  });
+  await page.waitForTimeout(400);
+  check((await txt('#device-panel .twin-dev:last-child .twin-cap')) === '47% · charging', 'the laptop picture shows its own battery');
+  check((await page.$$eval('#device-panel .twin-dev:last-child .fill', (e) => e.length)) === 1, 'and is filled');
+  check((await callCount('status')) === callsBefore + 1, 'a laptop battery change reloads only the status');
+
+  console.log('Saver tile');
+  const saverTile = '#device-panel .action[data-key="batterySaver"]';
+  check((await page.getAttribute(saverTile, 'aria-checked')) === 'true', 'Saver tile shows the saver is on');
+  await page.click(saverTile);
+  await page.waitForTimeout(250);
+  check((await lastCall('set_battery_saver'))[1].on === false, 'Saver tile calls set_battery_saver(false)');
+  await page.click(saverTile);
+  await page.waitForTimeout(250);
+  check((await lastCall('set_battery_saver'))[1].on === true, 'and back on');
   await page.screenshot({ path: 'shots/app-phone-status.png' });
 
   console.log('Connection switch');

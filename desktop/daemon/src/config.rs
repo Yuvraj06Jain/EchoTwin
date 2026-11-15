@@ -47,6 +47,8 @@ pub struct Config {
     pub pause_media_on_call: bool,
     /// Let the phone press the buttons below (Remote screen).
     pub allow_commands: bool,
+    /// Let the phone act as a presentation clicker (five keys only).
+    pub presentation_remote: bool,
     /// Your own buttons for the phone's Remote screen: a name, and a shell command run here.
     /// Only the names go to the phone.
     pub commands: Vec<CommandEntry>,
@@ -76,6 +78,7 @@ impl Default for Config {
             allow_ring: true,
             pause_media_on_call: true,
             allow_commands: true,
+            presentation_remote: true,
             commands: vec![
                 CommandEntry { name: "Suspend".into(), run: "systemctl suspend".into() },
                 CommandEntry { name: "Mute / unmute".into(), run: "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle".into() },
@@ -124,7 +127,7 @@ pub fn check_commands(items: &[CommandEntry]) -> Result<(), String> {
 }
 
 /// Simple on/off settings, set with `Request::SetSwitch` and listed in `Reply::Status`.
-pub const SWITCHES: &[&str] = &["battery_alerts", "open_links", "allow_ring", "pause_media_on_call", "allow_commands"];
+pub const SWITCHES: &[&str] = &["battery_alerts", "open_links", "allow_ring", "pause_media_on_call", "allow_commands", "presentation_remote"];
 
 impl Config {
     pub fn switch(&self, name: &str) -> Option<bool> {
@@ -134,6 +137,7 @@ impl Config {
             "allow_ring" => self.allow_ring,
             "pause_media_on_call" => self.pause_media_on_call,
             "allow_commands" => self.allow_commands,
+            "presentation_remote" => self.presentation_remote,
             _ => return None,
         })
     }
@@ -146,6 +150,7 @@ impl Config {
             "allow_ring" => &mut self.allow_ring,
             "pause_media_on_call" => &mut self.pause_media_on_call,
             "allow_commands" => &mut self.allow_commands,
+            "presentation_remote" => &mut self.presentation_remote,
             _ => return false,
         };
         *slot = on;

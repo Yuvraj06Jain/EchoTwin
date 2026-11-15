@@ -136,6 +136,8 @@ struct State {
     effects: Arc<dyn crate::effects::Effects>,
     /// Phones with a call going on: (phase, caller, call notification key).
     calls: Mutex<HashMap<Fingerprint, (phonelink_core::CallPhase, String, String)>>,
+    /// Presses the presentation remote's keys (portal session on its own thread).
+    presenter: crate::present::Presenter,
     /// What plays on this computer (for phones with `remote/1`).
     computer_media: Mutex<Option<phonelink_core::NowPlaying>>,
     /// Contact searches waiting for the phone's answer, by request number.
@@ -245,6 +247,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         battery_alerts: Mutex::new(HashMap::new()),
         calls: Mutex::new(HashMap::new()),
         computer_media: Mutex::new(None),
+        presenter: crate::present::Presenter::start(opts.buses.session.clone(), opts.data_dir.join("remote-control.token")),
         contact_waits: Mutex::new(HashMap::new()),
         next_contact_req: std::sync::atomic::AtomicU32::new(1),
         commands: Mutex::new(opts.config.commands.clone()),
@@ -320,7 +323,7 @@ async fn start_node(
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
         cfg.timings = timings(opts.config.battery_saver);
         cfg.capabilities.extend(
-            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS, phonelink_core::CAP_REMOTE, phonelink_core::CAP_CONTACTS]
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS, phonelink_core::CAP_REMOTE, phonelink_core::CAP_CONTACTS, phonelink_core::CAP_PRESENT]
                 .map(String::from),
         );
         match Node::start(cfg).await {
@@ -1537,7 +1540,34 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     }
                     continue;
                 }
-                AppMessage::PresentKey { .. } => continue,
+                AppMessage::PresentKey { key, sent_ms } => {
+                    use phonelink_core::message::{is_fresh, PRESENT_MAX_AGE_MS};
+                    let refused = if !state.has_cap(&peer, phonelink_core::CAP_PRESENT) {
+                        Some("not supported")
+                    } else if !state.switch_on("presentation_remote") {
+                        Some("The presentation remote is switched off on the computer")
+                    } else if !is_fresh(sent_ms, now_ms(), PRESENT_MAX_AGE_MS) {
+                        Some("That press arrived too late")
+                    } else {
+                        None
+                    };
+                    match refused {
+                        Some(message) => {
+                            let _ = state.to_phone(&peer, AppMessage::ActionResult { key: "present".into(), ok: false, message: message.into() });
+                        }
+                        None => {
+                            let pending = state.presenter.submit(key); // in arrival order
+                            let st = state.clone();
+                            tokio::task::spawn_blocking(move || {
+                                if let Err(message) = crate::present::Presenter::wait(pending) {
+                                    warn!("presentation remote: {message}");
+                                    let _ = st.to_phone(&peer, AppMessage::ActionResult { key: "present".into(), ok: false, message });
+                                }
+                            });
+                        }
+                    }
+                    continue;
+                }
                 AppMessage::ComputerNowPlaying(_) | AppMessage::RemoteCommands { .. } | AppMessage::ContactsQuery { .. } => continue,
                 AppMessage::CallState { state: phase, caller, key } => {
                     state.call_changed(peer, phase, &caller, &key);

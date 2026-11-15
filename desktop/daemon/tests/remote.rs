@@ -141,6 +141,10 @@ struct Rig {
 }
 
 async fn setup(bus: &str) -> Rig {
+    setup_caps(bus, &[CAP_REMOTE]).await
+}
+
+async fn setup_caps(bus: &str, caps: &[&str]) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("pl.sock");
     let effects = Recorded::new();
@@ -173,7 +177,7 @@ async fn setup(bus: &str) -> Rig {
     let mut offer = PairingOffer::from_uri(&uri).unwrap();
     offer.addrs = vec![SocketAddr::from(([127, 0, 0, 1], offer.addrs[0].port()))];
     let mut cfg = NodeConfig::new("Galaxy S24 FE", None, "127.0.0.1:0".parse().unwrap());
-    cfg.capabilities.push(CAP_REMOTE.into());
+    cfg.capabilities.extend(caps.iter().map(|c| c.to_string()));
     let (phone, mut phone_rx) = Node::start(cfg).await.unwrap();
     phone.pair_with(&offer).await.unwrap();
     timeout(WAIT, async {
@@ -323,4 +327,27 @@ async fn the_phone_can_press_only_your_own_buttons() {
         Reply::Commands { items } => assert_eq!(items[0].run, "loginctl lock-session"),
         r => panic!("{r:?}"),
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn presentation_keys_are_refused_when_late_or_switched_off() {
+    let Some(bus) = private_bus() else {
+        eprintln!("dbus-daemon not installed; skipping");
+        return;
+    };
+    let mut rig = setup_caps(&bus.address, &[phonelink_core::CAP_PRESENT]).await;
+    let refused = |m: AppMessage| match m {
+        AppMessage::ActionResult { key, ok: false, message } if key == "present" => Some(message),
+        _ => None,
+    };
+    rig.send(AppMessage::PresentKey { key: phonelink_core::PresentKeyKind::Next, sent_ms: now_ms() - 60_000 });
+    assert!(rig.phone_waits_for("late", refused).await.contains("too late"));
+    assert_eq!(rig.request(Request::SetSwitch { name: "presentation_remote".into(), on: false }).await, Reply::Done);
+    rig.send(AppMessage::PresentKey { key: phonelink_core::PresentKeyKind::Next, sent_ms: now_ms() });
+    assert!(rig.phone_waits_for("off", refused).await.contains("switched off"));
+    // On, fresh, but this bus has no portal: a clear error comes back instead of nothing.
+    assert_eq!(rig.request(Request::SetSwitch { name: "presentation_remote".into(), on: true }).await, Reply::Done);
+    rig.send(AppMessage::PresentKey { key: phonelink_core::PresentKeyKind::Next, sent_ms: now_ms() });
+    let msg = rig.phone_waits_for("no portal", refused).await;
+    assert!(!msg.is_empty());
 }

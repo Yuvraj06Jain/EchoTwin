@@ -18,6 +18,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Fingerprint check before approving sudo on the computer (no prompt). -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- Added by androidx.biometric for Android 8 and older only; EchoTwin needs Android 10+. -->
+    <uses-permission android:name="android.permission.USE_FINGERPRINT" tools:node="remove" />
 
     <!-- Only used while scanning the pairing QR code; given up again when the app closes
          (revokeSelfPermissionOnKill). Never used in the background. -->

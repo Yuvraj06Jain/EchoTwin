@@ -757,6 +757,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_computer_media_control(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_contacts_result(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_devices(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_id(
@@ -889,6 +891,8 @@ internal object UniffiLib {
     external fun uniffi_phonelink_ffi_fn_method_phonelink_clear_transfers(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_computer_media_control(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`command`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_contacts_result(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`req`: Int,`items`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_devices(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1112,6 +1116,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_computer_media_control() and 0xFFFF) != 14436) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_contacts_result() and 0xFFFF) != 63244) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_devices() and 0xFFFF) != 25210) {
@@ -2399,6 +2406,11 @@ public interface PhoneLinkInterface {
      */
     fun `computerMediaControl`(`deviceId`: kotlin.String?, `command`: MediaCommand)
     
+    /**
+     * The answer to `ContactsRequested` `req` (cut to 20 contacts).
+     */
+    fun `contactsResult`(`deviceId`: kotlin.String, `req`: kotlin.UInt, `items`: List<ContactEntry>)
+    
     fun `devices`(): List<Device>
     
     /**
@@ -2736,6 +2748,25 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
         
         FfiConverterOptionalString.lower(`deviceId`),
         FfiConverterTypeMediaCommand.lower(`command`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * The answer to `ContactsRequested` `req` (cut to 20 contacts).
+     */
+    @Throws(LinkException::class)override fun `contactsResult`(`deviceId`: kotlin.String, `req`: kotlin.UInt, `items`: List<ContactEntry>)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_contacts_result(
+        it,
+        
+        FfiConverterString.lower(`deviceId`),
+        FfiConverterUInt.lower(`req`),
+        FfiConverterSequenceTypeContactEntry.lower(`items`),_status)
 }
     }
     
@@ -4092,6 +4123,47 @@ public object FfiConverterTypeStreamSink: FfiConverter<StreamSink, Long> {
 
 
 
+/**
+ * A contact found on this phone, for the computer's "New message" search.
+ */
+data class ContactEntry (
+    var `name`: kotlin.String
+    , 
+    var `number`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeContactEntry: FfiConverterRustBuffer<ContactEntry> {
+    override fun read(buf: ByteBuffer): ContactEntry {
+        return ContactEntry(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ContactEntry) = (
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`number`)
+    )
+
+    override fun write(value: ContactEntry, buf: ByteBuffer) {
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterString.write(value.`number`, buf)
+    }
+}
+
+
+
 data class Device (
     /**
      * Short id shown on both screens, e.g. `3F2A-91C0-77DE-0B14`.
@@ -4974,6 +5046,21 @@ sealed class LinkEvent {
     }
     
     /**
+     * The computer searches this phone's contacts (New message). Answer with
+     * `contacts_result(id, req, …)` (at most 20).
+     */
+    data class ContactsRequested(
+        val `id`: kotlin.String, 
+        val `req`: kotlin.UInt, 
+        val `query`: kotlin.String) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
      * What plays on the computer changed (`None`: nothing). For the Remote screen.
      */
     data class ComputerMedia(
@@ -5181,48 +5268,53 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            12 -> LinkEvent.ComputerMedia(
+            12 -> LinkEvent.ContactsRequested(
+                FfiConverterString.read(buf),
+                FfiConverterUInt.read(buf),
+                FfiConverterString.read(buf),
+                )
+            13 -> LinkEvent.ComputerMedia(
                 FfiConverterString.read(buf),
                 FfiConverterOptionalTypePhoneMedia.read(buf),
                 )
-            13 -> LinkEvent.RemoteCommands(
+            14 -> LinkEvent.RemoteCommands(
                 FfiConverterString.read(buf),
                 FfiConverterSequenceTypeRemoteButton.read(buf),
                 )
-            14 -> LinkEvent.CallDeclineRequested(
+            15 -> LinkEvent.CallDeclineRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            15 -> LinkEvent.RingRequested(
+            16 -> LinkEvent.RingRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterBoolean.read(buf),
                 )
-            16 -> LinkEvent.ClipboardReceived(
+            17 -> LinkEvent.ClipboardReceived(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            17 -> LinkEvent.MediaControlRequested(
+            18 -> LinkEvent.MediaControlRequested(
                 FfiConverterString.read(buf),
                 FfiConverterTypeMediaCommand.read(buf),
                 )
-            18 -> LinkEvent.SmsSendRequested(
+            19 -> LinkEvent.SmsSendRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            19 -> LinkEvent.SmsOlderRequested(
+            20 -> LinkEvent.SmsOlderRequested(
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterULong.read(buf),
                 )
-            20 -> LinkEvent.TransferChanged(
+            21 -> LinkEvent.TransferChanged(
                 FfiConverterTypeFileTransfer.read(buf),
                 )
-            21 -> LinkEvent.RequestResult(
+            22 -> LinkEvent.RequestResult(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
@@ -5328,6 +5420,15 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 + FfiConverterString.allocationSize(value.`id`)
                 + FfiConverterString.allocationSize(value.`name`)
                 + FfiConverterString.allocationSize(value.`url`)
+            )
+        }
+        is LinkEvent.ContactsRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterUInt.allocationSize(value.`req`)
+                + FfiConverterString.allocationSize(value.`query`)
             )
         }
         is LinkEvent.ComputerMedia -> {
@@ -5496,46 +5597,53 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.write(value.`url`, buf)
                 Unit
             }
-            is LinkEvent.ComputerMedia -> {
+            is LinkEvent.ContactsRequested -> {
                 buf.putInt(12)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterUInt.write(value.`req`, buf)
+                FfiConverterString.write(value.`query`, buf)
+                Unit
+            }
+            is LinkEvent.ComputerMedia -> {
+                buf.putInt(13)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterOptionalTypePhoneMedia.write(value.`media`, buf)
                 Unit
             }
             is LinkEvent.RemoteCommands -> {
-                buf.putInt(13)
+                buf.putInt(14)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterSequenceTypeRemoteButton.write(value.`items`, buf)
                 Unit
             }
             is LinkEvent.CallDeclineRequested -> {
-                buf.putInt(14)
+                buf.putInt(15)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`key`, buf)
                 Unit
             }
             is LinkEvent.RingRequested -> {
-                buf.putInt(15)
+                buf.putInt(16)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterBoolean.write(value.`on`, buf)
                 Unit
             }
             is LinkEvent.ClipboardReceived -> {
-                buf.putInt(16)
+                buf.putInt(17)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`text`, buf)
                 Unit
             }
             is LinkEvent.MediaControlRequested -> {
-                buf.putInt(17)
+                buf.putInt(18)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterTypeMediaCommand.write(value.`command`, buf)
                 Unit
             }
             is LinkEvent.SmsSendRequested -> {
-                buf.putInt(18)
+                buf.putInt(19)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`clientId`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
@@ -5544,19 +5652,19 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 Unit
             }
             is LinkEvent.SmsOlderRequested -> {
-                buf.putInt(19)
+                buf.putInt(20)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
                 FfiConverterULong.write(value.`beforeMs`, buf)
                 Unit
             }
             is LinkEvent.TransferChanged -> {
-                buf.putInt(20)
+                buf.putInt(21)
                 FfiConverterTypeFileTransfer.write(value.`transfer`, buf)
                 Unit
             }
             is LinkEvent.RequestResult -> {
-                buf.putInt(21)
+                buf.putInt(22)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`key`, buf)
@@ -5923,6 +6031,34 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterString.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeContactEntry: FfiConverterRustBuffer<List<ContactEntry>> {
+    override fun read(buf: ByteBuffer): List<ContactEntry> {
+        val len = buf.getInt()
+        return List<ContactEntry>(len) {
+            FfiConverterTypeContactEntry.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<ContactEntry>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeContactEntry.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<ContactEntry>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeContactEntry.write(it, buf)
         }
     }
 }

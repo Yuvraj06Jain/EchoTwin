@@ -148,6 +148,10 @@ function fakeTauri() {
           case 'set_battery_saver':
             fake.saver = args.on;
             return null;
+          case 'contacts':
+            return [{ name: 'Mom', number: '+91 98765 00000' }].filter((c) => c.name.toLowerCase().includes(args.query.toLowerCase()));
+          case 'send_sms_to':
+            return 'c-new';
           case 'commands':
             return fake.commands || [{ name: 'Suspend', run: 'systemctl suspend' }];
           case 'set_commands':
@@ -618,6 +622,26 @@ function fakeTauri() {
   check(await visible('[data-form="note"]'), "the widget's Note button opens the note dialog");
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
+  await page.click('[data-tab="notifications"]');
+
+  console.log('New SMS');
+  await page.click('[data-tab="messages"]');
+  await page.click('[data-action="new-sms"]');
+  await page.waitForTimeout(150);
+  check(await visible('[data-form="newsms"]'), 'New opens the new-message dialog');
+  await page.keyboard.type('mo');
+  await page.waitForTimeout(500);
+  check((await txt('[data-suggest]')).includes('Mom'), 'contacts are suggested as you type');
+  check((await lastCall('contacts'))[1].query === 'mo', 'the search goes to the phone');
+  check(await page.$eval('[data-form="newsms"] [type="submit"]', (b) => b.disabled), 'no Send without a number and text');
+  await page.click('[data-suggest] [data-number]');
+  check((await page.$eval('[name="to"]', (i) => i.value)) === '+91 98765 00000', 'picking a contact fills in the number');
+  await page.keyboard.type('Reached safely');
+  await page.keyboard.press('Control+Enter');
+  await page.waitForTimeout(300);
+  const ns = await lastCall('send_sms_to');
+  check(ns && ns[1].address === '+91 98765 00000' && ns[1].text === 'Reached safely', `sent to the number (${JSON.stringify(ns && ns[1])})`);
+  check((await toast()).startsWith('Sending to +91 98765 00000'), 'sending toast');
   await page.click('[data-tab="notifications"]');
 
   console.log('SMS');

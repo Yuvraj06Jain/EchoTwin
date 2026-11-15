@@ -337,6 +337,22 @@ async fn dismiss_notification(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn contacts(query: String) -> Result<Vec<phonelink_core::Contact>, String> {
+    match request(Request::Contacts { query }).await? {
+        Reply::Contacts { items } => Ok(items),
+        r => Err(unexpected(r)),
+    }
+}
+
+#[tauri::command]
+async fn send_sms_to(address: String, text: String, device: Option<String>) -> Result<String, String> {
+    match request(Request::SendSmsTo { device, address, text }).await? {
+        Reply::SmsQueued { client_id } => Ok(client_id),
+        r => Err(unexpected(r)),
+    }
+}
+
+#[tauri::command]
 async fn commands() -> Result<Vec<phonelink_desktop::config::CommandEntry>, String> {
     match request(Request::Commands).await? {
         Reply::Commands { items } => Ok(items),
@@ -689,6 +705,8 @@ fn main() {
             set_auto_saver,
             commands,
             set_commands,
+            contacts,
+            send_sms_to,
             clear_notifications,
             reply_notification,
             notification_action,

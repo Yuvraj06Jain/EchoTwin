@@ -138,6 +138,9 @@ struct State {
     calls: Mutex<HashMap<Fingerprint, (phonelink_core::CallPhase, String, String)>>,
     /// What plays on this computer (for phones with `remote/1`).
     computer_media: Mutex<Option<phonelink_core::NowPlaying>>,
+    /// Contact searches waiting for the phone's answer, by request number.
+    contact_waits: Mutex<HashMap<u32, tokio::sync::oneshot::Sender<Vec<phonelink_core::Contact>>>>,
+    next_contact_req: std::sync::atomic::AtomicU32,
     /// Your own buttons (`config.commands`, changed with `SetCommands`).
     commands: Mutex<Vec<crate::config::CommandEntry>>,
     call_pause: crate::mpris::CallPause,
@@ -242,6 +245,8 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         battery_alerts: Mutex::new(HashMap::new()),
         calls: Mutex::new(HashMap::new()),
         computer_media: Mutex::new(None),
+        contact_waits: Mutex::new(HashMap::new()),
+        next_contact_req: std::sync::atomic::AtomicU32::new(1),
         commands: Mutex::new(opts.config.commands.clone()),
         call_pause: crate::mpris::CallPause::start(opts.buses.session.clone()),
         effects: opts
@@ -315,7 +320,7 @@ async fn start_node(
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
         cfg.timings = timings(opts.config.battery_saver);
         cfg.capabilities.extend(
-            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS, phonelink_core::CAP_REMOTE]
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS, phonelink_core::CAP_REMOTE, phonelink_core::CAP_CONTACTS]
                 .map(String::from),
         );
         match Node::start(cfg).await {
@@ -974,6 +979,58 @@ impl State {
 
     /// Ask the phone to send an SMS now. Not queued: a text sent hours later, when the
     /// phone happens to reconnect, would be a surprise.
+    /// A new conversation from the computer: thread 0, the phone sends to `address`.
+    fn send_sms_to(&self, device: Option<&str>, address: &str, text: &str) -> Result<String, String> {
+        let text = text.trim_end();
+        if text.trim().is_empty() {
+            return Err("the message is empty".into());
+        }
+        if text.len() > phonelink_core::message::SMS_MAX_BODY {
+            return Err("the message is too long".into());
+        }
+        if !crate::sms::valid_address(address) {
+            return Err("that doesn't look like a phone number".into());
+        }
+        let fp = self.resolve(device)?.fingerprint;
+        if !self.node.is_connected(&fp) {
+            return Err(format!("{} is not connected; the message was not sent", self.name_of(&fp)));
+        }
+        if !self.has_cap(&fp, CAP_SMS) {
+            return Err(format!("update EchoTwin on {} to send SMS", self.name_of(&fp)));
+        }
+        let client_id: String = phonelink_core::MsgId::random().0[..8].iter().map(|b| format!("{b:02x}")).collect();
+        let msg = AppMessage::SmsSend {
+            client_id: client_id.clone(),
+            thread: 0,
+            address: address.trim().to_string(),
+            body: text.to_string(),
+        };
+        self.to_phone(&fp, msg)?;
+        Ok(client_id)
+    }
+
+    /// Ask the phone for contacts matching `query`; empty after 3 s without an answer.
+    async fn contacts(self: &Arc<Self>, query: &str) -> Result<Vec<phonelink_core::Contact>, String> {
+        let query = query.trim();
+        if query.chars().count() < 2 {
+            return Ok(vec![]);
+        }
+        let query = phonelink_core::message::truncate_text(query, phonelink_core::message::MAX_CONTACT_QUERY);
+        let Some(fp) = self.connected_with(phonelink_core::CAP_CONTACTS).into_iter().next() else {
+            return Ok(vec![]); // an older phone: the number is typed by hand
+        };
+        let req = self.next_contact_req.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        lock(&self.contact_waits).insert(req, tx);
+        if let Err(e) = self.to_phone(&fp, AppMessage::ContactsQuery { req, query }) {
+            lock(&self.contact_waits).remove(&req);
+            return Err(e);
+        }
+        let items = tokio::time::timeout(Duration::from_secs(3), rx).await.ok().and_then(Result::ok);
+        lock(&self.contact_waits).remove(&req);
+        Ok(items.unwrap_or_default())
+    }
+
     fn send_sms(&self, thread: &str, text: &str) -> Result<String, String> {
         let text = text.trim_end();
         if text.trim().is_empty() {
@@ -1466,7 +1523,21 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     let _ = state.to_phone(&peer, AppMessage::ActionResult { key: format!("cmd:{id}"), ok, message });
                     continue;
                 }
-                AppMessage::PresentKey { .. } | AppMessage::ContactsResult { .. } => continue,
+                AppMessage::ContactsResult { req, items } => {
+                    if let Some(tx) = lock(&state.contact_waits).remove(&req) {
+                        let items = items
+                            .into_iter()
+                            .take(phonelink_core::message::MAX_CONTACTS)
+                            .map(|c| phonelink_core::Contact {
+                                name: phonelink_core::message::truncate_text(&c.name, 100),
+                                number: phonelink_core::message::truncate_text(&c.number, 30),
+                            })
+                            .collect();
+                        let _ = tx.send(items);
+                    }
+                    continue;
+                }
+                AppMessage::PresentKey { .. } => continue,
                 AppMessage::ComputerNowPlaying(_) | AppMessage::RemoteCommands { .. } | AppMessage::ContactsQuery { .. } => continue,
                 AppMessage::CallState { state: phase, caller, key } => {
                     state.call_changed(peer, phase, &caller, &key);
@@ -1916,6 +1987,20 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
             Request::SendSms { thread, text } => {
                 let reply = match state.send_sms(&thread, &text) {
                     Ok(client_id) => Reply::SmsQueued { client_id },
+                    Err(message) => Reply::Error { message },
+                };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::SendSmsTo { device, address, text } => {
+                let reply = match state.send_sms_to(device.as_deref(), &address, &text) {
+                    Ok(client_id) => Reply::SmsQueued { client_id },
+                    Err(message) => Reply::Error { message },
+                };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::Contacts { query } => {
+                let reply = match state.contacts(&query).await {
+                    Ok(items) => Reply::Contacts { items },
                     Err(message) => Reply::Error { message },
                 };
                 write_reply(&mut w, &reply).await?;

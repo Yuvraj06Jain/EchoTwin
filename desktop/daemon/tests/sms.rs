@@ -248,3 +248,59 @@ async fn conversations_show_up_and_texts_are_sent_through_the_phone() {
     assert!(message.contains("not connected"), "{message}");
     assert_eq!(r.threads().await.len(), 1, "conversations stay readable while the phone is away");
 }
+
+#[tokio::test]
+async fn a_new_conversation_can_be_started_from_the_computer() {
+    let mut r = setup(&[CAP_SMS, phonelink_core::CAP_CONTACTS]).await;
+
+    // Contact search: the phone answers; nothing is stored here.
+    let req_text = |q: &str| Request::Contacts { query: q.into() };
+    let ask = tokio::spawn({
+        let socket = r.socket.clone();
+        async move { Client::connect(&socket).await.unwrap().request(&req_text("mo")).await.unwrap() }
+    });
+    let (req, query) = loop {
+        if let AppMessage::ContactsQuery { req, query } = r.phone_gets().await {
+            break (req, query);
+        }
+    };
+    assert_eq!(query, "mo");
+    r.phone_sends(AppMessage::ContactsResult {
+        req,
+        items: vec![phonelink_core::Contact { name: "Mom".into(), number: "+91 98765 00000".into() }],
+    });
+    match ask.await.unwrap() {
+        Reply::Contacts { items } => assert_eq!(items[0].name, "Mom"),
+        other => panic!("{other:?}"),
+    }
+    // Too short a search isn't sent; no answer within 3 s gives an empty list.
+    assert_eq!(r.request(req_text("m")).await, Reply::Contacts { items: vec![] });
+    let started = std::time::Instant::now();
+    assert_eq!(r.request(req_text("zz")).await, Reply::Contacts { items: vec![] });
+    assert!(started.elapsed() >= Duration::from_secs(3));
+    let _ = r.phone_gets().await; // the unanswered query
+
+    // Sending to a new number: thread 0 and the typed address go to the phone.
+    let send = |address: &str| Request::SendSmsTo { device: None, address: address.into(), text: "Reached safely".into() };
+    let reply = r.request(send("+91 98765 00000")).await;
+    let Reply::SmsQueued { client_id } = reply else { panic!("{reply:?}") };
+    match r.phone_gets().await {
+        AppMessage::SmsSend { client_id: c, thread, address, body } => {
+            assert_eq!((c.as_str(), thread, address.as_str(), body.as_str()), (client_id.as_str(), 0, "+91 98765 00000", "Reached safely"));
+        }
+        other => panic!("{other:?}"),
+    }
+    for bad in ["12", "call me", "+91 98765 00000 1234 5", "1;2;3", ""] {
+        assert!(matches!(r.request(send(bad)).await, Reply::Error { .. }), "{bad:?}");
+    }
+    assert!(matches!(
+        r.request(Request::SendSmsTo { device: None, address: "12345".into(), text: "  ".into() }).await,
+        Reply::Error { .. }
+    ));
+}
+
+#[tokio::test]
+async fn without_contacts_support_the_number_is_typed_by_hand() {
+    let r = setup(&[CAP_SMS]).await;
+    assert_eq!(r.request(Request::Contacts { query: "mom".into() }).await, Reply::Contacts { items: vec![] });
+}

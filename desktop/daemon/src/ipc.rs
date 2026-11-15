@@ -126,6 +126,17 @@ pub enum Request {
         thread: String,
         text: String,
     },
+    /// Start a new conversation: send `text` to `address` (a phone number). Replies
+    /// `SmsQueued`; the result arrives as an `sms_send_result` event.
+    SendSmsTo {
+        device: Option<String>,
+        address: String,
+        text: String,
+    },
+    /// Search the phone's contacts (names and numbers; nothing is kept here). At most 20.
+    Contacts {
+        query: String,
+    },
     /// Mark a conversation read on this computer.
     SmsMarkRead {
         thread: String,
@@ -354,6 +365,9 @@ pub enum Reply {
     },
     Commands {
         items: Vec<crate::config::CommandEntry>,
+    },
+    Contacts {
+        items: Vec<phonelink_core::Contact>,
     },
     AppIcons {
         icons: BTreeMap<String, String>,

@@ -307,6 +307,20 @@
       t.messages.push(msg);
       return clone(msg);
     },
+    async contacts(query) {
+      await wait(80);
+      const q = query.toLowerCase();
+      return [
+        { name: 'Mom', number: '+91 98xxx x4410' },
+        { name: 'Mohit (Lab)', number: '+91 97xxx x1180' },
+        { name: 'Rahul', number: '+91 99xxx x2231' },
+      ].filter((c) => c.name.toLowerCase().includes(q));
+    },
+    async sendSmsTo(address /* , text */) {
+      await wait(120);
+      if (mode !== 'connected') throw new Error(`${phone.name} is not connected; the message was not sent`);
+      return `new-${address}`;
+    },
     async commands() {
       await wait(30);
       return clone(db.commands);

@@ -26,7 +26,7 @@ use phonelink_core::{
     transfer::{Direction, SourceOpener, TransferConfig, TransferInfo, Transfers, CAP_FILES},
     AppMessage, Event, Fingerprint, MediaAction, Node, NodeConfig, NowPlaying, PairingOffer,
     PeerRecord, PhoneNotification, SmsMessage, SmsState, SmsThread, CAP_CLIPBOARD, CAP_LOCK,
-    CAP_CALLS, CAP_CLIPBOARD_IMAGE, CAP_LINKS, CAP_MEDIA, CAP_PRESENT, CAP_REMOTE, CAP_RING, PresentKeyKind, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS,
+    CAP_CALLS, CAP_CLIPBOARD_IMAGE, CAP_CONTACTS, CAP_LINKS, CAP_MEDIA, CAP_PRESENT, CAP_REMOTE, CAP_RING, PresentKeyKind, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS,
 };
 use tokio::{runtime::Runtime, task::JoinHandle};
 
@@ -147,6 +147,13 @@ pub enum LinkEvent {
         name: String,
         url: String,
     },
+    /// The computer searches this phone's contacts (New message). Answer with
+    /// `contacts_result(id, req, …)` (at most 20).
+    ContactsRequested {
+        id: String,
+        req: u32,
+        query: String,
+    },
     /// What plays on the computer changed (`None`: nothing). For the Remote screen.
     ComputerMedia {
         id: String,
@@ -253,6 +260,13 @@ impl From<MediaCommand> for MediaAction {
 pub struct RemoteButton {
     pub id: String,
     pub name: String,
+}
+
+/// A contact found on this phone, for the computer's "New message" search.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct ContactEntry {
+    pub name: String,
+    pub number: String,
 }
 
 /// The presentation remote's keys.
@@ -677,6 +691,7 @@ impl PhoneLink {
                             CAP_CALLS,
                             CAP_REMOTE,
                             CAP_PRESENT,
+                            CAP_CONTACTS,
                         ]
                         .map(String::from),
                     );
@@ -833,6 +848,11 @@ impl PhoneLink {
                             }
                         }
                         AppMessage::CallDecline { key } => LinkEvent::CallDeclineRequested { id: peer.short(), key },
+                        AppMessage::ContactsQuery { req, query } => LinkEvent::ContactsRequested {
+                            id: peer.short(),
+                            req,
+                            query: truncate_text(&query, phonelink_core::message::MAX_CONTACT_QUERY),
+                        },
                         AppMessage::ComputerNowPlaying(n) => LinkEvent::ComputerMedia {
                             id: peer.short(),
                             media: n.map(PhoneMedia::from_wire),
@@ -1155,6 +1175,18 @@ impl PhoneLink {
         };
         let caller = phonelink_core::message::truncate_text(&caller, phonelink_core::message::MAX_CALLER);
         self.send_connected(CAP_CALLS, AppMessage::CallState { state, caller, key })
+    }
+
+    /// The answer to `ContactsRequested` `req` (cut to 20 contacts).
+    pub fn contacts_result(&self, device_id: String, req: u32, items: Vec<ContactEntry>) -> Result<(), LinkError> {
+        let fp = self.resolve(Some(device_id))?;
+        let items = items
+            .into_iter()
+            .take(phonelink_core::message::MAX_CONTACTS)
+            .map(|c| phonelink_core::Contact { name: truncate_text(&c.name, 100), number: truncate_text(&c.number, 30) })
+            .collect();
+        self.node.send(&fp, AppMessage::ContactsResult { req, items }.encode()?)?;
+        Ok(())
     }
 
     /// Control what plays on the computer (Remote screen).
@@ -2016,6 +2048,15 @@ mod tests {
         assert!(matches!(ev, LinkEvent::ComputerMedia { media: Some(m), .. } if m.title == "Lo-fi" && m.playing));
         to_phone(AppMessage::ComputerNowPlaying(None));
         assert!(matches!(wait(&rx, |e| matches!(e, LinkEvent::ComputerMedia { .. })), LinkEvent::ComputerMedia { media: None, .. }));
+
+        // Contacts: a search from the laptop becomes an event; the answer goes back, cut to 20.
+        to_phone(AppMessage::ContactsQuery { req: 3, query: "mo".into() });
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::ContactsRequested { .. }));
+        let LinkEvent::ContactsRequested { id, req, query } = ev else { unreachable!() };
+        assert_eq!((req, query.as_str()), (3, "mo"));
+        let many = (0..30).map(|i| ContactEntry { name: format!("Mo {i}"), number: format!("+91 9000000{i:03}") }).collect();
+        phone.contacts_result(id, req, many).unwrap();
+        assert!(matches!(next_from_phone(&mut lrx), AppMessage::ContactsResult { req: 3, items } if items.len() == 20 && items[0].name == "Mo 0"));
 
         // Calls: the state reaches the laptop (long names cut); Decline comes back as an event.
         let long = "M".repeat(300);

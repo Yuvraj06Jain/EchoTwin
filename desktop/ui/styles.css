@@ -529,7 +529,19 @@ img.app-badge.app-icon { background: transparent; object-fit: contain; }
 .panel-messages.unavailable > .threads, .panel-messages.unavailable > .conversation { display: none; }
 .empty span { max-width: 460px; }
 .threads { border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
-.threads-search { padding: 12px; border-bottom: 1px solid var(--border); }
+.threads-search { padding: 12px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: center; }
+.threads-search input { flex: 1; min-width: 0; }
+.new-sms { flex: none; height: 34px; }
+.suggest { display: grid; gap: 2px; margin: 6px 0 10px; max-height: 180px; overflow-y: auto; }
+.suggest button {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 6px 8px; border: 0; border-radius: 12px;
+  background: transparent; color: var(--text); text-align: left;
+}
+.suggest button:hover, .suggest button:focus-visible { background: var(--raised); }
+.suggest .avatar { grid-row: auto; width: 28px; height: 28px; font-size: 12px; }
+.suggest .num { color: var(--text-3); font-size: 12px; }
+.dialog-body .text-input { margin-bottom: 4px; }
 .threads-search input {
   width: 100%; height: 34px; padding: 0 14px;
   border: 1px solid var(--border-strong); border-radius: 999px;

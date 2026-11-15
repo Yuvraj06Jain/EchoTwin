@@ -51,6 +51,8 @@ import dev.phonelink.app.ui.PairScreen
 import dev.phonelink.app.ui.PhoneLinkTheme
 import dev.phonelink.app.ui.Pl
 import dev.phonelink.app.ui.SettingsScreen
+import dev.phonelink.app.ui.PresenterScreen
+import dev.phonelink.app.ui.RemoteScreen
 import dev.phonelink.app.ui.SetupScreen
 import dev.phonelink.app.ui.UiState
 import dev.phonelink.core.Device

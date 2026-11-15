@@ -100,6 +100,14 @@ impl Thread {
     }
 }
 
+/// A number you can type: 3–20 characters of digits, spaces, `+ - ( )`, at least 3 digits.
+pub fn valid_address(a: &str) -> bool {
+    let a = a.trim();
+    (3..=20).contains(&a.chars().count())
+        && a.chars().all(|c| c.is_ascii_digit() || " +-()".contains(c))
+        && a.chars().filter(char::is_ascii_digit).count() >= 3
+}
+
 pub fn thread_key(device: &Fingerprint, thread: u64) -> String {
     format!("{}/{}", device.short(), thread)
 }

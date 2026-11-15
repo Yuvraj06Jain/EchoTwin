@@ -1118,6 +1118,80 @@
     });
   }
 
+  /** A new text message to any number, with suggestions from the phone's contacts. */
+  function openNewSmsDialog() {
+    const node = openDialog(`<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="newsms-title">
+      <form data-form="newsms">
+        <div class="dialog-body">
+          <h2 id="newsms-title">New message</h2>
+          <p>Sent as an SMS from ${esc(deviceName())}.</p>
+          <input class="text-input" name="to" maxlength="60" placeholder="Name or number" aria-label="To" autocomplete="off">
+          <div class="suggest" data-suggest role="listbox" aria-label="Contacts"></div>
+          <textarea name="body" maxlength="4000" aria-label="Message" placeholder="Text message"></textarea>
+        </div>
+        <div class="dialog-foot">
+          <button type="button" class="btn" data-action="close-dialog">Cancel</button>
+          <button type="submit" class="btn btn-primary" disabled>Send</button>
+        </div>
+      </form></div>`);
+    const to = node.querySelector('[name="to"]');
+    const body = node.querySelector('[name="body"]');
+    const submit = node.querySelector('[type="submit"]');
+    const box = node.querySelector('[data-suggest]');
+    const looksLikeNumber = (v) => /^[0-9+\-() ]{3,20}$/.test(v.trim()) && (v.match(/[0-9]/g) || []).length >= 3;
+    const sync = () => { submit.disabled = !(looksLikeNumber(to.value) && body.value.trim()); };
+    let timer = 0;
+    let seq = 0;
+    to.addEventListener('input', () => {
+      sync();
+      clearTimeout(timer);
+      const q = to.value.trim();
+      if (q.length < 2 || looksLikeNumber(q) || !api.contacts) {
+        box.innerHTML = '';
+        return;
+      }
+      timer = setTimeout(async () => {
+        const mine = ++seq;
+        const items = await api.contacts(q).catch(() => []);
+        if (mine !== seq) return;
+        box.innerHTML = items
+          .map((c) => `<button type="button" role="option" data-number="${esc(c.number)}"><span class="avatar" style="--c:${colorFor(c.name)}">${esc(initial(c.name))}</span><span class="grow">${esc(c.name)} <span class="num">${esc(c.number)}</span></span></button>`)
+          .join('');
+      }, 300);
+    });
+    box.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-number]');
+      if (!b) return;
+      to.value = b.dataset.number;
+      box.innerHTML = '';
+      sync();
+      body.focus();
+    });
+    body.addEventListener('input', sync);
+    body.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        if (!submit.disabled) node.querySelector('form').requestSubmit();
+      }
+    });
+    to.focus();
+  }
+
+  async function submitNewSms(form) {
+    const address = form.elements.to.value.trim();
+    const text = form.elements.body.value.trim();
+    if (!address || !text) return;
+    for (const c of form.elements) c.disabled = true;
+    try {
+      await api.sendSmsTo(address, text);
+      closeDialog();
+      toast(`Sending to ${address}…`);
+    } catch (err) {
+      for (const c of form.elements) c.disabled = false;
+      throw err;
+    }
+  }
+
   async function submitNote(form) {
     const text = form.elements.note.value.trim();
     if (!text) return;
@@ -1526,6 +1600,8 @@
         return undefined;
       case 'send-note':
         return openNoteDialog();
+      case 'new-sms':
+        return openNewSmsDialog();
       case 'decline-call': {
         if (!state.call) return undefined;
         await api.declineCall(state.call.id);
@@ -1732,7 +1808,7 @@
 
   // preventDefault must run synchronously: forms submitted with requestSubmit() (Enter,
   // Ctrl+Enter) would otherwise navigate the page before an async handler gets to it.
-  const submitHandlers = { reply: run(submitReply), note: run(submitNote), command: run(submitCommand) };
+  const submitHandlers = { reply: run(submitReply), note: run(submitNote), command: run(submitCommand), newsms: run(submitNewSms) };
   const sendSmsSafe = run(sendSms);
   document.addEventListener('submit', (e) => {
     const form = e.target;

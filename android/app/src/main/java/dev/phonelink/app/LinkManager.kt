@@ -317,6 +317,9 @@ object LinkManager {
                     _computerMedia.value = null
                 }
                 is LinkEvent.ComputerMedia -> _computerMedia.value = event.media
+                is LinkEvent.ContactsRequested -> io.execute {
+                    runCatching { link().contactsResult(event.id, event.req, SmsSync.searchContacts(event.query)) }
+                }
                 is LinkEvent.RemoteCommands -> _commands.value = event.items
                 is LinkEvent.Connected -> {
                     BluetoothBackup.onConnected()

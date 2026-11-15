@@ -143,6 +143,30 @@ object SmsSync {
         read = r.read,
     )
 
+    /**
+     * Contacts whose name or number matches `query`, for "New message" on the computer
+     * (at most 20; needs READ_CONTACTS, asked for together with SMS; otherwise none).
+     */
+    fun searchContacts(query: String): List<dev.phonelink.core.ContactEntry> {
+        if (query.isBlank() || !granted(Manifest.permission.READ_CONTACTS)) return emptyList()
+        val out = ArrayList<dev.phonelink.core.ContactEntry>()
+        try {
+            val uri = Uri.withAppendedPath(ContactsContract.CommonDataKinds.Phone.CONTENT_FILTER_URI, Uri.encode(query.trim()))
+            val cols = arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER)
+            app.contentResolver.query(uri, cols, null, null, null)?.use { c ->
+                val seen = HashSet<String>()
+                while (c.moveToNext() && out.size < 20) {
+                    val name = c.getString(0) ?: continue
+                    val number = c.getString(1) ?: continue
+                    if (seen.add(number.filter { it.isDigit() })) out.add(dev.phonelink.core.ContactEntry(name, number))
+                }
+            }
+        } catch (e: Exception) {
+            // no contacts provider, or permission revoked
+        }
+        return out
+    }
+
     /** Contact name for a number (needs READ_CONTACTS; otherwise the number). */
     private fun nameFor(address: String): String {
         if (address.isBlank()) return "Unknown"

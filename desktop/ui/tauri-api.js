@@ -299,6 +299,12 @@
       app.muted = !enabled;
     },
 
+    async contacts(query) {
+      return invoke('contacts', { query });
+    },
+    async sendSmsTo(address, text) {
+      return invoke('send_sms_to', { address, text, device: null });
+    },
     async commands() {
       return invoke('commands');
     },

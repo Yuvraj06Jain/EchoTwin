@@ -182,6 +182,8 @@ Package `dev.phonelink.app` in `android/app/src/main/java/dev/phonelink/app/`.
 | `ShareActivity.kt` | "EchoTwin" in Android's Share menu (files → send; text → computer clipboard). |
 | `OpenLinkActivity.kt` | Share → "Open on computer": the first web link in the shared text opens on the laptop. |
 | `Ringer.kt` | The computer rings this phone: alarm sound at full alarm volume, vibration, Stop button (`StopRingReceiver`), 1 min limit. |
+| `Approver.kt` | The sudo-approval key (Keystore EC P-256, biometric-bound): enroll, sign behind a fingerprint, fingerprint text. |
+| `ApproveActivity.kt` | "Asks for admin access · code" screen: Approve (fingerprint) / Deny, closes after 30 s. |
 | `ui/RemoteScreen.kt` | Remote screen (what plays on the computer, your buttons, presentation) and the full-screen presenter. |
 | `CallWatcher.kt` | Calls from call notifications (and the phone state as fallback) → `send_call_state`; Decline from the computer. |
 | `ClipboardActivity.kt` | Invisible activity that reads the phone clipboard while focused and sends it. |
@@ -218,6 +220,9 @@ Package `dev.phonelink.app` in `android/app/src/main/java/dev/phonelink/app/`.
 | `…/contents/ui/shell.js` | Safe shell quoting for every command, `file://` → path, helpers. |
 | `…/contents/ui/configAppearance.qml` | Widget settings page: background opacity, link to KDE blur settings. |
 | `plasmoid/tests/shell.test.js` | Node test: hostile file names (quotes, `$(…)`, backticks, newlines) survive `shell.js` quoting unchanged and run nothing; colours, initials, new-count. |
+| `sudo-approval.sh` | Root setup for approving sudo with the phone: `install` (compare key fingerprint, back up and edit `/etc/pam.d/sudo`, test, roll back), `uninstall`, `status`. |
+| `sudo-approval/echotwin-sudo-approve` | The root-owned checker PAM runs: fresh nonce, code, relay as the user, `openssl` verification against `/etc/echotwin/approve.pub`. |
+| `sudo-approval/test.sh` | Tests the checker (real keys, fake relay) and the PAM editing, without root. |
 | `plasmoid/tests/preview/` | `render.sh out.png` draws the widget with sample data (`harness.qml`) and stand-in Plasma/Kirigami modules (`stubs/`) under `qmlscene`, for layout checks without Plasma. |
 | `…/contents/config/main.xml`, `config.qml` | Widget settings schema (`backgroundOpacity`, default 75) and the settings page list. |
 

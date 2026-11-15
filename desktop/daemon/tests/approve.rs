@@ -229,3 +229,37 @@ async fn without_an_approving_phone_the_relay_fails_at_once() {
     assert!(matches!(r, Reply::Error { message } if message.contains("no phone")));
     assert!(t.elapsed() < Duration::from_secs(2));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_cli_prints_only_the_signature_and_fails_otherwise() {
+    let Some(bus) = private_bus() else {
+        eprintln!("dbus-daemon not installed; skipping");
+        return;
+    };
+    let mut rig = setup_caps(&bus.address, &[CAP_APPROVE]).await;
+    let nonce = "0123456789abcdef".repeat(4);
+    let cli = |nonce: String, socket: std::path::PathBuf| {
+        tokio::task::spawn_blocking(move || {
+            std::process::Command::new(env!("CARGO_BIN_EXE_phonelink"))
+                .args(["approve-relay", "--what", "sudo", "--host", "MARK-I", "--nonce", &nonce, "--timeout", "10"])
+                .env("PHONELINK_SOCKET", socket)
+                .output()
+                .unwrap()
+        })
+    };
+    // Approved: exactly the hex on stdout (what the root checker reads), exit 0.
+    let run = cli(nonce.clone(), rig.socket.clone());
+    let id = rig.phone_waits_for("request", |m| match m { AppMessage::ApproveRequest { id, .. } => Some(id), _ => None }).await;
+    rig.send(AppMessage::ApproveResponse { id, approved: true, signature: vec![0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x02] });
+    let out = run.await.unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8(out.stdout).unwrap(), "3006020101020102\n");
+
+    // Denied: nothing on stdout, exit status not 0.
+    let run = cli(nonce.clone(), rig.socket.clone());
+    let id = rig.phone_waits_for("request", |m| match m { AppMessage::ApproveRequest { id, .. } => Some(id), _ => None }).await;
+    rig.send(AppMessage::ApproveResponse { id, approved: false, signature: vec![] });
+    let out = run.await.unwrap();
+    assert!(!out.status.success());
+    assert!(out.stdout.is_empty());
+}

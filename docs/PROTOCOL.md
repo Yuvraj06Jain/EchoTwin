@@ -89,6 +89,9 @@ Carried inside `Deliver.body`, postcard-encoded. Anything this build doesn't kno
 | 33 | `PresentKey { key: PresentKeyKind, sent_ms }` | P→C | `present/1` | `present::Presenter` (portal RemoteDesktop); errors as `ActionResult` `present` | `present_key` |
 | 34 | `ContactsQuery { req, query }` | C→P | `contacts/1` | `State::contacts` (`Request::Contacts`) | `LinkEvent::ContactsRequested` → `SmsSync.searchContacts` |
 | 35 | `ContactsResult { req, items: Vec<Contact { name, number }> }` | P→C | `contacts/1` | resolves the waiting `Contacts` request | `contacts_result` |
+| 36 | `ApproveRequest { id, what, host, nonce_hex, sent_ms }` | C→P | `approve/1` | `State::approve_relay` (`Request::ApproveRelay`, from the root checker via `phonelink approve-relay`) | `LinkEvent::ApproveRequested` (fresh 60 s, well formed) → notification → `ApproveActivity` |
+| 37 | `ApproveResponse { id, approved, signature }` | P→C | `approve/1` | resolves the waiting relay; the root checker verifies | `approve_response` |
+| 38 | `ApproveEnroll { public_key }` | P→C | `approve/1` | `State::approve_enroll` → `<data dir>/approve-pending.pem` | `approve_enroll` |
 
 Payload types (`message.rs`): `PhoneNotification { key, package, app, title, text,
 posted_ms, can_reply, actions }`, `NowPlaying { app, package, title, artist, album,
@@ -122,6 +125,7 @@ hide what's missing. That is how an older phone app keeps working with a newer l
 | `remote/1` | `CAP_REMOTE` | Remote screen: the laptop's media players and your own buttons |
 | `present/1` | `CAP_PRESENT` | Presentation clicker (five keys) |
 | `contacts/1` | `CAP_CONTACTS` | Contact search for a new SMS |
+| `approve/1` | `CAP_APPROVE` | Approve `sudo` with the phone's fingerprint |
 
 Lists: laptop `start_node` in `desktop/daemon/src/daemon.rs`; phone `PhoneLink::start` in
 `core-ffi/src/lib.rs`.
@@ -156,6 +160,7 @@ All in `message.rs` unless noted.
 | `MAX_COMMAND_NAME`, `MAX_COMMANDS` | 40 bytes, 20 | Remote buttons |
 | `MAX_CONTACT_QUERY`, `MAX_CONTACTS` | 60 bytes, 20 | contact search |
 | `COMMAND_MAX_AGE_MS`, `PRESENT_MAX_AGE_MS` | 2 min, 10 s | a button press / slide key older than this is refused |
+| `MAX_APPROVE_TEXT`, `APPROVE_NONCE_HEX`, `MAX_APPROVE_SIGNATURE`, `MAX_APPROVE_KEY`, `APPROVE_MAX_AGE_MS` | 64 bytes, exactly 64 hex, 160 bytes, 200 bytes, 60 s | approvals (`valid_nonce`, `valid_approve_text`, `approve_message`, `approve_code`) |
 | `MAX_URL` | 2048 bytes | links; `is_web_link` also requires `http(s)://`, a host, no spaces or control characters |
 | `POPUP_MAX_AGE_MS` (`desktop/daemon/src/notifications.rs`) | 2 min | older notifications go to the list without a popup |
 | `MAX_STORED` (`notifications.rs`) | 200 | notifications kept on the laptop |

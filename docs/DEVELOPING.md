@@ -109,6 +109,9 @@ blur). Use the numbered checklist in [SETUP.md](../SETUP.md).
 | `battery_alerts` | true | popups when the phone's battery is low or full |
 | `open_links` | true | the phone may open web links here |
 | `allow_ring` | true | the phone may ring this computer |
+| `allow_commands` | true | the phone may press your own buttons |
+| `commands` | Suspend, Mute / unmute | `[[commands]]` tables with `name` and `run` (a shell command run here); only names go to the phone |
+| `presentation_remote` | true | the phone may press the five presentation keys |
 | `pause_media_on_call` | true | pause music/videos here during phone calls |
 | `power_supply_dir` | `/sys/class/power_supply` | tests only |
 

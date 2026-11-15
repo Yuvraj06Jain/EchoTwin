@@ -82,6 +82,13 @@ Carried inside `Deliver.body`, postcard-encoded. Anything this build doesn't kno
 | 26 | `CallDecline { key }` | C→P | `calls/1` | `State::decline_call` (`DeclineCall`, popup button) | `LinkEvent::CallDeclineRequested` → `CallWatcher.decline` |
 | 27 | `OpenUrl { url, sent_ms }` | both | `links/1` | received: `State::open_link_from`; sent: `Request::OpenUrl` (queued) | received: `LinkEvent::OpenUrlRequested` → `Notifications.link`; sent: `open_url` |
 | 28 | `Ring { on, sent_ms }` | both | `ring/1` | received: `State::rung_by` → `Effects::ring`; sent: `Request::Ring` | received: `LinkEvent::RingRequested` → `Ringer`; sent: `ring_computer` |
+| 29 | `ComputerNowPlaying(Option<NowPlaying>)` | C→P | `remote/1` | `computer_media` task (from `mpris::watch`), on connect | `LinkEvent::ComputerMedia` → Remote screen |
+| 30 | `ComputerMediaControl { action }` | P→C | `remote/1` | `mpris::control` (volume via `Effects::volume`) | `computer_media_control` |
+| 31 | `RemoteCommands { items: Vec<RemoteCommand { id, name }> }` | C→P | `remote/1` | `State::remote_commands` (on connect, after `SetCommands`) | `LinkEvent::RemoteCommands` |
+| 32 | `RunCommand { id, sent_ms }` | P→C | `remote/1` | `State::run_command` → `Effects::run_command`; answer `ActionResult` `cmd:<id>` | `run_command` |
+| 33 | `PresentKey { key: PresentKeyKind, sent_ms }` | P→C | `present/1` | `present::Presenter` (portal RemoteDesktop); errors as `ActionResult` `present` | `present_key` |
+| 34 | `ContactsQuery { req, query }` | C→P | `contacts/1` | `State::contacts` (`Request::Contacts`) | `LinkEvent::ContactsRequested` → `SmsSync.searchContacts` |
+| 35 | `ContactsResult { req, items: Vec<Contact { name, number }> }` | P→C | `contacts/1` | resolves the waiting `Contacts` request | `contacts_result` |
 
 Payload types (`message.rs`): `PhoneNotification { key, package, app, title, text,
 posted_ms, can_reply, actions }`, `NowPlaying { app, package, title, artist, album,
@@ -112,6 +119,9 @@ hide what's missing. That is how an older phone app keeps working with a newer l
 | `calls/1` | `CAP_CALLS` | Call popups with Decline |
 | `links/1` | `CAP_LINKS` | Open a web link on the other device |
 | `ring/1` | `CAP_RING` | Ring the other device |
+| `remote/1` | `CAP_REMOTE` | Remote screen: the laptop's media players and your own buttons |
+| `present/1` | `CAP_PRESENT` | Presentation clicker (five keys) |
+| `contacts/1` | `CAP_CONTACTS` | Contact search for a new SMS |
 
 Lists: laptop `start_node` in `desktop/daemon/src/daemon.rs`; phone `PhoneLink::start` in
 `core-ffi/src/lib.rs`.
@@ -143,6 +153,9 @@ All in `message.rs` unless noted.
 | `SMS_MAX_THREADS` / `SMS_MAX_MESSAGES` / `SMS_MAX_BODY` | 30 / 30 / 4000 | SMS sync sizes |
 | `LOCK_MAX_AGE_MS`, `CLIPBOARD_MAX_AGE_MS`, `LINK_MAX_AGE_MS`, `RING_MAX_AGE_MS` | 2 min | `is_fresh` window (either clock direction) |
 | `MAX_CALLER` | 100 bytes | caller name |
+| `MAX_COMMAND_NAME`, `MAX_COMMANDS` | 40 bytes, 20 | Remote buttons |
+| `MAX_CONTACT_QUERY`, `MAX_CONTACTS` | 60 bytes, 20 | contact search |
+| `COMMAND_MAX_AGE_MS`, `PRESENT_MAX_AGE_MS` | 2 min, 10 s | a button press / slide key older than this is refused |
 | `MAX_URL` | 2048 bytes | links; `is_web_link` also requires `http(s)://`, a host, no spaces or control characters |
 | `POPUP_MAX_AGE_MS` (`desktop/daemon/src/notifications.rs`) | 2 min | older notifications go to the list without a popup |
 | `MAX_STORED` (`notifications.rs`) | 200 | notifications kept on the laptop |

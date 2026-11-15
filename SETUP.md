@@ -218,6 +218,10 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 73 | Open the EchoTwin window | the sidebar shows the phone and this laptop with their real battery levels and the link (Wi-Fi green / Bluetooth amber / grey when off); Settings → Appearance opacity and blur still work |
 | 74 | On the phone, *forget* the laptop in Bluetooth settings (keep Bluetooth on on both). Turn off the hotspot / leave Wi-Fi | after about 2 minutes the phone connects over Bluetooth by itself, with **no pairing popup** on either device; EchoTwin Settings → Bluetooth backup → Test says "reachable without pairing" |
 | 75 | Window → Settings → "Turn on by itself" at 20 %; unplug the laptop and let it run down below 20 % (or set the slider above the current level to try it now) | a popup "Battery saver on"; the Saver tile reads "Saver · auto"; plugging in turns it off again; `phonelink status` shows "on (by itself, battery …%)" |
+| 76 | Play something on the laptop (YouTube in Firefox, Spotify…); phone Home → **Remote** | title and player shown; previous / play-pause / next and − / + work; pausing on the laptop updates the phone within a second |
+| 77 | Remote → press **Mute / unmute** | the laptop mutes; a popup "… ran: Mute / unmute"; Settings → Phone buttons can add, remove and switch them off |
+| 78 | Open a presentation (LibreOffice Impress, or a PDF full screen); Remote → **Start presenting** → Next | the first time KDE asks to allow remote control: allow it; the slide moves; volume down/up also move; after restarting EchoTwin it works without asking again |
+| 79 | Window → Messages → **New**, type part of a contact's name | contacts from the phone are suggested; pick one, type, Ctrl+Enter: the SMS is sent and the conversation appears |
 
 When something fails, include:
 - the step number

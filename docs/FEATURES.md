@@ -583,3 +583,64 @@ disconnects mid-call counts as the call ending. Switch: `pause_media_on_call`.
 
 **No "Silence":** Android only lets an app mute the ringer with Do Not Disturb access.
 **Tests:** `tests/calls.rs` (stand-in media players on a private D-Bus), FFI test, UI suite.
+
+## 23. Remote: the phone controls the laptop
+
+**What:** the phone's Home has a **Remote** tile. The Remote screen shows what plays on the
+laptop (any MPRIS player: browsers, Spotify, VLC…) with previous / play-pause / next and
+volume − / +, and **your own buttons**: name + command pairs kept on the laptop (window →
+Settings → Phone buttons; "Suspend" and "Mute / unmute" by default; config `[[commands]]`).
+
+**How:** `mpris::watch` follows players by D-Bus signals (`PropertiesChanged`,
+`NameOwnerChanged`; no polling) and reports the active one (playing, else the last shown if
+paused). The phone sends `ComputerMediaControl`; volume runs `wpctl set-volume` (fallback
+`pactl`). Buttons: the phone only gets ids (8 hex digits of BLAKE3(name)) and names; a
+`RunCommand` runs `sh -c <command>` in the desktop session, detached, only if
+`allow_commands` is on, the id matches and the press is under 2 minutes old. A popup says
+what ran. **The phone can only press buttons you wrote on the laptop.**
+
+| Layer | File | Functions |
+|---|---|---|
+| Laptop | `desktop/daemon/src/mpris.rs` | `watch`, `active_player`, `control` |
+| Laptop | `desktop/daemon/src/config.rs` | `CommandEntry` (`id`), `check_commands` |
+| Laptop | `daemon.rs` | `computer_media` task, `remote_commands`, `run_command`, `Request::{Commands, SetCommands}` |
+| Window | `app.js` `commandsSection`, `submitCommand`, `saveCommands` | |
+| FFI | `core-ffi/src/lib.rs` | `computer_media_control`, `run_command`, `LinkEvent::{ComputerMedia, RemoteCommands}`, `Device.can_remote` |
+| Phone | `ui/RemoteScreen.kt` (`RemoteScreen`), `LinkManager.{computerMedia, commands, runCommand}` | |
+
+**Tests:** `desktop/daemon/tests/remote.rs` (stand-in MPRIS player on a private D-Bus),
+FFI test, UI suite.
+
+## 24. Presentation remote
+
+**What:** Remote screen → **Start presenting**: big Next, Previous, and Start / Black / End;
+the screen stays on and the phone's volume keys work as a clicker (down = next, up =
+previous). The first press makes KDE ask once to allow remote control; it is remembered.
+
+**How:** `present.rs` uses xdg-desktop-portal `org.freedesktop.portal.RemoteDesktop`
+(keyboard only, `persist_mode` 2): `CreateSession` → `SelectDevices` (with the saved
+`restore_token`) → `Start` → `NotifyKeyboardKeycode` press/release. Keys: Page Down 109,
+Page Up 104, F5 63, Esc 1, B 48. One thread owns the session; keys are queued in arrival
+order; a closed session is reopened once. The restore token lives in
+`<data dir>/remote-control.token` (0600). No portal on X11 → `xdotool key …` if installed.
+Refused when `presentation_remote` is off or the key is over 10 s old. **The phone can only
+send these five keys.**
+
+**Tests:** `desktop/daemon/tests/present.rs` (stand-in portal: sequence, keyboard only,
+remembered permission, session reuse, refusal), `remote.rs`
+`presentation_keys_are_refused_when_late_or_switched_off`.
+
+## 25. New SMS from the laptop
+
+**What:** Messages → **New**: type a name (the phone suggests contacts) or a number, write,
+Send (Ctrl+Enter). The new conversation appears once the phone has sent it.
+
+**How:** `Request::SendSmsTo` checks the number (`sms::valid_address`: 3–20 characters of
+digits, spaces, `+ - ( )`, at least 3 digits) and sends `SmsSend` with thread 0; the phone
+sends it like any reply and its SMS database change brings the conversation over. Contacts:
+`Request::Contacts` asks the phone (`ContactsQuery`), waits up to 3 s, returns at most 20; the
+phone searches `ContactsContract.CommonDataKinds.Phone.CONTENT_FILTER_URI` (READ_CONTACTS,
+already asked for with SMS). Nothing is stored on the laptop.
+
+**Tests:** `desktop/daemon/tests/sms.rs` `a_new_conversation_can_be_started_from_the_computer`,
+`without_contacts_support_the_number_is_typed_by_hand`; FFI test; UI suite ("New SMS").

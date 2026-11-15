@@ -37,6 +37,9 @@ struct AppState {
 struct Computer {
     name: String,
     id: String,
+    /// This computer's battery (0–100), if it has one.
+    battery: Option<u8>,
+    charging: bool,
 }
 
 #[derive(Serialize)]
@@ -130,9 +133,11 @@ async fn status() -> Result<StatusDto, String> {
             connection,
             battery_saver,
             switches,
+            battery,
+            charging,
             ..
         } => Ok(StatusDto {
-            computer: Computer { name, id },
+            computer: Computer { name, id, battery, charging },
             notifications,
             sync_dismissals,
             clipboard_sync,

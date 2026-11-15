@@ -1366,6 +1366,7 @@ async fn battery_watch(state: Arc<State>) {
             for peer in state.connected_with(CAP_STATUS) {
                 state.send_battery(&peer, now);
             }
+            state.broadcast(WatchEvent::ComputerBatteryChanged);
             last = now;
         }
     }
@@ -1927,6 +1928,7 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                     (s.allow_lock, s.bluetooth, s.battery_saver, s.switches.switches())
                 };
                 let bluetooth_status = lock(&state.bt_status).clone();
+                let battery = crate::battery::read(&state.battery_root);
                 let reply = Reply::Status {
                     name: state.config.device_name(),
                     id: node.fingerprint().short(),
@@ -1942,6 +1944,8 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                     connection: !node.is_paused(),
                     battery_saver,
                     switches,
+                    battery: battery.map(|b| b.0),
+                    charging: battery.is_some_and(|b| b.1),
                 };
                 write_reply(&mut w, &reply).await?;
             }

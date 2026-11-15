@@ -361,6 +361,7 @@ fn print_event(e: &WatchEvent) {
         WatchEvent::LockedByPhone { id, name } => println!("lock          {id}  {name} asked to lock"),
         WatchEvent::MediaChanged { id } => println!("media         {id}  playing state changed"),
         WatchEvent::PhoneStatusChanged { id } => println!("status        {id}  battery/network changed"),
+        WatchEvent::ComputerBatteryChanged => println!("battery       this computer's battery changed"),
         WatchEvent::ConnectionChanged { on } => {
             println!("connection    switched {}", if *on { "on" } else { "off" })
         }

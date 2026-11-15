@@ -158,6 +158,18 @@ async fn status_both_ways_and_widget_json() {
     assert_eq!(v["phone"]["connected"], true);
     assert_eq!(v["phone"]["can_ring"], false, "this phone did not say it can ring");
     assert_eq!(v["battery_saver"], true, "the widget's saver button shows the real state");
+
+    // This computer's own battery, for the window's laptop picture (the rig's BAT0).
+    let own = |r: Reply| match r {
+        Reply::Status { battery, charging, .. } => (battery, charging),
+        other => panic!("{other:?}"),
+    };
+    let mut c = Client::connect(&rig.socket).await.unwrap();
+    assert_eq!(own(c.request(&Request::Status).await.unwrap()), (Some(50), true));
+    let bat = rig._dir.path().join("power/BAT0");
+    std::fs::write(bat.join("capacity"), "18").unwrap();
+    std::fs::write(bat.join("status"), "Discharging").unwrap();
+    assert_eq!(own(c.request(&Request::Status).await.unwrap()), (Some(18), false), "read fresh each time");
     assert_eq!(v["phone"]["status"]["battery"], 82);
     assert_eq!(v["phone"]["status"]["network"], "5G");
     assert!(v["notifications"].is_array() && v["sms"].is_array() && v["transfers"].is_array());

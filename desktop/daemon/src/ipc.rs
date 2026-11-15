@@ -263,6 +263,8 @@ pub enum WatchEvent {
     PhoneStatusChanged {
         id: String,
     },
+    /// This computer's battery level or charging changed (ask `Status`).
+    ComputerBatteryChanged,
     /// The connection switch on this computer changed.
     ConnectionChanged {
         on: bool,
@@ -319,6 +321,11 @@ pub enum Reply {
         /// The simple on/off settings by name (`config::SWITCHES`).
         #[serde(default)]
         switches: BTreeMap<String, bool>,
+        /// This computer's battery (0–100), if it has one.
+        #[serde(default)]
+        battery: Option<u8>,
+        #[serde(default)]
+        charging: bool,
     },
     Notifications {
         items: Vec<NotificationInfo>,

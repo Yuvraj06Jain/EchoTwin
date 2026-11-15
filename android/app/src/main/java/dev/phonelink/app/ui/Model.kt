@@ -27,6 +27,9 @@ data class UiState(
     val myBattery: Int? = null,
     val myCharging: Boolean = false,
     val myNetwork: String = "",
+    /** What plays on the computer (Remote screen), and its own buttons. */
+    val computerMedia: dev.phonelink.core.PhoneMedia? = null,
+    val commands: List<dev.phonelink.core.RemoteButton> = emptyList(),
     /** The connection switch (off: disconnected, nothing searching). */
     val connectionOn: Boolean,
     val busy: Boolean,
@@ -40,6 +43,11 @@ interface Actions {
     fun reconnect()
     fun lock()
     fun ring(on: Boolean)
+    fun openRemote()
+    fun openPresenter()
+    fun computerMedia(command: dev.phonelink.core.MediaCommand)
+    fun runCommand(id: String)
+    fun presentKey(key: dev.phonelink.core.PresentKeyFfi)
     fun sendClipboard()
     fun sendFiles()
     fun sendNote(text: String)

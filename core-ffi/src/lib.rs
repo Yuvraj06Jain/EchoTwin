@@ -26,7 +26,7 @@ use phonelink_core::{
     transfer::{Direction, SourceOpener, TransferConfig, TransferInfo, Transfers, CAP_FILES},
     AppMessage, Event, Fingerprint, MediaAction, Node, NodeConfig, NowPlaying, PairingOffer,
     PeerRecord, PhoneNotification, SmsMessage, SmsState, SmsThread, CAP_CLIPBOARD, CAP_LOCK,
-    CAP_CALLS, CAP_CLIPBOARD_IMAGE, CAP_LINKS, CAP_MEDIA, CAP_RING, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS,
+    CAP_CALLS, CAP_CLIPBOARD_IMAGE, CAP_LINKS, CAP_MEDIA, CAP_PRESENT, CAP_REMOTE, CAP_RING, PresentKeyKind, CAP_NOTIFICATIONS, CAP_SMS, CAP_STATUS,
 };
 use tokio::{runtime::Runtime, task::JoinHandle};
 
@@ -59,6 +59,10 @@ pub struct Device {
     pub can_clipboard: bool,
     /// Connected, and can be rung from here.
     pub can_ring: bool,
+    /// Connected, and can be used as a remote (its media players, its own buttons).
+    pub can_remote: bool,
+    /// Connected, and takes presentation keys.
+    pub can_present: bool,
     /// "wifi" or "bluetooth" while connected; empty when offline.
     pub via: String,
     /// The computer's Bluetooth address for the backup link (it tells us), if it has one.
@@ -143,6 +147,16 @@ pub enum LinkEvent {
         name: String,
         url: String,
     },
+    /// What plays on the computer changed (`None`: nothing). For the Remote screen.
+    ComputerMedia {
+        id: String,
+        media: Option<PhoneMedia>,
+    },
+    /// The computer's own buttons for the Remote screen.
+    RemoteCommands {
+        id: String,
+        items: Vec<RemoteButton>,
+    },
     /// The computer asks to decline the ringing call whose notification key is `key`.
     /// Answer with `send_action_result(id, "call", ok, message)`.
     CallDeclineRequested {
@@ -221,6 +235,36 @@ pub enum MediaCommand {
     SetVolume { level: u32 },
 }
 
+impl From<MediaCommand> for MediaAction {
+    fn from(c: MediaCommand) -> Self {
+        match c {
+            MediaCommand::PlayPause => Self::PlayPause,
+            MediaCommand::Next => Self::Next,
+            MediaCommand::Previous => Self::Previous,
+            MediaCommand::VolumeUp => Self::VolumeUp,
+            MediaCommand::VolumeDown => Self::VolumeDown,
+            MediaCommand::SetVolume { level } => Self::SetVolume(level),
+        }
+    }
+}
+
+/// One of the computer's own buttons for the Remote screen.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct RemoteButton {
+    pub id: String,
+    pub name: String,
+}
+
+/// The presentation remote's keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum PresentKeyFfi {
+    Next,
+    Previous,
+    Start,
+    End,
+    Blank,
+}
+
 impl From<MediaAction> for MediaCommand {
     fn from(a: MediaAction) -> Self {
         match a {
@@ -254,6 +298,24 @@ pub struct PhoneMedia {
 }
 
 impl PhoneMedia {
+    fn from_wire(n: NowPlaying) -> Self {
+        Self {
+            app: n.app,
+            package: n.package,
+            title: n.title,
+            artist: n.artist,
+            album: n.album,
+            duration_ms: n.duration_ms,
+            position_ms: n.position_ms,
+            playing: n.playing,
+            can_previous: n.can_previous,
+            can_next: n.can_next,
+            volume: n.volume.min(n.max_volume),
+            max_volume: n.max_volume,
+            art_key: n.art_key,
+        }
+    }
+
     fn into_wire(self) -> NowPlaying {
         NowPlaying {
             app: truncate_text(&self.app, 100),
@@ -502,6 +564,8 @@ fn device(node: &Node, caps: &Caps, power: &Power, p: &PeerRecord) -> Device {
         can_lock: connected && has_cap(caps, &p.fingerprint, CAP_LOCK),
         can_clipboard: connected && has_cap(caps, &p.fingerprint, CAP_CLIPBOARD),
         can_ring: connected && has_cap(caps, &p.fingerprint, CAP_RING),
+        can_remote: connected && has_cap(caps, &p.fingerprint, CAP_REMOTE),
+        can_present: connected && has_cap(caps, &p.fingerprint, CAP_PRESENT),
         via: via(node.transport(&p.fingerprint)),
         bluetooth: p.bluetooth.clone(),
         battery,
@@ -611,6 +675,8 @@ impl PhoneLink {
                             CAP_LINKS,
                             CAP_RING,
                             CAP_CALLS,
+                            CAP_REMOTE,
+                            CAP_PRESENT,
                         ]
                         .map(String::from),
                     );
@@ -767,6 +833,22 @@ impl PhoneLink {
                             }
                         }
                         AppMessage::CallDecline { key } => LinkEvent::CallDeclineRequested { id: peer.short(), key },
+                        AppMessage::ComputerNowPlaying(n) => LinkEvent::ComputerMedia {
+                            id: peer.short(),
+                            media: n.map(PhoneMedia::from_wire),
+                        },
+                        AppMessage::RemoteCommands { items } => LinkEvent::RemoteCommands {
+                            id: peer.short(),
+                            items: items
+                                .into_iter()
+                                .take(phonelink_core::message::MAX_COMMANDS)
+                                .filter(|c| c.id.len() <= 16)
+                                .map(|c| RemoteButton {
+                                    id: c.id,
+                                    name: truncate_text(&c.name, phonelink_core::message::MAX_COMMAND_NAME * 4),
+                                })
+                                .collect(),
+                        },
                         AppMessage::Ring { on, sent_ms } => {
                             if !is_fresh(sent_ms, now_ms(), phonelink_core::message::RING_MAX_AGE_MS) {
                                 continue;
@@ -1073,6 +1155,36 @@ impl PhoneLink {
         };
         let caller = phonelink_core::message::truncate_text(&caller, phonelink_core::message::MAX_CALLER);
         self.send_connected(CAP_CALLS, AppMessage::CallState { state, caller, key })
+    }
+
+    /// Control what plays on the computer (Remote screen).
+    pub fn computer_media_control(&self, device_id: Option<String>, command: MediaCommand) -> Result<(), LinkError> {
+        let fp = self.connected_one(device_id, CAP_REMOTE, "the remote")?;
+        self.node.send(&fp, AppMessage::ComputerMediaControl { action: command.into() }.encode()?)?;
+        Ok(())
+    }
+
+    /// Press one of the computer's own buttons. The answer arrives as `RequestResult` with
+    /// key `cmd:<id>`.
+    pub fn run_command(&self, device_id: Option<String>, id: String) -> Result<(), LinkError> {
+        let fp = self.connected_one(device_id, CAP_REMOTE, "the remote")?;
+        self.node.send(&fp, AppMessage::RunCommand { id, sent_ms: now_ms() }.encode()?)?;
+        Ok(())
+    }
+
+    /// A presentation key (Next, Previous, Start, End, Blank). Errors arrive as
+    /// `RequestResult` with key `present`.
+    pub fn present_key(&self, device_id: Option<String>, key: PresentKeyFfi) -> Result<(), LinkError> {
+        let fp = self.connected_one(device_id, CAP_PRESENT, "the presentation remote")?;
+        let key = match key {
+            PresentKeyFfi::Next => PresentKeyKind::Next,
+            PresentKeyFfi::Previous => PresentKeyKind::Previous,
+            PresentKeyFfi::Start => PresentKeyKind::Start,
+            PresentKeyFfi::End => PresentKeyKind::End,
+            PresentKeyFfi::Blank => PresentKeyKind::Blank,
+        };
+        self.node.send(&fp, AppMessage::PresentKey { key, sent_ms: now_ms() }.encode()?)?;
+        Ok(())
     }
 
     /// Ring the computer (to find it), or stop. Returns its name.
@@ -1808,7 +1920,7 @@ mod tests {
             cfg.capabilities.extend(caps.iter().map(|c| c.to_string()));
             rt.block_on(Node::start(cfg)).unwrap()
         };
-        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS, CAP_RING, CAP_CALLS]);
+        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS, CAP_RING, CAP_CALLS, CAP_REMOTE, CAP_PRESENT]);
         let uri = laptop
             .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
             .to_uri();
@@ -1881,6 +1993,30 @@ mod tests {
             next_from_phone(&mut lrx),
             AppMessage::OpenUrl { url, sent_ms } if url == "https://example.org/a" && sent_ms.abs_diff(now_ms()) < 10_000
         ));
+        // Remote: controls, buttons and presentation keys go to the laptop; what plays there
+        // and its button names come back as events.
+        phone.computer_media_control(None, MediaCommand::Next).unwrap();
+        assert!(matches!(next_from_phone(&mut lrx), AppMessage::ComputerMediaControl { action: MediaAction::Next }));
+        phone.run_command(None, "ab12cd34".into()).unwrap();
+        assert!(matches!(next_from_phone(&mut lrx), AppMessage::RunCommand { id, sent_ms } if id == "ab12cd34" && sent_ms.abs_diff(now_ms()) < 10_000));
+        phone.present_key(None, PresentKeyFfi::Blank).unwrap();
+        assert!(matches!(next_from_phone(&mut lrx), AppMessage::PresentKey { key: PresentKeyKind::Blank, .. }));
+        assert!(phone.devices()[0].can_remote && phone.devices()[0].can_present);
+        to_phone(AppMessage::RemoteCommands {
+            items: vec![phonelink_core::RemoteCommand { id: "ab12cd34".into(), name: "Suspend".into() }],
+        });
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::RemoteCommands { .. }));
+        assert!(matches!(ev, LinkEvent::RemoteCommands { items, .. } if items == vec![RemoteButton { id: "ab12cd34".into(), name: "Suspend".into() }]));
+        let playing = NowPlaying {
+            app: "VLC".into(), package: String::new(), title: "Lo-fi".into(), artist: "Chillhop".into(), album: String::new(),
+            duration_ms: 0, position_ms: 0, playing: true, can_previous: false, can_next: true, volume: 0, max_volume: 0, art_key: String::new(),
+        };
+        to_phone(AppMessage::ComputerNowPlaying(Some(playing)));
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::ComputerMedia { .. }));
+        assert!(matches!(ev, LinkEvent::ComputerMedia { media: Some(m), .. } if m.title == "Lo-fi" && m.playing));
+        to_phone(AppMessage::ComputerNowPlaying(None));
+        assert!(matches!(wait(&rx, |e| matches!(e, LinkEvent::ComputerMedia { .. })), LinkEvent::ComputerMedia { media: None, .. }));
+
         // Calls: the state reaches the laptop (long names cut); Decline comes back as an event.
         let long = "M".repeat(300);
         assert_eq!(phone.send_call_state(CallPhaseFfi::Ringing, long, "k1".into()).unwrap(), 1);

@@ -37,6 +37,47 @@ pub const CAP_CALLS: &str = "calls/1";
 pub const CAP_LINKS: &str = "links/1";
 /// Ring the other device loudly (to find it).
 pub const CAP_RING: &str = "ring/1";
+/// The phone as a remote for the computer: its media players and the user's own buttons.
+pub const CAP_REMOTE: &str = "remote/1";
+/// The phone as a presentation clicker (five keys only).
+pub const CAP_PRESENT: &str = "present/1";
+/// Contact search on the phone, for starting a new SMS on the computer.
+pub const CAP_CONTACTS: &str = "contacts/1";
+
+/// Longest command name shown on the phone (bytes), and most commands.
+pub const MAX_COMMAND_NAME: usize = 40;
+pub const MAX_COMMANDS: usize = 20;
+/// Longest contact search (bytes), and most results.
+pub const MAX_CONTACT_QUERY: usize = 60;
+pub const MAX_CONTACTS: usize = 20;
+/// A command or presentation key older than this is ignored.
+pub const COMMAND_MAX_AGE_MS: u64 = 2 * 60 * 1000;
+pub const PRESENT_MAX_AGE_MS: u64 = 10 * 1000;
+
+/// One of the user's own buttons, as the phone sees it (the command itself stays on the
+/// computer).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteCommand {
+    pub id: String,
+    pub name: String,
+}
+
+/// The only keys the presentation remote can press.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PresentKeyKind {
+    Next,
+    Previous,
+    Start,
+    End,
+    Blank,
+}
+
+/// A contact found on the phone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Contact {
+    pub name: String,
+    pub number: String,
+}
 
 /// Longest caller name sent (bytes).
 pub const MAX_CALLER: usize = 100;
@@ -321,6 +362,20 @@ pub enum AppMessage {
     OpenUrl { url: String, sent_ms: u64 },
     /// Start or stop ringing the other device (`CAP_RING`).
     Ring { on: bool, sent_ms: u64 },
+    /// Computer → phone: what plays on the computer (`CAP_REMOTE`; `art_key` empty, volume 0).
+    ComputerNowPlaying(Option<NowPlaying>),
+    /// Phone → computer: control the computer's player (`CAP_REMOTE`).
+    ComputerMediaControl { action: MediaAction },
+    /// Computer → phone: the user's own buttons, names only (`CAP_REMOTE`).
+    RemoteCommands { items: Vec<RemoteCommand> },
+    /// Phone → computer: press one of them (`CAP_REMOTE`, fresh within 2 min).
+    RunCommand { id: String, sent_ms: u64 },
+    /// Phone → computer: a presentation key (`CAP_PRESENT`, fresh within 10 s).
+    PresentKey { key: PresentKeyKind, sent_ms: u64 },
+    /// Computer → phone: search contacts (`CAP_CONTACTS`).
+    ContactsQuery { req: u32, query: String },
+    /// Phone → computer: the answer to `ContactsQuery` `req`.
+    ContactsResult { req: u32, items: Vec<Contact> },
 }
 
 /// Album art must be a small JPEG or PNG.
@@ -405,6 +460,18 @@ mod tests {
                 sent_ms: 9,
             },
             AppMessage::Ring { on: true, sent_ms: 10 },
+            AppMessage::ComputerNowPlaying(None),
+            AppMessage::ComputerMediaControl { action: MediaAction::Next },
+            AppMessage::RemoteCommands {
+                items: vec![RemoteCommand { id: "ab12cd34".into(), name: "Suspend".into() }],
+            },
+            AppMessage::RunCommand { id: "ab12cd34".into(), sent_ms: 11 },
+            AppMessage::PresentKey { key: PresentKeyKind::Blank, sent_ms: 12 },
+            AppMessage::ContactsQuery { req: 7, query: "mo".into() },
+            AppMessage::ContactsResult {
+                req: 7,
+                items: vec![Contact { name: "Mom".into(), number: "+91 98765 00000".into() }],
+            },
         ] {
             assert_eq!(AppMessage::decode(&m.encode().unwrap()), m);
         }

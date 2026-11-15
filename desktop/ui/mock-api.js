@@ -32,6 +32,10 @@
   let lastSeen = ago(4);
 
   const db = {
+    commands: [
+      { name: 'Suspend', run: 'systemctl suspend' },
+      { name: 'Mute / unmute', run: 'wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle' },
+    ],
     notifications: [
       { id: 'n1', app: 'WhatsApp', title: 'Rahul', text: 'Are you coming to the lab today? Sir moved the viva to 3 pm.', time: ago(2), canReply: true, actions: ['Mark as read'] },
       { id: 'n2', app: 'WhatsApp', title: 'CSE 3rd year', text: 'Ananya: Notes for unit 4 are in the drive folder', time: ago(9), canReply: true },
@@ -89,6 +93,7 @@
       connection: true,
       batterySaver: true,
       autoSaverBelow: 20,
+      allowCommands: true,
       batteryAlerts: true,
       pauseMediaOnCall: true,
       openLinks: true,
@@ -301,6 +306,15 @@
       await wait(mode === 'connected' ? 700 : 150);
       t.messages.push(msg);
       return clone(msg);
+    },
+    async commands() {
+      await wait(30);
+      return clone(db.commands);
+    },
+    async setCommands(items) {
+      await wait(60);
+      if (items.some((c) => !c.name.trim() || !c.run.trim())) throw new Error('a button needs a name and a command');
+      db.commands = clone(items);
     },
     async declineCall(/* deviceId */) {
       await wait(80);

@@ -721,6 +721,7 @@ img.app-badge.app-icon { background: transparent; object-fit: contain; }
 .row .grow > div:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-desc { color: var(--text-3); font-size: 12px; }
 .switch-btn { border: 0; background: transparent; padding: 4px; border-radius: 999px; display: inline-flex; }
+.command-form { display: grid; grid-template-columns: 1fr 1.4fr auto; gap: 6px; padding: 8px 0 2px; }
 .confirm-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 
 /* ------------------------------------------------------------------ toast */

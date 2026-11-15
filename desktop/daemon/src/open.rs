@@ -29,6 +29,23 @@ pub fn open_url(url: &str) -> bool {
     spawn("xdg-open", Path::new(url))
 }
 
+/// Start `cmd` in the desktop session's environment, in its own process group, without
+/// waiting for it (a thread reaps it).
+pub fn detach(mut cmd: Command) -> Result<(), String> {
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    for (k, v) in session_env() {
+        if std::env::var_os(&k).is_none() {
+            cmd.env(k, v);
+        }
+    }
+    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
 fn spawn(program: &str, arg: &Path) -> bool {
     let mut cmd = Command::new(program);
     cmd.arg(arg)

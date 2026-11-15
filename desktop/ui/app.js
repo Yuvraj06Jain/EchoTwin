@@ -1175,6 +1175,45 @@
   }
   if (api.setBlur) applyAppearance(); // only inside the desktop app
 
+  /** Your own buttons for the phone's Remote screen. */
+  function commandsSection(s) {
+    if (!state.commands || !('allowCommands' in s)) return '';
+    const rows = state.commands
+      .map((c, i) => `<div class="row" data-command="${i}"><div class="grow"><div>${esc(c.name)}</div><div class="row-desc mono">${esc(c.run)}</div></div>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="command-remove" data-index="${i}" aria-label="Remove ${esc(c.name)}">Remove</button></div>`)
+      .join('');
+    return `<div class="sheet-section"><p class="section-label">Phone buttons</p>
+        ${switchRow('Let your phone press these', "Shown on the phone's Remote screen. The phone only sees the names; the commands stay here, and nothing else can be run.", 'toggle-setting', s.allowCommands !== false, 'data-key="allowCommands"')}
+        ${rows || '<div class="row faint">No buttons yet.</div>'}
+        ${state.commands.length < 20 ? `<form class="command-form" data-form="command">
+          <input class="text-input" name="name" maxlength="40" placeholder="Name, e.g. Lock screen" aria-label="Button name" required>
+          <input class="text-input mono" name="run" maxlength="500" placeholder="Command, e.g. loginctl lock-session" aria-label="Command" required>
+          <button type="submit" class="btn btn-sm">Add</button>
+        </form>` : ''}
+      </div>`;
+  }
+
+  /** Redraw only the Phone buttons part of the open settings sheet (focus elsewhere stays). */
+  function redrawCommands() {
+    const slot = $('.sheet-body [data-commands-section]');
+    if (slot) slot.innerHTML = commandsSection(state.settings || {});
+  }
+
+  async function saveCommands(items) {
+    await api.setCommands(items);
+    state.commands = items;
+    redrawCommands();
+  }
+
+  async function submitCommand(form) {
+    const name = form.elements.name.value.trim();
+    const run = form.elements.run.value.trim();
+    if (!name || !run) return;
+    await saveCommands([...state.commands, { name, run }]);
+    toast(`Added “${name}” to your phone's Remote screen`);
+    $('.command-form [name="name"]')?.focus();
+  }
+
   const autoSaverLabel = (v) => (Number(v) === 0 ? 'Never' : `≤ ${v}%`);
 
   function appearanceSection() {
@@ -1224,6 +1263,7 @@
         ${caps.bluetooth ? switchRow('Bluetooth backup', s.bluetoothBackup && s.bluetoothStatus ? `Not available right now: ${s.bluetoothStatus}.` : 'When Wi-Fi is gone, your phone stays connected over Bluetooth: after 15 s if the two are paired in Bluetooth settings, after 2 minutes if not. Same encryption as Wi-Fi.', 'toggle-setting', !!s.bluetoothBackup, 'data-key="bluetoothBackup"') : ''}
         ${caps.discoveryToggle ? switchRow('Find my phone on this network', 'Anonymous: nothing that identifies you is broadcast.', 'toggle-setting', !!s.discovery, 'data-key="discovery"') : ''}
       </div>
+      <div data-commands-section>${commandsSection(s)}</div>
       ${appearanceSection()}`;
   }
 
@@ -1233,6 +1273,14 @@
       state.settings = await api.settings();
     } catch (err) {
       console.info('EchoTwin UI: using cached settings:', err && err.message);
+    }
+    // The phone buttons come from the service: show the sheet now, add them when they arrive.
+    if (api.commands) {
+      api.commands().then((items) => {
+        const changed = JSON.stringify(items) !== JSON.stringify(state.commands);
+        state.commands = items;
+        if (changed) redrawCommands();
+      }).catch(() => {});
     }
     openDialog(`<section class="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <header class="sheet-head"><h2 id="settings-title">Settings</h2>
@@ -1652,6 +1700,12 @@
       }
       case 'open-blur-settings':
         return api.openBlurSettings();
+      case 'command-remove': {
+        const i = Number(a.dataset.index);
+        const gone = state.commands[i];
+        await saveCommands(state.commands.filter((_, j) => j !== i));
+        return toast(`Removed “${gone.name}”`);
+      }
       case 'toggle-setting': {
         const key = a.dataset.key;
         const on = !state.settings[key];
@@ -1678,7 +1732,7 @@
 
   // preventDefault must run synchronously: forms submitted with requestSubmit() (Enter,
   // Ctrl+Enter) would otherwise navigate the page before an async handler gets to it.
-  const submitHandlers = { reply: run(submitReply), note: run(submitNote) };
+  const submitHandlers = { reply: run(submitReply), note: run(submitNote), command: run(submitCommand) };
   const sendSmsSafe = run(sendSms);
   document.addEventListener('submit', (e) => {
     const form = e.target;

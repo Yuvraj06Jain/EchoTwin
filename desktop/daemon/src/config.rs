@@ -45,6 +45,11 @@ pub struct Config {
     pub allow_ring: bool,
     /// Pause music and videos here while the phone has a call; resume afterwards.
     pub pause_media_on_call: bool,
+    /// Let the phone press the buttons below (Remote screen).
+    pub allow_commands: bool,
+    /// Your own buttons for the phone's Remote screen: a name, and a shell command run here.
+    /// Only the names go to the phone.
+    pub commands: Vec<CommandEntry>,
     /// Where batteries are read from (tests only). Default: `/sys/class/power_supply`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub power_supply_dir: Option<String>,
@@ -70,13 +75,56 @@ impl Default for Config {
             open_links: true,
             allow_ring: true,
             pause_media_on_call: true,
+            allow_commands: true,
+            commands: vec![
+                CommandEntry { name: "Suspend".into(), run: "systemctl suspend".into() },
+                CommandEntry { name: "Mute / unmute".into(), run: "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle".into() },
+            ],
             power_supply_dir: None,
         }
     }
 }
 
+/// One of your own buttons for the phone's Remote screen.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandEntry {
+    pub name: String,
+    pub run: String,
+}
+
+impl CommandEntry {
+    /// What the phone knows it by: 8 hex digits of BLAKE3(name). Stable across restarts.
+    pub fn id(&self) -> String {
+        blake3::hash(self.name.as_bytes()).to_hex()[..8].to_string()
+    }
+}
+
+/// Names 1–40 characters, commands 1–500, no NUL bytes, at most 20, names unique.
+pub fn check_commands(items: &[CommandEntry]) -> Result<(), String> {
+    if items.len() > phonelink_core::message::MAX_COMMANDS {
+        return Err(format!("at most {} buttons", phonelink_core::message::MAX_COMMANDS));
+    }
+    let mut names = std::collections::HashSet::new();
+    for c in items {
+        let n = c.name.trim();
+        if n.is_empty() || n.chars().count() > 40 || n.len() > phonelink_core::message::MAX_COMMAND_NAME * 4 {
+            return Err("a button name must be 1 to 40 characters".into());
+        }
+        if c.run.trim().is_empty() || c.run.chars().count() > 500 {
+            return Err(format!("the command for \"{n}\" must be 1 to 500 characters"));
+        }
+        if c.name.contains('\0') || c.run.contains('\0') || c.name.chars().any(char::is_control) {
+            return Err("names and commands can't contain control characters".into());
+        }
+        if !names.insert(n.to_lowercase()) {
+            return Err(format!("two buttons are called \"{n}\""));
+        }
+    }
+    Ok(())
+}
+
 /// Simple on/off settings, set with `Request::SetSwitch` and listed in `Reply::Status`.
-pub const SWITCHES: &[&str] = &["battery_alerts", "open_links", "allow_ring", "pause_media_on_call"];
+pub const SWITCHES: &[&str] = &["battery_alerts", "open_links", "allow_ring", "pause_media_on_call", "allow_commands"];
 
 impl Config {
     pub fn switch(&self, name: &str) -> Option<bool> {
@@ -85,6 +133,7 @@ impl Config {
             "open_links" => self.open_links,
             "allow_ring" => self.allow_ring,
             "pause_media_on_call" => self.pause_media_on_call,
+            "allow_commands" => self.allow_commands,
             _ => return None,
         })
     }
@@ -96,6 +145,7 @@ impl Config {
             "open_links" => &mut self.open_links,
             "allow_ring" => &mut self.allow_ring,
             "pause_media_on_call" => &mut self.pause_media_on_call,
+            "allow_commands" => &mut self.allow_commands,
             _ => return false,
         };
         *slot = on;

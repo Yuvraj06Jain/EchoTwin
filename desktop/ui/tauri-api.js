@@ -299,6 +299,12 @@
       app.muted = !enabled;
     },
 
+    async commands() {
+      return invoke('commands');
+    },
+    async setCommands(items) {
+      await invoke('set_commands', { items });
+    },
     async declineCall(deviceId) {
       await invoke('decline_call', { device: deviceId || null });
     },

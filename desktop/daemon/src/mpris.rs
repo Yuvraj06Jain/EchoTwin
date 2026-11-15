@@ -109,3 +109,171 @@ impl CallPause {
         let _ = self.tx.send(pause);
     }
 }
+
+// ---------------------------------------------------------------- the laptop as a remote
+
+/// What plays on this computer, for the phone's Remote screen.
+fn identity(c: &Connection, player: &str) -> String {
+    let get = || -> Option<String> {
+        let proxy = zbus::blocking::fdo::PropertiesProxy::builder(c)
+            .destination(player.to_string())
+            .ok()?
+            .path(PATH)
+            .ok()?
+            .build()
+            .ok()?;
+        String::try_from(proxy.get("org.mpris.MediaPlayer2".try_into().ok()?, "Identity").ok()?).ok()
+    };
+    get().unwrap_or_else(|| player.trim_start_matches(PREFIX).split('.').next().unwrap_or("").to_string())
+}
+
+fn player_prop(c: &Connection, player: &str, name: &str) -> Option<zbus::zvariant::OwnedValue> {
+    let proxy = zbus::blocking::fdo::PropertiesProxy::builder(c)
+        .destination(player.to_string())
+        .ok()?
+        .path(PATH)
+        .ok()?
+        .build()
+        .ok()?;
+    proxy.get(PLAYER.try_into().ok()?, name).ok()
+}
+
+fn now_playing(c: &Connection, player: &str) -> Option<phonelink_core::NowPlaying> {
+    use zbus::zvariant::OwnedValue;
+    let status = status(c, player)?;
+    if status == "Stopped" {
+        return None;
+    }
+    let meta: std::collections::HashMap<String, OwnedValue> =
+        player_prop(c, player, "Metadata").and_then(|v| v.try_into().ok()).unwrap_or_default();
+    let text = |k: &str| meta.get(k).and_then(|v| String::try_from(v.try_clone().ok()?).ok()).unwrap_or_default();
+    let artist = meta
+        .get("xesam:artist")
+        .and_then(|v| Vec::<String>::try_from(v.try_clone().ok()?).ok())
+        .map(|a| a.join(", "))
+        .unwrap_or_default();
+    let flag = |k: &str| player_prop(c, player, k).and_then(|v| bool::try_from(v).ok()).unwrap_or(false);
+    let cut = |s: String, n: usize| phonelink_core::message::truncate_text(&s, n);
+    Some(phonelink_core::NowPlaying {
+        app: cut(identity(c, player), 60),
+        package: String::new(),
+        title: cut(text("xesam:title"), 200),
+        artist: cut(artist, 200),
+        album: cut(text("xesam:album"), 200),
+        duration_ms: 0,
+        position_ms: 0,
+        playing: status == "Playing",
+        can_previous: flag("CanGoPrevious"),
+        can_next: flag("CanGoNext"),
+        volume: 0,
+        max_volume: 0,
+        art_key: String::new(),
+    })
+}
+
+/// The player that counts: one that is playing, else `prefer` (the last one shown) if it is
+/// still around and paused, else the first paused one.
+pub fn active_player(c: &Connection, prefer: Option<&str>) -> Option<String> {
+    let list = players(c);
+    let state: Vec<(String, Option<String>)> = list.iter().map(|p| (p.clone(), status(c, p))).collect();
+    if let Some((p, _)) = state.iter().find(|(_, s)| s.as_deref() == Some("Playing")) {
+        return Some(p.clone());
+    }
+    if let Some(p) = prefer.filter(|p| state.iter().any(|(q, s)| q == p && s.as_deref() == Some("Paused"))) {
+        return Some(p.to_string());
+    }
+    state.into_iter().find(|(_, s)| s.as_deref() == Some("Paused")).map(|(p, _)| p)
+}
+
+/// Watches the session bus for players appearing, going and changing (signals only, no
+/// polling) and reports what plays whenever it changes.
+pub fn watch(bus: Option<String>, tx: tokio::sync::mpsc::UnboundedSender<Option<phonelink_core::NowPlaying>>) {
+    std::thread::Builder::new()
+        .name("phonelink-mpris-watch".into())
+        .spawn(move || {
+            let c = match connect(&bus) {
+                Ok(c) => c,
+                Err(e) => {
+                    debug!("no session bus for the media remote: {e}");
+                    return;
+                }
+            };
+            let rules = [
+                zbus::MatchRule::builder()
+                    .msg_type(zbus::message::Type::Signal)
+                    .interface("org.freedesktop.DBus.Properties")
+                    .and_then(|b| b.member("PropertiesChanged"))
+                    .and_then(|b| b.path(PATH))
+                    .map(|b| b.build()),
+                zbus::MatchRule::builder()
+                    .msg_type(zbus::message::Type::Signal)
+                    .interface("org.freedesktop.DBus")
+                    .and_then(|b| b.member("NameOwnerChanged"))
+                    .map(|b| b.build()),
+            ];
+            let (tick_tx, tick_rx) = mpsc::channel::<()>();
+            for rule in rules.into_iter().flatten() {
+                let Ok(it) = zbus::blocking::MessageIterator::for_match_rule(rule, &c, Some(64)) else { continue };
+                let tick = tick_tx.clone();
+                std::thread::spawn(move || {
+                    for m in it {
+                        let Ok(m) = m else { break };
+                        // Only media players' names.
+                        if m.header().member().map(|x| x.as_str()) == Some("NameOwnerChanged") {
+                            let ok = m.body().deserialize::<(String, String, String)>().is_ok_and(|(n, _, _)| n.starts_with(PREFIX));
+                            if !ok {
+                                continue;
+                            }
+                        }
+                        if tick.send(()).is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+            drop(tick_tx);
+            let mut shown: Option<String> = None;
+            let mut last: Option<Option<phonelink_core::NowPlaying>> = None;
+            loop {
+                let player = active_player(&c, shown.as_deref());
+                let now = player.as_deref().and_then(|p| now_playing(&c, p));
+                shown = player;
+                if last.as_ref() != Some(&now) {
+                    if tx.send(now.clone()).is_err() {
+                        return;
+                    }
+                    last = Some(now);
+                }
+                // Wait for the next change, then let a burst of signals settle.
+                if tick_rx.recv().is_err() {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(150));
+                while tick_rx.try_recv().is_ok() {}
+            }
+        })
+        .expect("spawn mpris watch thread");
+}
+
+/// Play/pause, next, previous on the active player; volume of the default output.
+pub fn control(bus: &Option<String>, action: phonelink_core::MediaAction, volume: &dyn Fn(&str) -> bool) -> Result<(), String> {
+    use phonelink_core::MediaAction::*;
+    match action {
+        VolumeUp => return if volume("5%+") { Ok(()) } else { Err("couldn't change the volume".into()) },
+        VolumeDown => return if volume("5%-") { Ok(()) } else { Err("couldn't change the volume".into()) },
+        SetVolume(_) => return Ok(()), // the phone shows − / + for the computer
+        _ => {}
+    }
+    let c = connect(bus).map_err(|e| e.to_string())?;
+    let player = active_player(&c, None).ok_or("nothing is playing on the computer")?;
+    let method = match action {
+        PlayPause => "PlayPause",
+        Next => "Next",
+        _ => "Previous",
+    };
+    if call(&c, &player, method) {
+        Ok(())
+    } else {
+        Err("the player didn't respond".into())
+    }
+}

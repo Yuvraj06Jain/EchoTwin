@@ -337,6 +337,19 @@ async fn dismiss_notification(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn commands() -> Result<Vec<phonelink_desktop::config::CommandEntry>, String> {
+    match request(Request::Commands).await? {
+        Reply::Commands { items } => Ok(items),
+        r => Err(unexpected(r)),
+    }
+}
+
+#[tauri::command]
+async fn set_commands(items: Vec<phonelink_desktop::config::CommandEntry>) -> Result<(), String> {
+    expect_done(Request::SetCommands { items }).await
+}
+
+#[tauri::command]
 async fn set_auto_saver(below: u8) -> Result<(), String> {
     expect_done(Request::SetAutoSaver { below }).await
 }
@@ -674,6 +687,8 @@ fn main() {
             decline_call,
             set_switch,
             set_auto_saver,
+            commands,
+            set_commands,
             clear_notifications,
             reply_notification,
             notification_action,

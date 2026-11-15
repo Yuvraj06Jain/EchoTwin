@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -207,6 +208,9 @@ private fun ActionGrid(d: Device, state: UiState, actions: Actions, onNote: () -
         add { m -> ActionTile("Clipboard", Icons.Filled.Share, d.canClipboard && state.clipboardOn, m, actions::sendClipboard) }
         add { m -> ActionTile("Send files", Icons.AutoMirrored.Filled.Send, !bluetooth, m, actions::sendFiles) }
         add { m -> ActionTile("Note", Icons.Filled.Edit, true, m, onNote) }
+        if (d.canRemote) {
+            add { m -> ActionTile("Remote", Icons.Filled.PlayArrow, true, m, actions::openRemote) }
+        }
         if (d.canRing) {
             add { m ->
                 ActionTile(if (ringing) "Stop" else "Ring", Icons.Filled.Notifications, true, m) {

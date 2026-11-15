@@ -160,6 +160,12 @@ pub enum Request {
         device: Option<String>,
         url: String,
     },
+    /// Your own buttons for the phone's Remote screen (names and commands).
+    Commands,
+    /// Replace them (validated, saved); connected phones get the new names.
+    SetCommands {
+        items: Vec<crate::config::CommandEntry>,
+    },
     /// Decline the call ringing on the phone. Replies `Done` once asked; the phone's
     /// answer arrives as an `action_result` event.
     DeclineCall {
@@ -345,6 +351,9 @@ pub enum Reply {
     Notifications {
         items: Vec<NotificationInfo>,
         apps: Vec<AppInfo>,
+    },
+    Commands {
+        items: Vec<crate::config::CommandEntry>,
     },
     AppIcons {
         icons: BTreeMap<String, String>,

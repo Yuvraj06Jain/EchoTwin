@@ -136,7 +136,24 @@ struct State {
     effects: Arc<dyn crate::effects::Effects>,
     /// Phones with a call going on: (phase, caller, call notification key).
     calls: Mutex<HashMap<Fingerprint, (phonelink_core::CallPhase, String, String)>>,
+    /// What plays on this computer (for phones with `remote/1`).
+    computer_media: Mutex<Option<phonelink_core::NowPlaying>>,
+    /// Your own buttons (`config.commands`, changed with `SetCommands`).
+    commands: Mutex<Vec<crate::config::CommandEntry>>,
     call_pause: crate::mpris::CallPause,
+}
+
+/// What plays on this computer changed: tell phones that use the Remote screen.
+async fn computer_media(
+    state: Arc<State>,
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<Option<phonelink_core::NowPlaying>>,
+) {
+    while let Some(now) = rx.recv().await {
+        *lock(&state.computer_media) = now.clone();
+        for peer in state.connected_with(phonelink_core::CAP_REMOTE) {
+            let _ = state.to_phone(&peer, AppMessage::ComputerNowPlaying(now.clone()));
+        }
+    }
 }
 
 /// The "this computer is ringing" popup.
@@ -224,6 +241,8 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         status_sent: Mutex::new(HashMap::new()),
         battery_alerts: Mutex::new(HashMap::new()),
         calls: Mutex::new(HashMap::new()),
+        computer_media: Mutex::new(None),
+        commands: Mutex::new(opts.config.commands.clone()),
         call_pause: crate::mpris::CallPause::start(opts.buses.session.clone()),
         effects: opts
             .effects
@@ -266,6 +285,9 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
     tokio::spawn(bluetooth_backup(state.clone()));
     tokio::spawn(battery_watch(state.clone()));
     tokio::spawn(popup_actions(state.clone(), popup_actions_rx));
+    let (media_tx, media_rx) = tokio::sync::mpsc::unbounded_channel();
+    crate::mpris::watch(opts.buses.session.clone(), media_tx);
+    tokio::spawn(computer_media(state.clone(), media_rx));
     let server = tokio::spawn(serve(state.clone(), listener));
 
     shutdown.await;
@@ -293,7 +315,7 @@ async fn start_node(
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
         cfg.timings = timings(opts.config.battery_saver);
         cfg.capabilities.extend(
-            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS]
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS, phonelink_core::CAP_REMOTE]
                 .map(String::from),
         );
         match Node::start(cfg).await {
@@ -555,6 +577,44 @@ impl State {
         self.to_phone(&peer, AppMessage::CallDecline { key })?;
         self.popups.send(PopupCmd::Close { id: format!("call/{}", peer.short()) });
         Ok(())
+    }
+
+    /// The button names for the phone (ids, never the commands).
+    fn remote_commands(&self) -> AppMessage {
+        let items = lock(&self.commands)
+            .iter()
+            .map(|c| phonelink_core::RemoteCommand { id: c.id(), name: c.name.clone() })
+            .collect();
+        AppMessage::RemoteCommands { items }
+    }
+
+    /// The phone pressed one of your buttons. Returns its name.
+    fn run_command(&self, peer: Fingerprint, id: &str, sent_ms: u64) -> Result<String, String> {
+        use phonelink_core::message::{is_fresh, COMMAND_MAX_AGE_MS};
+        if !self.has_cap(&peer, phonelink_core::CAP_REMOTE) {
+            return Err("not supported".into());
+        }
+        if !self.switch_on("allow_commands") {
+            return Err("Buttons are switched off on the computer".into());
+        }
+        if !is_fresh(sent_ms, now_ms(), COMMAND_MAX_AGE_MS) {
+            return Err("That press was too old; try again".into());
+        }
+        let entry = lock(&self.commands)
+            .iter()
+            .find(|c| c.id() == id)
+            .cloned()
+            .ok_or("That button no longer exists on the computer")?;
+        self.effects.run_command(&entry.run)?;
+        info!(name = %entry.name, "the phone ran a command");
+        let phone = self.name_of(&peer);
+        self.status_popup(
+            self.notifications_on(),
+            format!("status/cmd/{}", peer.short()),
+            format!("{phone} ran: {}", entry.name),
+            String::new(),
+        );
+        Ok(entry.name)
     }
 
     /// The phone rings this computer (or stops).
@@ -1158,7 +1218,13 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                 ..
             } => {
                 let wants_status = capabilities.iter().any(|c| c == CAP_STATUS);
+                let wants_remote = capabilities.iter().any(|c| c == phonelink_core::CAP_REMOTE);
                 lock(&state.caps).insert(peer, capabilities);
+                if wants_remote {
+                    let now = lock(&state.computer_media).clone();
+                    let _ = state.to_phone(&peer, AppMessage::ComputerNowPlaying(now));
+                    let _ = state.to_phone(&peer, state.remote_commands());
+                }
                 if wants_status {
                     state.send_battery(&peer, crate::battery::read(&state.battery_root));
                 }
@@ -1381,6 +1447,27 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     state.rung_by(peer, on, sent_ms);
                     continue;
                 }
+                AppMessage::ComputerMediaControl { action } => {
+                    if state.has_cap(&peer, phonelink_core::CAP_REMOTE) {
+                        let (bus, effects, st) = (state.buses.session.clone(), state.effects.clone(), state.clone());
+                        tokio::task::spawn_blocking(move || {
+                            if let Err(message) = crate::mpris::control(&bus, action, &|c| effects.volume(c)) {
+                                let _ = st.to_phone(&peer, AppMessage::ActionResult { key: "media".into(), ok: false, message });
+                            }
+                        });
+                    }
+                    continue;
+                }
+                AppMessage::RunCommand { id, sent_ms } => {
+                    let (ok, message) = match state.run_command(peer, &id, sent_ms) {
+                        Ok(name) => (true, format!("Ran {name}")),
+                        Err(e) => (false, e),
+                    };
+                    let _ = state.to_phone(&peer, AppMessage::ActionResult { key: format!("cmd:{id}"), ok, message });
+                    continue;
+                }
+                AppMessage::PresentKey { .. } | AppMessage::ContactsResult { .. } => continue,
+                AppMessage::ComputerNowPlaying(_) | AppMessage::RemoteCommands { .. } | AppMessage::ContactsQuery { .. } => continue,
                 AppMessage::CallState { state: phase, caller, key } => {
                     state.call_changed(peer, phase, &caller, &key);
                     continue;
@@ -2048,6 +2135,28 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                         },
                     },
                     Err(message) => Reply::Error { message },
+                };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::Commands => {
+                let items = lock(&state.commands).clone();
+                write_reply(&mut w, &Reply::Commands { items }).await?;
+            }
+            Request::SetCommands { items } => {
+                let items: Vec<_> = items
+                    .into_iter()
+                    .map(|c| crate::config::CommandEntry { name: c.name.trim().to_string(), run: c.run.trim().to_string() })
+                    .collect();
+                let reply = match crate::config::check_commands(&items) {
+                    Err(message) => Reply::Error { message },
+                    Ok(()) => {
+                        *lock(&state.commands) = items.clone();
+                        let msg = state.remote_commands();
+                        for peer in state.connected_with(phonelink_core::CAP_REMOTE) {
+                            let _ = state.to_phone(&peer, msg.clone());
+                        }
+                        state.persist(|c| c.commands = items)
+                    }
                 };
                 write_reply(&mut w, &reply).await?;
             }

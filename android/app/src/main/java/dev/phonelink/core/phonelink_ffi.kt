@@ -755,6 +755,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_clear_transfers(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_computer_media_control(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_devices(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_id(
@@ -775,11 +777,15 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_post_notification(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_present_key(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_read_pairing_code(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_remove_notification(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_ring_computer(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_run_command(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_action_result(
     ): Int
@@ -882,6 +888,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_clear_transfers(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_computer_media_control(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`command`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_devices(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_phonelink_id(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -902,12 +910,16 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_phonelink_post_notification(`ptr`: Long,`notification`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_present_key(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_read_pairing_code(`ptr`: Long,`uri`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_phonelink_remove_notification(`ptr`: Long,`key`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_ring_computer(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`on`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_run_command(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_action_result(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,`ok`: Byte,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_app_icon(`ptr`: Long,`package`: RustBuffer.ByValue,`png`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1099,6 +1111,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_clear_transfers() and 0xFFFF) != 54796) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_computer_media_control() and 0xFFFF) != 14436) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_devices() and 0xFFFF) != 25210) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1129,6 +1144,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_post_notification() and 0xFFFF) != 35757) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_present_key() and 0xFFFF) != 2044) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_read_pairing_code() and 0xFFFF) != 31519) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1136,6 +1154,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_ring_computer() and 0xFFFF) != 40606) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_run_command() and 0xFFFF) != 57876) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_action_result() and 0xFFFF) != 31285) {
@@ -2373,6 +2394,11 @@ public interface PhoneLinkInterface {
      */
     fun `clearTransfers`()
     
+    /**
+     * Control what plays on the computer (Remote screen).
+     */
+    fun `computerMediaControl`(`deviceId`: kotlin.String?, `command`: MediaCommand)
+    
     fun `devices`(): List<Device>
     
     /**
@@ -2425,6 +2451,12 @@ public interface PhoneLinkInterface {
     fun `postNotification`(`notification`: MirroredNotification)
     
     /**
+     * A presentation key (Next, Previous, Start, End, Blank). Errors arrive as
+     * `RequestResult` with key `present`.
+     */
+    fun `presentKey`(`deviceId`: kotlin.String?, `key`: PresentKeyFfi)
+    
+    /**
      * Parse a scanned QR code without contacting anything.
      */
     fun `readPairingCode`(`uri`: kotlin.String): PairingCode
@@ -2438,6 +2470,12 @@ public interface PhoneLinkInterface {
      * Ring the computer (to find it), or stop. Returns its name.
      */
     fun `ringComputer`(`deviceId`: kotlin.String?, `on`: kotlin.Boolean): kotlin.String
+    
+    /**
+     * Press one of the computer's own buttons. The answer arrives as `RequestResult` with
+     * key `cmd:<id>`.
+     */
+    fun `runCommand`(`deviceId`: kotlin.String?, `id`: kotlin.String)
     
     /**
      * Tell the computer `device_id` how its request about `key` went.
@@ -2685,6 +2723,24 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
     
     
 
+    
+    /**
+     * Control what plays on the computer (Remote screen).
+     */
+    @Throws(LinkException::class)override fun `computerMediaControl`(`deviceId`: kotlin.String?, `command`: MediaCommand)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_computer_media_control(
+        it,
+        
+        FfiConverterOptionalString.lower(`deviceId`),
+        FfiConverterTypeMediaCommand.lower(`command`),_status)
+}
+    }
+    
+    
+
     override fun `devices`(): List<Device> {
             return FfiConverterSequenceTypeDevice.lift(
     callWithHandle {
@@ -2858,6 +2914,25 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
 
     
     /**
+     * A presentation key (Next, Previous, Start, End, Blank). Errors arrive as
+     * `RequestResult` with key `present`.
+     */
+    @Throws(LinkException::class)override fun `presentKey`(`deviceId`: kotlin.String?, `key`: PresentKeyFfi)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_present_key(
+        it,
+        
+        FfiConverterOptionalString.lower(`deviceId`),
+        FfiConverterTypePresentKeyFfi.lower(`key`),_status)
+}
+    }
+    
+    
+
+    
+    /**
      * Parse a scanned QR code without contacting anything.
      */
     @Throws(LinkException::class)override fun `readPairingCode`(`uri`: kotlin.String): PairingCode {
@@ -2908,6 +2983,25 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
     }
     )
     }
+    
+
+    
+    /**
+     * Press one of the computer's own buttons. The answer arrives as `RequestResult` with
+     * key `cmd:<id>`.
+     */
+    @Throws(LinkException::class)override fun `runCommand`(`deviceId`: kotlin.String?, `id`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_run_command(
+        it,
+        
+        FfiConverterOptionalString.lower(`deviceId`),
+        FfiConverterString.lower(`id`),_status)
+}
+    }
+    
     
 
     
@@ -4029,6 +4123,16 @@ data class Device (
     var `canRing`: kotlin.Boolean
     , 
     /**
+     * Connected, and can be used as a remote (its media players, its own buttons).
+     */
+    var `canRemote`: kotlin.Boolean
+    , 
+    /**
+     * Connected, and takes presentation keys.
+     */
+    var `canPresent`: kotlin.Boolean
+    , 
+    /**
      * "wifi" or "bluetooth" while connected; empty when offline.
      */
     var `via`: kotlin.String
@@ -4072,6 +4176,8 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalUByte.read(buf),
@@ -4088,6 +4194,8 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.allocationSize(value.`canLock`) +
             FfiConverterBoolean.allocationSize(value.`canClipboard`) +
             FfiConverterBoolean.allocationSize(value.`canRing`) +
+            FfiConverterBoolean.allocationSize(value.`canRemote`) +
+            FfiConverterBoolean.allocationSize(value.`canPresent`) +
             FfiConverterString.allocationSize(value.`via`) +
             FfiConverterOptionalString.allocationSize(value.`bluetooth`) +
             FfiConverterOptionalUByte.allocationSize(value.`battery`) +
@@ -4103,6 +4211,8 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.write(value.`canLock`, buf)
             FfiConverterBoolean.write(value.`canClipboard`, buf)
             FfiConverterBoolean.write(value.`canRing`, buf)
+            FfiConverterBoolean.write(value.`canRemote`, buf)
+            FfiConverterBoolean.write(value.`canPresent`, buf)
             FfiConverterString.write(value.`via`, buf)
             FfiConverterOptionalString.write(value.`bluetooth`, buf)
             FfiConverterOptionalUByte.write(value.`battery`, buf)
@@ -4557,6 +4667,47 @@ public object FfiConverterTypePhoneSmsThread: FfiConverterRustBuffer<PhoneSmsThr
 
 
 /**
+ * One of the computer's own buttons for the Remote screen.
+ */
+data class RemoteButton (
+    var `id`: kotlin.String
+    , 
+    var `name`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeRemoteButton: FfiConverterRustBuffer<RemoteButton> {
+    override fun read(buf: ByteBuffer): RemoteButton {
+        return RemoteButton(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: RemoteButton) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`name`)
+    )
+
+    override fun write(value: RemoteButton, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`name`, buf)
+    }
+}
+
+
+
+/**
  * The computer's battery just went low or full.
  */
 
@@ -4823,6 +4974,32 @@ sealed class LinkEvent {
     }
     
     /**
+     * What plays on the computer changed (`None`: nothing). For the Remote screen.
+     */
+    data class ComputerMedia(
+        val `id`: kotlin.String, 
+        val `media`: dev.phonelink.core.PhoneMedia?) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * The computer's own buttons for the Remote screen.
+     */
+    data class RemoteCommands(
+        val `id`: kotlin.String, 
+        val `items`: List<dev.phonelink.core.RemoteButton>) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
      * The computer asks to decline the ringing call whose notification key is `key`.
      * Answer with `send_action_result(id, "call", ok, message)`.
      */
@@ -5004,40 +5181,48 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            12 -> LinkEvent.CallDeclineRequested(
+            12 -> LinkEvent.ComputerMedia(
+                FfiConverterString.read(buf),
+                FfiConverterOptionalTypePhoneMedia.read(buf),
+                )
+            13 -> LinkEvent.RemoteCommands(
+                FfiConverterString.read(buf),
+                FfiConverterSequenceTypeRemoteButton.read(buf),
+                )
+            14 -> LinkEvent.CallDeclineRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            13 -> LinkEvent.RingRequested(
+            15 -> LinkEvent.RingRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterBoolean.read(buf),
                 )
-            14 -> LinkEvent.ClipboardReceived(
+            16 -> LinkEvent.ClipboardReceived(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            15 -> LinkEvent.MediaControlRequested(
+            17 -> LinkEvent.MediaControlRequested(
                 FfiConverterString.read(buf),
                 FfiConverterTypeMediaCommand.read(buf),
                 )
-            16 -> LinkEvent.SmsSendRequested(
+            18 -> LinkEvent.SmsSendRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            17 -> LinkEvent.SmsOlderRequested(
+            19 -> LinkEvent.SmsOlderRequested(
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterULong.read(buf),
                 )
-            18 -> LinkEvent.TransferChanged(
+            20 -> LinkEvent.TransferChanged(
                 FfiConverterTypeFileTransfer.read(buf),
                 )
-            19 -> LinkEvent.RequestResult(
+            21 -> LinkEvent.RequestResult(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
@@ -5143,6 +5328,22 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 + FfiConverterString.allocationSize(value.`id`)
                 + FfiConverterString.allocationSize(value.`name`)
                 + FfiConverterString.allocationSize(value.`url`)
+            )
+        }
+        is LinkEvent.ComputerMedia -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterOptionalTypePhoneMedia.allocationSize(value.`media`)
+            )
+        }
+        is LinkEvent.RemoteCommands -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterSequenceTypeRemoteButton.allocationSize(value.`items`)
             )
         }
         is LinkEvent.CallDeclineRequested -> {
@@ -5295,34 +5496,46 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.write(value.`url`, buf)
                 Unit
             }
-            is LinkEvent.CallDeclineRequested -> {
+            is LinkEvent.ComputerMedia -> {
                 buf.putInt(12)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterOptionalTypePhoneMedia.write(value.`media`, buf)
+                Unit
+            }
+            is LinkEvent.RemoteCommands -> {
+                buf.putInt(13)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterSequenceTypeRemoteButton.write(value.`items`, buf)
+                Unit
+            }
+            is LinkEvent.CallDeclineRequested -> {
+                buf.putInt(14)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`key`, buf)
                 Unit
             }
             is LinkEvent.RingRequested -> {
-                buf.putInt(13)
+                buf.putInt(15)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterBoolean.write(value.`on`, buf)
                 Unit
             }
             is LinkEvent.ClipboardReceived -> {
-                buf.putInt(14)
+                buf.putInt(16)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`text`, buf)
                 Unit
             }
             is LinkEvent.MediaControlRequested -> {
-                buf.putInt(15)
+                buf.putInt(17)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterTypeMediaCommand.write(value.`command`, buf)
                 Unit
             }
             is LinkEvent.SmsSendRequested -> {
-                buf.putInt(16)
+                buf.putInt(18)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`clientId`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
@@ -5331,19 +5544,19 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 Unit
             }
             is LinkEvent.SmsOlderRequested -> {
-                buf.putInt(17)
+                buf.putInt(19)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
                 FfiConverterULong.write(value.`beforeMs`, buf)
                 Unit
             }
             is LinkEvent.TransferChanged -> {
-                buf.putInt(18)
+                buf.putInt(20)
                 FfiConverterTypeFileTransfer.write(value.`transfer`, buf)
                 Unit
             }
             is LinkEvent.RequestResult -> {
-                buf.putInt(19)
+                buf.putInt(21)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`key`, buf)
@@ -5481,6 +5694,46 @@ public object FfiConverterTypeMediaCommand : FfiConverterRustBuffer<MediaCommand
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+/**
+ * The presentation remote's keys.
+ */
+
+enum class PresentKeyFfi {
+    
+    NEXT,
+    PREVIOUS,
+    START,
+    END,
+    BLANK;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePresentKeyFfi: FfiConverterRustBuffer<PresentKeyFfi> {
+    override fun read(buf: ByteBuffer) = try {
+        PresentKeyFfi.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: PresentKeyFfi) = 4UL
+
+    override fun write(value: PresentKeyFfi, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
     }
 }
 
@@ -5810,6 +6063,34 @@ public object FfiConverterSequenceTypePhoneSmsThread: FfiConverterRustBuffer<Lis
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypePhoneSmsThread.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeRemoteButton: FfiConverterRustBuffer<List<RemoteButton>> {
+    override fun read(buf: ByteBuffer): List<RemoteButton> {
+        val len = buf.getInt()
+        return List<RemoteButton>(len) {
+            FfiConverterTypeRemoteButton.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<RemoteButton>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeRemoteButton.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<RemoteButton>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeRemoteButton.write(it, buf)
         }
     }
 }

@@ -68,6 +68,9 @@ class MainActivity : ComponentActivity() {
     private var clipboardOn by mutableStateOf(true)
     private var queueOn by mutableStateOf(false)
     private var batteryAlertsOn by mutableStateOf(true)
+    /** The Remote screen and the full-screen presenter (volume keys = clicker there). */
+    private var remoteOpen by mutableStateOf(false)
+    private var presenting by mutableStateOf(false)
     private var pairedOnDisk by mutableStateOf(false)
 
     private val scan = registerForActivityResult(ScanContract()) { result ->
@@ -132,6 +135,8 @@ class MainActivity : ComponentActivity() {
                 val transfers by LinkManager.transfers.collectAsStateWithLifecycle()
                 val connectionOn by LinkManager.connectionOn.collectAsStateWithLifecycle()
                 val mine by StatusWatcher.mine.collectAsStateWithLifecycle()
+                val computerMedia by LinkManager.computerMedia.collectAsStateWithLifecycle()
+                val commands by LinkManager.commands.collectAsStateWithLifecycle()
                 val state = UiState(
                     myId = myId,
                     devices = devices,
@@ -144,6 +149,8 @@ class MainActivity : ComponentActivity() {
                     myBattery = mine.battery,
                     myCharging = mine.charging,
                     myNetwork = mine.network,
+                    computerMedia = computerMedia,
+                    commands = commands,
                     connectionOn = connectionOn,
                     busy = busy,
                     bluetoothProblem = BluetoothBackup.problem,
@@ -154,19 +161,33 @@ class MainActivity : ComponentActivity() {
                 }
                 var tab by rememberSaveable { mutableIntStateOf(0) }
                 var setupOpen by rememberSaveable { mutableStateOf(false) }
-                BackHandler(enabled = setupOpen || tab != 0) { if (setupOpen) setupOpen = false else tab = 0 }
+                BackHandler(enabled = setupOpen || remoteOpen || presenting || tab != 0) {
+                    when {
+                        presenting -> presenting = false
+                        remoteOpen -> remoteOpen = false
+                        setupOpen -> setupOpen = false
+                        else -> tab = 0
+                    }
+                }
+                // Keep the screen on while presenting.
+                LaunchedEffect(presenting) {
+                    if (presenting) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
                 // Until the core has started, trust the saved pairing file (no flash of the pair screen).
                 val paired = if (myId.isNotEmpty()) devices.isNotEmpty() else pairedOnDisk
                 Scaffold(
                     containerColor = Pl.Bg,
                     snackbarHost = { SnackbarHost(snackbar) },
                     bottomBar = {
-                        if (paired && !setupOpen) BottomBar(tab) { tab = it }
+                        if (paired && !setupOpen && !remoteOpen && !presenting) BottomBar(tab) { tab = it }
                     },
                 ) { padding ->
                     val m = Modifier.padding(padding)
                     when {
                         !paired -> PairScreen(busy, ::startScan, m)
+                        presenting -> PresenterScreen(actions, { presenting = false }, m)
+                        remoteOpen -> RemoteScreen(state, actions, { remoteOpen = false }, m)
                         setupOpen -> SetupScreen(state.access, actions, { setupOpen = false }, m)
                         tab == 1 -> FilesScreen(state, actions, m)
                         tab == 2 -> SettingsScreen(state, actions, { setupOpen = true }, m)
@@ -192,6 +213,11 @@ class MainActivity : ComponentActivity() {
         }
         override fun lock() = LinkManager.lockComputer()
         override fun ring(on: Boolean) = LinkManager.ringComputer(on)
+        override fun openRemote() { remoteOpen = true }
+        override fun openPresenter() { presenting = true }
+        override fun computerMedia(command: dev.phonelink.core.MediaCommand) = LinkManager.computerMedia(command)
+        override fun runCommand(id: String) = LinkManager.runCommand(id)
+        override fun presentKey(key: dev.phonelink.core.PresentKeyFfi) = LinkManager.presentKey(key)
         override fun sendClipboard() = this@MainActivity.sendClipboard()
         override fun sendFiles() = pickFiles.launch(arrayOf("*/*"))
         override fun sendNote(text: String) = sendText(text)
@@ -222,6 +248,23 @@ class MainActivity : ComponentActivity() {
         override fun allowPhoneStatus() = askPhoneStatus.launch(StatusWatcher.PHONE_PERMISSION)
         override fun openAppInfo() = this@MainActivity.openAppInfo()
         override fun unpair(device: Device) = this@MainActivity.unpair(device)
+    }
+
+    /** While presenting, the volume keys work as a clicker: down = next, up = previous. */
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (presenting) {
+            when (keyCode) {
+                android.view.KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    LinkManager.presentKey(dev.phonelink.core.PresentKeyFfi.NEXT)
+                    return true
+                }
+                android.view.KeyEvent.KEYCODE_VOLUME_UP -> {
+                    LinkManager.presentKey(dev.phonelink.core.PresentKeyFfi.PREVIOUS)
+                    return true
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     override fun onResume() {

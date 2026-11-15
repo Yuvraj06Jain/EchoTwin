@@ -135,6 +135,25 @@ object LinkManager {
         onIo { it.setQueueNotifications(on) }
     }
 
+    /** What plays on the computer and its own buttons, for the Remote screen. */
+    private val _computerMedia = MutableStateFlow<PhoneMedia?>(null)
+    val computerMedia: StateFlow<PhoneMedia?> = _computerMedia
+    private val _commands = MutableStateFlow<List<dev.phonelink.core.RemoteButton>>(emptyList())
+    val commands: StateFlow<List<dev.phonelink.core.RemoteButton>> = _commands
+
+    /** A remote button press: says nothing when it works, a toast when it can't be sent. */
+    private fun remote(block: (PhoneLink) -> Unit) = io.execute {
+        try {
+            block(link())
+        } catch (e: Exception) {
+            toast(e.message?.replaceFirstChar { it.uppercase() } ?: "Not connected")
+        }
+    }
+
+    fun computerMedia(command: dev.phonelink.core.MediaCommand) = remote { it.computerMediaControl(null, command) }
+    fun runCommand(id: String) = remote { it.runCommand(null, id) }
+    fun presentKey(key: dev.phonelink.core.PresentKeyFfi) = remote { it.presentKey(null, key) }
+
     private val _transfers = MutableStateFlow<List<dev.phonelink.core.FileTransfer>>(emptyList())
     val transfers: StateFlow<List<dev.phonelink.core.FileTransfer>> = _transfers
 
@@ -293,7 +312,12 @@ object LinkManager {
                     _messages.value = (listOf("${event.name}: ${event.text}") + _messages.value).take(50)
                     Notifications.message(app, event.name, event.text)
                 }
-                is LinkEvent.Disconnected -> BluetoothBackup.onDisconnected()
+                is LinkEvent.Disconnected -> {
+                    BluetoothBackup.onDisconnected()
+                    _computerMedia.value = null
+                }
+                is LinkEvent.ComputerMedia -> _computerMedia.value = event.media
+                is LinkEvent.RemoteCommands -> _commands.value = event.items
                 is LinkEvent.Connected -> {
                     BluetoothBackup.onConnected()
                     sendSnapshot()
@@ -329,8 +353,10 @@ object LinkManager {
                         Notifications.message(app, event.name, text)
                     }
                 }
-                is LinkEvent.RequestResult -> if (event.key == "lock") {
-                    toast(if (event.ok) "${event.name} is locked" else "${event.name}: ${event.message}")
+                is LinkEvent.RequestResult -> when {
+                    event.key == "lock" -> toast(if (event.ok) "${event.name} is locked" else "${event.name}: ${event.message}")
+                    event.key.startsWith("cmd:") -> toast(if (event.ok) event.message else "${event.name}: ${event.message}")
+                    !event.ok && (event.key == "media" || event.key == "present") -> toast("${event.name}: ${event.message}")
                 }
                 else -> {}
             }

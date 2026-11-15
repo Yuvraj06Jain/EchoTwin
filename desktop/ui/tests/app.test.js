@@ -77,7 +77,7 @@ function fakeTauri() {
         if (!fake.daemonUp) throw 'daemon-down';
         switch (cmd) {
           case 'status':
-            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66', battery: fake.computerBattery ?? null, charging: true }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, battery_saver: fake.saver !== false, auto_saver_below: fake.autoBelow ?? 20, saver_active: fake.saverActive ?? (fake.saver !== false), switches: { battery_alerts: fake.alerts !== false, pause_media_on_call: true, open_links: true, allow_ring: true }, devices: fake.devices };
+            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66', battery: fake.computerBattery ?? null, charging: true }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, battery_saver: fake.saver !== false, auto_saver_below: fake.autoBelow ?? 20, saver_active: fake.saverActive ?? (fake.saver !== false), switches: { battery_alerts: fake.alerts !== false, pause_media_on_call: true, open_links: true, allow_ring: true, allow_commands: true }, devices: fake.devices };
           case 'notifications':
             if (fake.slowNext) {
               // Snapshot the data now, answer late (like a reload that started before news arrived).
@@ -147,6 +147,12 @@ function fakeTauri() {
             return null;
           case 'set_battery_saver':
             fake.saver = args.on;
+            return null;
+          case 'commands':
+            return fake.commands || [{ name: 'Suspend', run: 'systemctl suspend' }];
+          case 'set_commands':
+            if (args.items.some((c) => !c.name)) throw 'a button name must be 1 to 40 characters';
+            fake.commands = args.items;
             return null;
           case 'set_auto_saver':
             fake.autoBelow = args.below;
@@ -511,6 +517,18 @@ function fakeTauri() {
   await page.$eval(autoSlider, (i) => { i.value = '0'; i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); });
   await page.waitForTimeout(250);
   check((await txt('.sheet [data-auto-saver-value]')) === 'Never' && (await lastCall('set_auto_saver'))[1].below === 0, '0 = never');
+  console.log('Phone buttons');
+  check((await txt('.sheet')).includes('Phone buttons') && (await txt('.sheet [data-command="0"]')).includes('systemctl suspend'), 'phone buttons listed with their commands');
+  await page.fill('.command-form [name="name"]', 'Lock screen');
+  await page.fill('.command-form [name="run"]', 'loginctl lock-session');
+  await page.click('.command-form button[type="submit"]');
+  await page.waitForTimeout(300);
+  const sc = await lastCall('set_commands');
+  check(sc && sc[1].items.length === 2 && sc[1].items[1].name === 'Lock screen' && sc[1].items[1].run === 'loginctl lock-session', `adding a button saves the list (${JSON.stringify(sc && sc[1])})`);
+  check((await txt('.sheet [data-command="1"]')).includes('Lock screen'), 'the new button shows');
+  await page.click('.sheet [data-action="command-remove"][data-index="0"]');
+  await page.waitForTimeout(300);
+  check((await lastCall('set_commands'))[1].items.map((c) => c.name).join() === 'Lock screen', 'removing one saves the rest');
   const saver = '.sheet [data-key="batterySaver"]';
   check((await page.getAttribute(saver, 'aria-checked')) === 'true', 'battery saver switch on (from the service)');
   check((await txt('.sheet')).includes('notices that the phone left ~10 s later'), 'battery saver explained');

@@ -1,0 +1,79 @@
+<!doctype html><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0}
+body{background:radial-gradient(1200px 700px at 10% 0,#1c4a40,transparent 60%),radial-gradient(900px 700px at 100% 40%,#3b2452,transparent 60%),#0d0f12;color:#eef1f3;font:13px/1.4 Inter,"DejaVu Sans",system-ui,sans-serif;padding:44px 50px;width:1180px}
+h1{font-size:24px;margin-bottom:6px}h2{font-size:17px;margin:34px 0 4px}h2 b{color:#3dbb82}.sub{color:#aab2ba;margin-bottom:14px;font-size:14px}
+.win{width:1080px;height:640px;background:#111417;border:1px solid rgba(255,255,255,.09);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.06);flex:none}
+.logo{width:16px;height:16px;border-radius:5px;background:#23905f}.bar b{font-size:13px}.grow{flex:1;min-width:0}.wc{color:#7b848d;letter-spacing:14px;font-size:13px}
+.body{flex:1;display:flex;min-height:0}
+.t{background:#1a1e22;border:1px solid rgba(255,255,255,.07);border-radius:18px;padding:14px}
+.twin{background:linear-gradient(180deg,rgba(61,187,130,.10),transparent),#1a1e22;border-color:rgba(61,187,130,.25);display:flex;align-items:center;justify-content:space-between}
+.dev{text-align:center;flex:1}.dev b{display:block;margin-top:8px;font-size:13px}.dev span{color:#aab2ba;font-size:12px}
+.link{flex:1.1;position:relative;height:2px;background:repeating-linear-gradient(90deg,#3dbb82 0 6px,transparent 6px 11px);align-self:flex-start}
+.pill{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#16241e;color:#3dbb82;font-weight:700;font-size:11px;padding:3px 9px;border-radius:99px;white-space:nowrap}
+.pill:before,.dot{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:#3dbb82;margin-right:5px}
+.muted{color:#aab2ba}.faint{color:#7b848d}.sm{font-size:12px}.b{font-weight:700}
+.sw{width:38px;height:22px;border-radius:11px;background:#23905f;position:relative;flex:none}.sw:after{content:"";position:absolute;right:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff}
+.row{display:flex;align-items:center;gap:10px}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.at{background:#1a1e22;border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:11px 4px;text-align:center;font-size:11.5px}
+.ic{width:34px;height:34px;border-radius:10px;background:rgba(61,187,130,.16);color:#3dbb82;display:grid;place-items:center;margin:0 auto 6px;font-size:16px}
+.ic.s{margin:0;flex:none}
+.tabs{display:flex;gap:6px}.tab{padding:7px 14px;border-radius:99px;color:#aab2ba;font-weight:600}.tab.on{background:rgba(61,187,130,.16);color:#3dbb82}
+.cnt{background:#23905f;color:#fff;border-radius:99px;font-size:10px;padding:1px 6px;margin-left:5px}
+.chip{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:#fff;font-weight:700;flex:none}.chip.r{border-radius:50%}
+.code{background:rgba(61,187,130,.18);color:#3dbb82;font-weight:700;font-size:11px;padding:4px 10px;border-radius:99px}
+.cap{font-size:11px;font-weight:700;letter-spacing:1px;color:#7b848d;margin-bottom:10px}
+.art{background:linear-gradient(135deg,#e04a5a,#7a3fd0);border-radius:10px;flex:none}
+.np{background:linear-gradient(90deg,rgba(122,63,208,.35),rgba(224,74,90,.12)),#1a1e22}
+.play{width:32px;height:32px;border-radius:50%;background:#3dbb82;color:#fff;display:grid;place-items:center;font-size:11px}
+.drop{border:1.5px dashed rgba(61,187,130,.7);background:rgba(61,187,130,.08);color:#3dbb82;border-radius:18px;padding:14px}
+.prog{height:3px;border-radius:2px;background:rgba(61,187,130,.25);margin-top:8px}.prog i{display:block;width:64%;height:100%;background:#3dbb82;border-radius:2px}
+.rail{width:62px;border-right:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 0}
+.ri{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:#aab2ba;font-size:17px}.ri.on{background:rgba(61,187,130,.16);color:#3dbb82}
+.note{color:#aab2ba;margin-top:10px;font-size:13px;max-width:1080px}.note b{color:#eef1f3}
+</style><body>
+<h1>EchoTwin window: three directions in the phone's Twin link style</h1>
+<div class="sub">Same colours, 18 px tiles and the phone + laptop picture as the phone app. Same features in each; only the layout differs.</div>
+<div id="out"></div>
+<script>
+const dev=(kind,lvl,name,sub,s=1)=>{const w=kind=='p'?34*s:78*s,h=kind=='p'?60*s:44*s;const f=(h-8)*lvl/100;
+ return `<div class="dev"><svg width="${w}" height="${kind=='p'?h:h+8*s}" viewBox="0 0 ${w} ${kind=='p'?h:h+8*s}">
+ <rect x="${kind=='p'?1:7*s}" y="1" width="${kind=='p'?w-2:w-14*s}" height="${h-2}" rx="${kind=='p'?8*s:5*s}" fill="none" stroke="#3dbb82" stroke-width="2"/>
+ <rect x="${kind=='p'?5:11*s}" y="${h-4-f}" width="${kind=='p'?w-10:w-22*s}" height="${f}" rx="${3*s}" fill="#3dbb82" opacity=".75"/>
+ ${kind=='p'?'':`<rect x="0" y="${h+2*s}" width="${w}" height="${4*s}" rx="2" fill="#3dbb82"/>`}</svg><b>${name}</b><span>${sub}</span></div>`};
+const twin=(s=1,mt=30)=>`<div class="t twin">${dev('p',82,'Galaxy S24 FE','82% · 5G',s)}<div class="link" style="margin-top:${mt}px"><span class="pill">Wi-Fi</span></div>${dev('l',76,'This computer','76% · charging',s)}</div>`;
+const bar=`<div class="bar"><span class="logo"></span><b>EchoTwin</b><span class="grow"></span><span class="faint">⚙</span><span class="wc">–▢✕</span></div>`;
+const conn=`<div class="t row"><div class="ic s">⟳</div><div class="grow"><div class="b">Connection</div><div class="sm muted">On · reconnects by itself</div></div><div class="sw"></div></div>`;
+const acts=(l)=>`<div class="g3">${l.map(([i,n])=>`<div class="at"><div class="ic">${i}</div>${n}</div>`).join('')}</div>`;
+const A6=[['✎','Note'],['⇪','Send files'],['🔔','Ring phone'],['⎘','Clipboard'],['☘','Saver'],['＋','New SMS']];
+const np=`<div class="t np row"><div class="art" style="width:46px;height:46px"></div><div class="grow"><div class="b">Tum Hi Ho</div><div class="sm muted">Arijit Singh · YouTube Music</div></div><span class="muted">⏮</span><div class="play">❚❚</div><span class="muted">⏭</span></div>`;
+const n=(c,l,t,x,time,extra='')=>`<div class="t row" style="padding:12px 14px"><div class="chip" style="background:${c}">${l}</div><div class="grow"><div><span class="b">${t}</span> <span class="faint sm">· ${time}</span></div><div class="muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${x}</div></div>${extra}<span class="faint">×</span></div>`;
+const notifs=n('#2fa67a','W','Rahul','Are you coming to the lab today? Sir moved the viva to 3 pm.','now','<span class="tab" style="padding:4px 10px;background:rgba(255,255,255,.06)">Reply</span>')+n('#d9a441','M','AX-HDFCBK','482913 is your OTP for login. Do not share it with anyone.','4 min','<span class="code">Copy 482913</span>')+n('#2f9fd0','G','Placement Cell','Interview schedule for Monday is out','10 min')+n('#e0662f','S','Swiggy','Your order from Campus Cafe has been delivered.','1 h');
+const tabs=(h)=>`<div class="tabs">${h?'<span class="tab on">Home</span>':''}<span class="tab ${h?'':'on'}">Notifications<span class="cnt">4</span></span><span class="tab">Messages<span class="cnt">2</span></span><span class="tab">Files</span></div>`;
+const sms=[['#b65ad8','M','Mom','Call me when you are free'],['#4f7cff','R','Rahul','ok, see you at 3'],['#e0662f','A','Airtel','Recharge successful']].map(([c,l,t,x])=>`<div class="row" style="margin-bottom:10px"><div class="chip r" style="background:${c}">${l}</div><div class="grow"><div class="b">${t}</div><div class="sm muted">${x}</div></div></div>`).join('');
+const drop=`<div class="drop row"><span style="font-size:20px">⇪</span><div class="grow"><div class="b">Drop files to send</div><div class="sm">notes-week-10.pdf · 64% · 1 min left</div><div class="prog"><i></i></div></div></div>`;
+
+const A=`<div class="win">${bar}<div class="body"><div style="width:330px;padding:14px;display:flex;flex-direction:column;gap:10px;border-right:1px solid rgba(255,255,255,.06)">${twin()}${conn}${acts(A6)}${np}<div class="grow"></div><div class="sm faint">Pair another device</div></div>
+<div class="grow" style="padding:14px 18px;display:flex;flex-direction:column;gap:10px">${tabs(0)}<div class="row sm muted" style="margin-top:4px"><span class="grow">4 notifications</span><span>Clear all</span></div>${notifs}</div></div></div>`;
+
+const B=`<div class="win">${bar}<div style="padding:14px 18px;display:flex;flex-direction:column;gap:12px;flex:1">
+<div class="row" style="gap:12px;align-items:stretch"><div style="width:440px">${twin(1.1,34)}</div><div class="grow" style="display:flex;flex-direction:column;gap:10px">${conn}${np}</div></div>
+${tabs(1)}
+<div style="display:grid;grid-template-columns:1.5fr 1fr 250px;gap:12px;flex:1;min-height:0">
+<div class="t"><div class="cap">NOTIFICATIONS <span class="cnt">4</span></div><div style="display:flex;flex-direction:column;gap:8px;margin:-2px">${n('#2fa67a','W','Rahul','Are you coming to the lab today?','now')}${n('#d9a441','M','AX-HDFCBK','482913 is your OTP for login.','4 min','<span class="code">Copy 482913</span>')}${n('#2f9fd0','G','Placement Cell','Interview schedule for Monday','10 min')}</div></div>
+<div class="t"><div class="cap">MESSAGES <span class="cnt">2</span></div>${sms}</div>
+<div style="display:flex;flex-direction:column;gap:10px">${drop}<div class="g3" style="grid-template-columns:1fr 1fr">${A6.slice(0,4).map(([i,x])=>`<div class="at"><div class="ic">${i}</div>${x}</div>`).join('')}</div></div>
+</div></div></div>`;
+
+const C=`<div class="win">${bar}<div class="body"><div class="rail"><div class="ri on">⌂</div><div class="ri">🔔</div><div class="ri">✉</div><div class="ri">▤</div><div class="grow"></div><div class="ri">⚙</div></div>
+<div class="grow" style="padding:14px 18px;display:flex;gap:14px"><div style="width:360px;display:flex;flex-direction:column;gap:10px">${twin(1.1,34)}${conn}${np}${drop}</div>
+<div class="grow" style="display:flex;flex-direction:column;gap:10px"><div class="cap" style="margin:6px 0 0">LATEST</div>${notifs}<div class="cap" style="margin:6px 0 0">QUICK ACTIONS</div><div class="g3" style="grid-template-columns:repeat(6,1fr)">${A6.map(([i,x])=>`<div class="at"><div class="ic">${i}</div>${x}</div>`).join('')}</div></div></div></div></div>`;
+
+out.innerHTML=`<h2><b>A</b> · Twin sidebar <span class="faint sm">(recommended)</span></h2><div class="sub">Today's layout, restyled: the sidebar becomes the phone's Home screen; lists stay on the right.</div>${A}
+<div class="note"><b>For:</b> it is the phone app, side by side with your lists, so both devices feel like one product. Smallest change: the tabs and every dialog keep working as they do now. <b>Against:</b> the least dramatic of the three.</div>
+<h2><b>B</b> · Dashboard home</h2><div class="sub">A new Home tab: the twin picture on top, then a tile board like the panel widget. The other tabs hold the full lists.</div>${B}
+<div class="note"><b>For:</b> the most striking; everything at a glance. <b>Against:</b> it repeats what the panel widget already shows, and adds a click before replying to a message.</div>
+<h2><b>C</b> · Icon rail</h2><div class="sub">A slim rail replaces the tabs; each section gets the full window. Home mixes status, latest items and actions.</div>${C}
+<div class="note"><b>For:</b> most room for Messages and Files; looks like a modern desktop app. <b>Against:</b> the biggest rebuild; the navigation changes everywhere.</div>`;
+</script>

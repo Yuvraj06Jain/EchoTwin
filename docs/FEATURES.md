@@ -132,7 +132,14 @@ instead of polling; the window's 1 s timers run only while needed and visible.
 **What:** when Wi-Fi/hotspot is gone, the phone stays connected over Bluetooth; notifications,
 SMS, clipboard keep working; files wait for Wi-Fi.
 
-**How:** after 15 s without Wi-Fi the phone opens an RFCOMM socket to the bonded laptop and runs the same pinned-TLS session over it; QUIC takes over again when it returns.
+**How:** without Wi-Fi the phone opens an RFCOMM socket to the laptop and runs the same
+pinned-TLS session over it; QUIC takes over again when it returns. If the two are paired in
+Bluetooth settings it does so after 15 s; if not, after 2 minutes, with an *insecure*
+RFCOMM socket (no Bluetooth pairing, no popup). The laptop's profile has
+`RequireAuthentication: false` for this. That is safe: the session on top is mutual TLS
+with pinned keys, and pairing is never allowed over the stream (`core/tests/stream.rs`
+`strangers_cannot_use_the_bluetooth_link_even_while_pairing_is_open`). Both devices still
+need Bluetooth switched on; Android 13+ doesn't let an app switch it on.
 
 | Layer | File | Functions |
 |---|---|---|
@@ -141,7 +148,7 @@ SMS, clipboard keep working; files wait for Wi-Fi.
 | Laptop | `desktop/daemon/src/bluetooth.rs` | `register` (BlueZ `ProfileManager1`), `Registered::current_address` |
 | Laptop | `desktop/daemon/src/daemon.rs` | `bluetooth_backup` task, `Request::SetBluetoothBackup` |
 | FFI | `core-ffi/src/lib.rs` | `open_stream`, `StreamPipe::{received, closed}`, trait `StreamSink` |
-| Phone | `android/…/BluetoothBackup.kt` | `onDisconnected` (15 s timer), `onConnected`, RFCOMM socket loop |
+| Phone | `android/…/BluetoothBackup.kt` | `onDisconnected` (15 s timer; `unreachableSince` for the 2-minute unpaired rule), `target`, `open` (secure or insecure socket), `onConnected`, RFCOMM socket loop |
 | UI | `app.js` `renderDevice` ("Connected over Bluetooth"); phone `HomeScreen` warning card; widget header | |
 
 **Settings:** laptop `bluetooth_backup` (Settings → Bluetooth backup). Phone permission

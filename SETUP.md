@@ -216,6 +216,7 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 71 | Drag a file onto the drop tile (or the icon) | it shows the file name, percent and time left; the icon gets a ring that fills as it goes |
 | 72 | Phone Home screen | phone and laptop pictures show the right battery levels; the link says Wi-Fi (green) or Bluetooth (amber); switching the connection off turns it grey and stops the dashes |
 | 73 | Open the EchoTwin window | the sidebar shows the phone and this laptop with their real battery levels and the link (Wi-Fi green / Bluetooth amber / grey when off); Settings → Appearance opacity and blur still work |
+| 74 | On the phone, *forget* the laptop in Bluetooth settings (keep Bluetooth on on both). Turn off the hotspot / leave Wi-Fi | after about 2 minutes the phone connects over Bluetooth by itself, with **no pairing popup** on either device; EchoTwin Settings → Bluetooth backup → Test says "reachable without pairing" |
 
 When something fails, include:
 - the step number
@@ -316,7 +317,7 @@ When something fails, include:
 | Symptom | Fix |
 |---|---|
 | laptop Settings: *Bluetooth backup — not available: no Bluetooth adapter found* | turn Bluetooth on (KDE system tray). `bluetoothctl show` should list a controller |
-| phone shows *Offline · Pair this phone with … in Bluetooth settings first* | pair them in the system Bluetooth settings (EchoTwin never starts pairing itself) |
+| phone shows *Not paired in Bluetooth settings: takes over 2 min after Wi-Fi drops* | normal: the backup works without pairing after 2 minutes; pair them in the system Bluetooth settings for a 15 s takeover (EchoTwin never starts pairing itself) |
 | *Offline · Allow "Nearby devices"* | phone app: tap **Allow Nearby devices** |
 | *Offline · The computer has the Bluetooth backup off* | laptop app → Settings → *Bluetooth backup* on |
 | it never switches to Bluetooth | the backup starts 15 s after Wi-Fi is gone, then retries every 30 s–2 min. Check `journalctl --user -u phonelinkd -n 30` for "connected over Bluetooth" |

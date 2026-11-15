@@ -1215,7 +1215,7 @@
         ${caps.syncDismissals ? switchRow('Dismiss on both devices', 'Clearing a notification here also clears it on your phone, and the other way round.', 'toggle-setting', !!s.syncDismissals, 'data-key="syncDismissals"') : ''}
         ${caps.clipboard ? switchRow('Share clipboard with your phone', 'Text you copy here can be pasted on your phone. Passwords copied from a password manager are never sent.', 'toggle-setting', !!s.clipboardSync, 'data-key="clipboardSync"') : ''}
         ${caps.lockFromPhone ? switchRow('Let your phone lock this computer', 'Adds a Lock computer button to your phone. It can only lock, never unlock.', 'toggle-setting', !!s.allowLock, 'data-key="allowLock"') : ''}
-        ${caps.bluetooth ? switchRow('Bluetooth backup', s.bluetoothBackup && s.bluetoothStatus ? `Not available right now: ${s.bluetoothStatus}.` : 'When Wi-Fi is gone, your phone stays connected over Bluetooth (pair the two in the system Bluetooth settings first). Same encryption as Wi-Fi.', 'toggle-setting', !!s.bluetoothBackup, 'data-key="bluetoothBackup"') : ''}
+        ${caps.bluetooth ? switchRow('Bluetooth backup', s.bluetoothBackup && s.bluetoothStatus ? `Not available right now: ${s.bluetoothStatus}.` : 'When Wi-Fi is gone, your phone stays connected over Bluetooth: after 15 s if the two are paired in Bluetooth settings, after 2 minutes if not. Same encryption as Wi-Fi.', 'toggle-setting', !!s.bluetoothBackup, 'data-key="bluetoothBackup"') : ''}
         ${caps.discoveryToggle ? switchRow('Find my phone on this network', 'Anonymous: nothing that identifies you is broadcast.', 'toggle-setting', !!s.discovery, 'data-key="discovery"') : ''}
       </div>
       ${appearanceSection()}`;

@@ -18,14 +18,18 @@ import java.util.UUID
 import java.util.concurrent.Executors
 
 /**
- * The Bluetooth backup: whenever the computer has been unreachable for 15 seconds, connect to
- * it over Bluetooth (RFCOMM) and run the same encrypted session there. When Wi-Fi comes
- * back, the core switches over and closes the Bluetooth socket.
+ * The Bluetooth backup: when the computer is unreachable over Wi-Fi, connect to it over
+ * Bluetooth (RFCOMM) and run the same encrypted session there. When Wi-Fi comes back, the
+ * core switches over and closes the Bluetooth socket.
  *
- * Only connects to the computer you paired with (its Bluetooth address arrives over the
- * encrypted link), and only if it is already paired in the phone's Bluetooth settings.
- * Needs "Nearby devices" (BLUETOOTH_CONNECT) on Android 12+; never scans, never uses
- * location or audio.
+ * Takes over after 15 s if the two are paired in the phone's Bluetooth settings, and after
+ * 2 minutes if not: then it opens an *insecure* RFCOMM socket (no Bluetooth pairing, no
+ * popup). That is safe because the session on top is mutual TLS with pinned keys, the same
+ * as over Wi-Fi; Bluetooth's own pairing adds nothing we rely on.
+ *
+ * Only connects to the computer you paired EchoTwin with (its Bluetooth address arrives
+ * over the encrypted link). Needs "Nearby devices" (BLUETOOTH_CONNECT) on Android 12+;
+ * never scans, never uses location or audio.
  */
 object BluetoothBackup {
     /** Must match the laptop (desktop/daemon/src/bluetooth.rs PROFILE_UUID / CHANNELS). */
@@ -33,12 +37,19 @@ object BluetoothBackup {
     private val CHANNELS = intArrayOf(22, 23, 24)
     private const val FIRST_TRY_MS = 15_000L
     private const val MAX_WAIT_MS = 120_000L
+    /** Without Bluetooth pairing, wait this long without Wi-Fi before connecting. */
+    const val UNPAIRED_AFTER_MS = 120_000L
 
     private lateinit var app: Context
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "echotwin-bluetooth") }
     private var delay = FIRST_TRY_MS
     @Volatile private var socket: BluetoothSocket? = null
+    /** When the computer stopped being reachable (0 = reachable). Main thread. */
+    @Volatile private var unreachableSince = 0L
+    /** The laptop is paired in Bluetooth settings (null = unknown yet). For the Settings text. */
+    @Volatile var bonded: Boolean? = null
+        private set
 
     /** Why the backup isn't usable right now (shown in the app), or null. */
     @Volatile var problem: String? = null
@@ -62,10 +73,20 @@ object BluetoothBackup {
      * Start watching (the background service started). Also covers starting while the
      * computer is already unreachable, when no "disconnected" event will ever come.
      */
-    fun start() = schedule(FIRST_TRY_MS)
+    fun start() {
+        markUnreachable()
+        schedule(FIRST_TRY_MS)
+    }
 
     /** The computer dropped off: try Bluetooth if it doesn't come back over Wi-Fi soon. */
-    fun onDisconnected() = schedule(FIRST_TRY_MS)
+    fun onDisconnected() {
+        markUnreachable()
+        schedule(FIRST_TRY_MS)
+    }
+
+    private fun markUnreachable() = main.post {
+        if (unreachableSince == 0L) unreachableSince = System.currentTimeMillis()
+    }
 
     /** The network changed: if we're still not connected, look again soon. */
     fun onNetworkChanged() = schedule(FIRST_TRY_MS)
@@ -74,6 +95,7 @@ object BluetoothBackup {
     fun onConnected() = main.post {
         main.removeCallbacks(attempt)
         delay = FIRST_TRY_MS
+        unreachableSince = 0L
     }
 
     private fun schedule(ms: Long) = main.post {
@@ -83,18 +105,31 @@ object BluetoothBackup {
         main.postDelayed(attempt, ms)
     }
 
+    /** Set by [target] when it is only waiting out the 2 minutes: try again right then. */
+    @Volatile private var waitMs = 0L
+
     private fun retryLater() {
+        val wait = waitMs
+        waitMs = 0L
         main.post {
             if (!Prefs.connection(app)) return@post // switched off: stop trying
-            delay = (delay * 2).coerceAtMost(MAX_WAIT_MS)
             main.removeCallbacks(attempt)
-            main.postDelayed(attempt, delay)
+            if (wait > 0) {
+                main.postDelayed(attempt, wait + 500)
+            } else {
+                delay = (delay * 2).coerceAtMost(MAX_WAIT_MS)
+                main.postDelayed(attempt, delay)
+            }
         }
     }
 
-    /** The paired computer and its bonded Bluetooth device, or why not (also sets [problem]). */
+    /**
+     * The paired computer and its Bluetooth device, or why not (also sets [problem]).
+     * `waitForUnpaired`: without Bluetooth pairing, only after [UNPAIRED_AFTER_MS] without
+     * Wi-Fi (the Settings test skips that wait).
+     */
     @SuppressLint("MissingPermission") // checked in allowed()
-    private fun target(link: PhoneLink): Pair<Device, BluetoothDevice>? {
+    private fun target(link: PhoneLink, waitForUnpaired: Boolean = true): Pair<Device, BluetoothDevice>? {
         val computer = link.devices().firstOrNull()
         if (computer == null) {
             problem = "No computer paired"
@@ -121,10 +156,16 @@ object BluetoothBackup {
             problem = "${computer.name} sent an invalid Bluetooth address"
             return null
         }
-        if (device.bondState != BluetoothDevice.BOND_BONDED) {
-            // Connecting would pop up a pairing request: leave that to the user.
-            problem = "Pair this phone with ${computer.name} in Bluetooth settings first"
-            return null
+        val isBonded = device.bondState == BluetoothDevice.BOND_BONDED
+        bonded = isBonded
+        if (!isBonded && waitForUnpaired) {
+            val since = unreachableSince
+            val left = if (since == 0L) UNPAIRED_AFTER_MS else UNPAIRED_AFTER_MS - (System.currentTimeMillis() - since)
+            if (left > 0) {
+                problem = "Not paired in Bluetooth settings: takes over 2 min after Wi-Fi drops"
+                waitMs = left
+                return null
+            }
         }
         return computer to device
     }
@@ -136,15 +177,21 @@ object BluetoothBackup {
     @SuppressLint("MissingPermission")
     private fun open(device: BluetoothDevice): BluetoothSocket {
         app.getSystemService(BluetoothManager::class.java)?.adapter?.cancelDiscovery()
+        // Not paired in Bluetooth settings: an insecure link, so no pairing popup appears.
+        // (The TLS session on top authenticates and encrypts; never call createBond().)
+        val secure = device.bondState == BluetoothDevice.BOND_BONDED
         var last: Exception? = null
         try {
-            return device.createRfcommSocketToServiceRecord(SERVICE).also { it.connect() }
+            val s = if (secure) device.createRfcommSocketToServiceRecord(SERVICE)
+            else device.createInsecureRfcommSocketToServiceRecord(SERVICE)
+            return s.also { it.connect() }
         } catch (e: Exception) {
             last = e
         }
+        val method = if (secure) "createRfcommSocket" else "createInsecureRfcommSocket"
         for (ch in CHANNELS) {
             try {
-                val s = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+                val s = device.javaClass.getMethod(method, Int::class.javaPrimitiveType)
                     .invoke(device, ch) as BluetoothSocket
                 s.connect()
                 return s
@@ -225,11 +272,16 @@ object BluetoothBackup {
             } catch (e: Exception) {
                 return@run "EchoTwin isn't ready yet; try again in a moment"
             }
-            val (computer, device) = target(link) ?: return@run problem ?: "Not ready"
+            val (computer, device) = target(link, waitForUnpaired = false) ?: return@run problem ?: "Not ready"
             try {
                 open(device).close()
                 problem = null
-                "${computer.name} is reachable over Bluetooth ✓ It takes over when Wi-Fi is gone."
+                if (device.bondState == BluetoothDevice.BOND_BONDED) {
+                    "${computer.name} is reachable over Bluetooth ✓ It takes over 15 s after Wi-Fi drops."
+                } else {
+                    "${computer.name} is reachable over Bluetooth without pairing ✓ It takes over 2 min " +
+                        "after Wi-Fi drops (pair them in Bluetooth settings for 15 s)."
+                }
             } catch (e: Exception) {
                 "${computer.name} didn't answer over Bluetooth (${e.javaClass.simpleName}). Check that " +
                     "Bluetooth backup is on in EchoTwin on the computer and that `phonelink status` says ready."

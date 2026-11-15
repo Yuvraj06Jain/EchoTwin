@@ -132,7 +132,11 @@ fun SettingsScreen(state: UiState, actions: Actions, onOpenSetup: () -> Unit, mo
                             when {
                                 dev.phonelink.app.BluetoothBackup.active -> "Connected over Bluetooth now"
                                 !state.access.bluetooth -> "Needs \"Nearby devices\" (Finish setup)"
-                                else -> state.bluetoothProblem ?: "Ready: takes over 15 s after Wi-Fi drops"
+                                else -> state.bluetoothProblem ?: when (dev.phonelink.app.BluetoothBackup.bonded) {
+                                    false -> "Ready without Bluetooth pairing: takes over 2 min after Wi-Fi drops " +
+                                        "(pair them in Bluetooth settings for 15 s)"
+                                    else -> "Ready: takes over 15 s after Wi-Fi drops"
+                                }
                             }
                         )
                     }

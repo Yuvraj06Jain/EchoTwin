@@ -170,7 +170,10 @@ async fn the_phone_reaches_the_laptop_over_bluetooth_when_wifi_is_gone() {
     .expect("profile registered");
     let (sender, path, uuid) = seen.lock().unwrap().registered[0].clone();
     assert_eq!(uuid, PROFILE_UUID);
-    assert!(seen.lock().unwrap().options["RequireAuthentication"].contains("true"));
+    assert!(
+        seen.lock().unwrap().options["RequireAuthentication"].contains("false"),
+        "phones not paired in Bluetooth settings may connect (TLS on top decides)"
+    );
     assert!(
         seen.lock().unwrap().options["Channel"].contains("23"),
         "a fixed channel, the next one when 22 is taken: {:?}",

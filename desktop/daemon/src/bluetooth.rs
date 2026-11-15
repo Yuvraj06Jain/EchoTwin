@@ -1,9 +1,12 @@
 //! The Bluetooth backup link, laptop side: a EchoTwin profile registered with BlueZ.
 //!
-//! BlueZ listens for the phone (RFCOMM, only from devices bonded in the system Bluetooth
-//! settings) and hands each connection to us as a socket; the core then runs the same
-//! mutual-TLS session as over Wi-Fi on it, so a merely Bluetooth-paired device still can't
-//! talk to EchoTwin. The phone only uses it when Wi-Fi is gone.
+//! BlueZ listens for the phone (RFCOMM) and hands each connection to us as a socket; the
+//! core then runs the same mutual-TLS session with pinned fingerprints as over Wi-Fi on it.
+//! Bluetooth-level pairing is not required: it would add nothing (the TLS session decides
+//! who may talk to EchoTwin, and pairing is never allowed over this link), and requiring it
+//! meant the backup only worked after pairing the two in system settings. A stranger can
+//! open the socket but fails the handshake, as on Wi-Fi. The phone only uses it when Wi-Fi
+//! is gone.
 
 use std::collections::HashMap;
 
@@ -128,8 +131,9 @@ pub fn register(
             ("Name", Value::from("EchoTwin")),
             ("Role", Value::from("server")),
             ("Channel", Value::from(channel)),
-            // Only devices paired in the system Bluetooth settings may connect at all.
-            ("RequireAuthentication", Value::from(true)),
+            // No Bluetooth pairing needed: the encrypted session on top authenticates both
+            // sides (see the module comment).
+            ("RequireAuthentication", Value::from(false)),
             ("RequireAuthorization", Value::from(false)),
             ("AutoConnect", Value::from(false)),
         ]);

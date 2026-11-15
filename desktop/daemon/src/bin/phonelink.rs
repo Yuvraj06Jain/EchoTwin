@@ -106,10 +106,13 @@ enum Cmd {
     /// Switch the connection off: disconnect and stop searching until `phonelink on`.
     Off,
     /// Battery saver on or off: fewer background checks (a phone that left is noticed
-    /// ~10 s later and searched for less often).
+    /// ~10 s later and searched for less often). `saver auto 20` turns it on by itself at or
+    /// below 20% battery (`saver auto off` = never).
     Saver {
-        #[arg(value_parser = ["on", "off"])]
+        #[arg(value_parser = ["on", "off", "auto"])]
         state: String,
+        /// With `auto`: a percentage (0–50) or `off`.
+        level: Option<String>,
     },
 }
 
@@ -121,7 +124,8 @@ async fn widget_state(c: &mut Client) -> anyhow::Result<serde_json::Value> {
     let Reply::Status {
         devices,
         connection,
-        battery_saver,
+        saver_active: battery_saver,
+        battery_saver: saver_switch,
         ..
     } = status
     else {
@@ -190,6 +194,7 @@ async fn widget_state(c: &mut Client) -> anyhow::Result<serde_json::Value> {
         "paired": phone.is_some(),
         "connection": connection,
         "battery_saver": battery_saver,
+        "saver_auto": battery_saver && !saver_switch,
         "phone": phone.map(|d| json!({
             "id": d.id, "name": d.name, "connected": d.connected, "via": d.via, "status": d.status,
             "paused_by_peer": d.paused_by_peer,
@@ -362,6 +367,11 @@ fn print_event(e: &WatchEvent) {
         WatchEvent::MediaChanged { id } => println!("media         {id}  playing state changed"),
         WatchEvent::PhoneStatusChanged { id } => println!("status        {id}  battery/network changed"),
         WatchEvent::ComputerBatteryChanged => println!("battery       this computer's battery changed"),
+        WatchEvent::SaverChanged { active, auto } => println!(
+            "saver         {}{}",
+            if *active { "on" } else { "off" },
+            if *auto { " (by itself: battery low)" } else { "" }
+        ),
         WatchEvent::ConnectionChanged { on } => {
             println!("connection    switched {}", if *on { "on" } else { "off" })
         }
@@ -421,6 +431,10 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                     devices,
                     bluetooth_backup,
                     bluetooth_status,
+                    battery_saver,
+                    auto_saver_below,
+                    saver_active,
+                    battery,
                     ..
                 },
             ) = (cli.json, &r)
@@ -434,6 +448,13 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                     (true, why) => format!("not available: {why}"),
                 };
                 println!("  Bluetooth backup: {bt}");
+                let saver = match (saver_active, battery_saver) {
+                    (false, _) => "off".to_string(),
+                    (true, true) => "on".to_string(),
+                    (true, false) => format!("on (by itself, battery {}%)", battery.unwrap_or(0)),
+                };
+                let auto = if *auto_saver_below == 0 { "never".to_string() } else { format!("at {auto_saver_below}% or lower") };
+                println!("  Battery saver: {saver}; turns on by itself: {auto}");
                 println!("Paired devices:");
                 print_devices(devices);
             }
@@ -654,7 +675,27 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 );
             }
         }
-        Cmd::Saver { state } => {
+        Cmd::Saver { state, level } if state == "auto" => {
+            let below = match level.as_deref() {
+                Some("off") | Some("0") => 0,
+                Some(v) => match v.trim_end_matches('%').parse::<u8>() {
+                    Ok(n) if n <= 50 => n,
+                    _ => bail!("give a percentage from 0 to 50, or `off`"),
+                },
+                None => bail!("usage: phonelink saver auto <percent>|off"),
+            };
+            let r = c.request(&Request::SetAutoSaver { below }).await?;
+            fail_on_error(&r)?;
+            show(&r);
+            if !cli.json {
+                if below == 0 {
+                    println!("The battery saver won't turn on by itself.");
+                } else {
+                    println!("The battery saver turns on by itself at {below}% battery or lower.");
+                }
+            }
+        }
+        Cmd::Saver { state, .. } => {
             let on = state == "on";
             let r = c.request(&Request::SetBatterySaver { on }).await?;
             fail_on_error(&r)?;

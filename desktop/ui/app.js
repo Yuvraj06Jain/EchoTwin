@@ -424,7 +424,9 @@
         ${caps.files ? tile('send-file', 'upload', 'Send files') : ''}
         ${d.connected && d.canRing && api.ring ? tile('ring-phone', 'bell', state.ringing ? 'Stop ringing' : 'Ring phone') : ''}
         ${caps.clipboard ? tile('toggle-clipboard', 'clipboard', 'Clipboard', ` role="switch" aria-checked="${clipOn}"`) : ''}
-        ${saverShown ? tile('toggle-setting', 'leaf', 'Saver', ` data-key="batterySaver" role="switch" aria-checked="${state.settings.batterySaver !== false}"`) : ''}
+        ${saverShown ? (state.settings.saverAuto
+          ? tile('toggle-setting', 'leaf', 'Saver · auto', ` data-key="batterySaver" role="switch" aria-checked="true" disabled title="On because this computer's battery is low. It turns off when you plug in (or lower the level in Settings)."`)
+          : tile('toggle-setting', 'leaf', 'Saver', ` data-key="batterySaver" role="switch" aria-checked="${state.settings.batterySaver !== false}"`)) : ''}
       </div>
       <div data-np></div>
       <div class="devices-foot">
@@ -1173,6 +1175,8 @@
   }
   if (api.setBlur) applyAppearance(); // only inside the desktop app
 
+  const autoSaverLabel = (v) => (Number(v) === 0 ? 'Never' : `≤ ${v}%`);
+
   function appearanceSection() {
     if (!api.setBlur) return '';
     return `<div class="sheet-section"><p class="section-label">Appearance</p>
@@ -1210,6 +1214,8 @@
       <div class="sheet-section"><p class="section-label">General</p>
         ${'connection' in s ? switchRow('Connection', 'Off: disconnect from your phone and stop searching for it (nothing runs in the background). Turn on to reconnect.', 'toggle-setting', s.connection !== false, 'data-key="connection"') : ''}
         ${'batterySaver' in s ? switchRow('Battery saver', "Fewer background checks: notices that the phone left ~10 s later and searches less often while it's away.", 'toggle-setting', s.batterySaver !== false, 'data-key="batterySaver"') : ''}
+        ${'autoSaverBelow' in s ? `<div class="row"><div class="grow"><div>Turn on by itself</div><div class="row-desc">When this computer's battery is this low and not charging. It turns off again once you plug in.</div></div>
+          <label class="opacity-ctl"><input type="range" min="0" max="50" step="5" value="${s.autoSaverBelow}" style="--pct:${(s.autoSaverBelow * 2).toFixed(1)}%" data-auto-saver aria-label="Turn the battery saver on by itself below this battery level"><span class="tnum" data-auto-saver-value>${autoSaverLabel(s.autoSaverBelow)}</span></label></div>` : ''}
         ${SWITCH_ROWS.filter(([key]) => key in s).map(([key, title, desc]) => switchRow(title, desc, 'toggle-setting', s[key] !== false, `data-key="${key}"`)).join('')}
         ${switchRow('Desktop notifications', 'Show messages from your phone as system notifications.', 'toggle-setting', !!s.desktopNotifications, 'data-key="desktopNotifications"')}
         ${caps.syncDismissals ? switchRow('Dismiss on both devices', 'Clearing a notification here also clears it on your phone, and the other way round.', 'toggle-setting', !!s.syncDismissals, 'data-key="syncDismissals"') : ''}
@@ -1336,6 +1342,7 @@
     }
     if (seq !== deviceSeq || state.serviceDown) return undefined;
     state.computer = st.computer;
+    if (state.settings && st.saver) Object.assign(state.settings, st.saver);
     state.device = st.device;
     state.devices = st.devices || (st.device ? [st.device] : []);
     renderDevice();
@@ -1358,7 +1365,7 @@
       state.call = ev.phase === 'idle' ? null : { id: ev.id, name: ev.name, phase: ev.phase, caller: ev.caller };
       return renderChrome();
     }
-    if (ev.kind === 'phone_status_changed' || ev.kind === 'computer_battery_changed') return refreshDevice();
+    if (ev.kind === 'phone_status_changed' || ev.kind === 'computer_battery_changed' || ev.kind === 'saver_changed') return refreshDevice();
     if (ev.kind === 'media_changed') return refreshMedia();
     if (ev.kind === 'transfer_changed') return ev.item && upsertTransfer(ev.item);
     if (ev.kind === 'sms_changed') return refreshThreads();
@@ -1691,6 +1698,22 @@
     if (v) v.textContent = `${appearance.opacity}%`;
     applyAppearance();
   });
+
+  // Automatic battery saver level: follow while dragging, save once let go.
+  document.addEventListener('input', (e) => {
+    const t = e.target;
+    if (!(t.matches && t.matches('[data-auto-saver]'))) return;
+    t.style.setProperty('--pct', `${(Number(t.value) * 2).toFixed(1)}%`);
+    const v = t.parentElement.querySelector('[data-auto-saver-value]');
+    if (v) v.textContent = autoSaverLabel(t.value);
+  });
+  document.addEventListener('change', run(async (e) => {
+    if (!(e.target.matches && e.target.matches('[data-auto-saver]'))) return;
+    const below = Number(e.target.value);
+    await api.updateSetting('autoSaverBelow', below);
+    if (state.settings) state.settings.autoSaverBelow = below;
+    await refreshDevice();
+  }));
 
   // Phone volume: follow the slider while dragging, send once it is let go.
   document.addEventListener('input', (e) => {

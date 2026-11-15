@@ -110,11 +110,23 @@ backoff up to 60 s instead of 30 s, and while the phone is away the /24 search r
 3, 6, 12, 24, then every 30 min (back to 3 min after any nudge or connection). The phone's
 own timers never change.
 
+**Turns on by itself:** below a laptop battery level (Settings → General → "Turn on by
+itself", slider 0–50 %, default 20 %, 0 = never; `phonelink saver auto 20|off`; config
+`auto_saver_below`). On at or below the level while not charging, off again above level + 5 %
+or as soon as the charger is in (`battery::auto_saver`, unit-tested). It never changes the
+saved switch; the window's Saver tile and the widget's Saver button read "Saver · auto" and
+can't be switched off while it lasts. A popup says when it turned on. It stays on Wi-Fi:
+moving to Bluetooth would save little or nothing (Wi-Fi stays on for the internet anyway)
+and would stop file transfers.
+
 **How:** `core/src/node.rs` `Timings` (`default`, `battery_saver`) in `NodeConfig.timings`;
 `Node::set_timings` swaps the endpoint's server config (new connections) and the reconnect
 loop reads backoff/search gaps each round (`ProbeClock`). The daemon applies it at start
-(`start_node`) and on `Request::SetBatterySaver`; `Status.battery_saver`. Window:
-`main.rs` `set_battery_saver`, `tauri-api.js` `batterySaver`.
+(`start_node`) and from `State::apply_saver` (start-up, every battery check in
+`battery_watch`, `Request::SetBatterySaver`, `Request::SetAutoSaver`, `Request::Status`);
+`Status.battery_saver` (the switch), `Status.saver_active` (in effect), `auto_saver_below`;
+`WatchEvent::SaverChanged`. Window: `main.rs` `set_battery_saver`, `set_auto_saver`,
+`tauri-api.js` `batterySaver`, `autoSaverBelow`, `saverAuto`.
 
 Always on, regardless of the switch: phone signal-bar-only changes are announced at most every
 10 s (`State::announce_status`); the window redraws only the device panel on
@@ -123,7 +135,7 @@ until woken (no 1 s tick); mDNS address check every 30 s on the laptop; network 
 10 s; clipboard thread sleeps 60 s while Klipper is connected; the widget waits for changes
 instead of polling; the window's 1 s timers run only while needed and visible.
 
-**Tests:** `status.rs` `the_battery_saver_switch_is_saved`, `wobbling_signal_bars_are_announced_rarely`;
+**Tests:** `status.rs` `the_battery_saver_switch_is_saved`, `the_battery_saver_turns_on_by_itself_when_the_laptop_is_low`, `wobbling_signal_bars_are_announced_rarely`; `battery.rs` `the_saver_turns_on_when_low_and_off_with_some_room`;
 `node.rs` `subnet_search_slows_down_only_with_the_battery_saver`; `transfer.rs`
 `the_sender_sleeps_while_idle_and_wakes_for_retries`.
 

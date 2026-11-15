@@ -575,3 +575,50 @@ async fn ringing_both_ways() {
     .unwrap();
     assert!(got.0 && got.1.abs_diff(now()) < 10_000);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_battery_saver_turns_on_by_itself_when_the_laptop_is_low() {
+    // The rig's laptop battery starts at 50%, charging. The saver switch itself is off.
+    let mut rig = setup_with(&[CAP_STATUS], Config { battery_saver: false, auto_saver_below: 20, ..Config::default() }).await;
+    let mut c = Client::connect(&rig.socket).await.unwrap();
+    let saver = |r: Reply| match r {
+        Reply::Status { battery_saver, saver_active, auto_saver_below, .. } => (battery_saver, saver_active, auto_saver_below),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(saver(c.request(&Request::Status).await.unwrap()), (false, false, 20));
+
+    let bat = rig._dir.path().join("power/BAT0");
+    let set = |level: &str, status: &str| {
+        std::fs::write(bat.join("capacity"), level).unwrap();
+        std::fs::write(bat.join("status"), status).unwrap();
+    };
+    set("18", "Discharging");
+    assert_eq!(saver(c.request(&Request::Status).await.unwrap()), (false, true, 20), "on by itself, switch untouched");
+    let ev = timeout(WAIT, async {
+        loop {
+            if let Some(Reply::Event { event: WatchEvent::SaverChanged { active, auto } }) = rig.watch.next().await.unwrap() {
+                return (active, auto);
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(ev, (true, true));
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(
+        rig.popups.try_iter().any(|p| matches!(p, PopupCmd::Show { id, .. } if id == "status/saver")),
+        "a popup says why"
+    );
+
+    // A little above the line: still on (no flapping). Charging: off.
+    set("23", "Discharging");
+    assert!(saver(c.request(&Request::Status).await.unwrap()).1);
+    set("23", "Charging");
+    assert!(!saver(c.request(&Request::Status).await.unwrap()).1);
+
+    // "Never", and out-of-range levels refused.
+    set("10", "Discharging");
+    assert_eq!(c.request(&Request::SetAutoSaver { below: 0 }).await.unwrap(), Reply::Done);
+    assert_eq!(saver(c.request(&Request::Status).await.unwrap()), (false, false, 0));
+    assert!(matches!(c.request(&Request::SetAutoSaver { below: 80 }).await.unwrap(), Reply::Error { .. }));
+}

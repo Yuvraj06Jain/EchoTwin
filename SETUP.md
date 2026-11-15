@@ -217,6 +217,7 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 72 | Phone Home screen | phone and laptop pictures show the right battery levels; the link says Wi-Fi (green) or Bluetooth (amber); switching the connection off turns it grey and stops the dashes |
 | 73 | Open the EchoTwin window | the sidebar shows the phone and this laptop with their real battery levels and the link (Wi-Fi green / Bluetooth amber / grey when off); Settings → Appearance opacity and blur still work |
 | 74 | On the phone, *forget* the laptop in Bluetooth settings (keep Bluetooth on on both). Turn off the hotspot / leave Wi-Fi | after about 2 minutes the phone connects over Bluetooth by itself, with **no pairing popup** on either device; EchoTwin Settings → Bluetooth backup → Test says "reachable without pairing" |
+| 75 | Window → Settings → "Turn on by itself" at 20 %; unplug the laptop and let it run down below 20 % (or set the slider above the current level to try it now) | a popup "Battery saver on"; the Saver tile reads "Saver · auto"; plugging in turns it off again; `phonelink status` shows "on (by itself, battery …%)" |
 
 When something fails, include:
 - the step number

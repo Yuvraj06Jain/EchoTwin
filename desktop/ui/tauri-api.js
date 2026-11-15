@@ -73,6 +73,8 @@
   let bluetoothStatus = '';
   let connection = true;
   let batterySaver = true;
+  let autoSaverBelow = 20;
+  let saverActive = true;
   // Simple on/off settings from the service, by snake_case name (battery_alerts …).
   let switches = {};
   const camel = (n) => n.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
@@ -144,6 +146,8 @@
       bluetoothStatus = s.bluetooth_status || '';
       connection = s.connection !== false;
       batterySaver = s.battery_saver !== false;
+      autoSaverBelow = typeof s.auto_saver_below === 'number' ? s.auto_saver_below : 20;
+      saverActive = s.saver_active !== undefined ? !!s.saver_active : batterySaver;
       switches = s.switches || {};
       const devices = s.devices.map(toDevice);
       const device = devices.find((d) => d.connected) || devices[0] || null;
@@ -152,6 +156,7 @@
         devices,
         device,
         mode: device ? (device.connected ? 'connected' : 'offline') : 'unpaired',
+        saver: { batterySaver, autoSaverBelow, saverAuto: saverActive && !batterySaver },
       };
     },
 
@@ -248,6 +253,8 @@
         bluetoothStatus,
         connection,
         batterySaver,
+        autoSaverBelow,
+        saverAuto: saverActive && !batterySaver,
         ...Object.fromEntries(Object.entries(switches).map(([n, on]) => [camel(n), on])),
         apps: knownApps.map((a) => ({ name: a.app, package: a.package, enabled: !a.muted })),
       };
@@ -277,6 +284,9 @@
       } else if (key === 'batterySaver') {
         await invoke('set_battery_saver', { on: value });
         batterySaver = value;
+      } else if (key === 'autoSaverBelow') {
+        await invoke('set_auto_saver', { below: value });
+        autoSaverBelow = value;
       } else if (snake(key) in switches) {
         await invoke('set_switch', { name: snake(key), on: value });
         switches[snake(key)] = value;

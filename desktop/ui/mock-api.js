@@ -88,6 +88,7 @@
       bluetoothBackup: true,
       connection: true,
       batterySaver: true,
+      autoSaverBelow: 20,
       batteryAlerts: true,
       pauseMediaOnCall: true,
       openLinks: true,

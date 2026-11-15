@@ -83,9 +83,11 @@ Tile {
             onTapped: root.openApp("note")
         }
         Quick {
-            label: "Saver"
+            // On by itself while the laptop's battery is low: shown, but not switchable here.
+            label: root.st.saver_auto ? "Saver · auto" : "Saver"
             iconName: "battery-profile-powersave"
             on: root.st.battery_saver !== false
+            active: !root.st.saver_auto
             onTapped: {
                 var on = root.st.battery_saver === false;
                 root.run(["saver", on ? "on" : "off"]);

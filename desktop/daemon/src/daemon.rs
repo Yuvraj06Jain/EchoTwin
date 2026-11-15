@@ -73,6 +73,12 @@ struct Settings {
     bluetooth: bool,
     connection: bool,
     battery_saver: bool,
+    /// The saver turns on by itself at or below this level (0 = never).
+    auto_saver_below: u8,
+    /// It is on by itself right now (low battery).
+    auto_saver: bool,
+    /// The timings in use are the saver's (switched on or automatic).
+    saver_active: bool,
     /// `config::SWITCHES` by name.
     switches: Config,
 }
@@ -186,6 +192,9 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
             bluetooth: opts.config.bluetooth_backup,
             connection: opts.config.connection,
             battery_saver: opts.config.battery_saver,
+            auto_saver_below: opts.config.auto_saver_below.min(50),
+            auto_saver: false,
+            saver_active: opts.config.battery_saver,
             switches: opts.config.clone(),
         }),
         store: Mutex::new(Store::default()),
@@ -237,6 +246,10 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         "phonelinkd running"
     );
 
+    // A low battery at start-up turns the saver on at once.
+    if let Err(e) = state.apply_saver() {
+        warn!("battery saver: {e}");
+    }
     if !opts.config.connection {
         node.set_paused(true);
         info!("connection is switched off; turn it on in the app or with `phonelink on`");
@@ -436,6 +449,39 @@ impl State {
                 Err(e) => warn!("LAN discovery unavailable, relying on remembered addresses: {e}"),
             }
         }
+    }
+
+    /// Put the right timings in place: the saver is on if switched on, or by itself while
+    /// this computer's battery is low. Announces a change (and a popup when it turned on by
+    /// itself).
+    fn apply_saver(&self) -> Result<(), String> {
+        let battery = crate::battery::read(&self.battery_root);
+        let (active, auto, changed, turned_on_by_itself) = {
+            let mut s = lock(&self.settings);
+            let auto = crate::battery::auto_saver(s.auto_saver, battery, s.auto_saver_below);
+            let turned_on_by_itself = auto && !s.auto_saver && !s.battery_saver;
+            s.auto_saver = auto;
+            let active = s.battery_saver || auto;
+            let changed = active != s.saver_active;
+            s.saver_active = active;
+            (active, auto, changed, turned_on_by_itself)
+        };
+        if !changed {
+            return Ok(());
+        }
+        self.node.set_timings(timings(active)).map_err(|e| e.to_string())?;
+        info!(active, auto, "battery saver");
+        if turned_on_by_itself {
+            let level = battery.map(|b| b.0).unwrap_or(0);
+            self.status_popup(
+                self.notifications_on(),
+                "status/saver".into(),
+                "Battery saver on".into(),
+                format!("This computer's battery is at {level}%. EchoTwin checks less often until it's charging."),
+            );
+        }
+        self.broadcast(WatchEvent::SaverChanged { active, auto });
+        Ok(())
     }
 
     /// "Phone battery low" / "fully charged" popups.
@@ -1362,6 +1408,9 @@ async fn battery_watch(state: Arc<State>) {
     loop {
         tokio::time::sleep(Duration::from_secs(30)).await;
         let now = crate::battery::read(&state.battery_root);
+        if let Err(e) = state.apply_saver() {
+            warn!("battery saver: {e}");
+        }
         if now != last {
             for peer in state.connected_with(CAP_STATUS) {
                 state.send_battery(&peer, now);
@@ -1624,11 +1673,23 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
             }
             Request::SetBatterySaver { on } => {
                 lock(&state.settings).battery_saver = on;
-                let reply = match state.node.set_timings(timings(on)) {
+                let reply = match state.apply_saver() {
                     Ok(()) => state.persist(|c| c.battery_saver = on),
-                    Err(e) => Reply::Error {
-                        message: e.to_string(),
-                    },
+                    Err(message) => Reply::Error { message },
+                };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::SetAutoSaver { below } => {
+                let reply = if below > 50 {
+                    Reply::Error {
+                        message: "the automatic battery saver level must be 50% or lower".into(),
+                    }
+                } else {
+                    lock(&state.settings).auto_saver_below = below;
+                    match state.apply_saver() {
+                        Ok(()) => state.persist(|c| c.auto_saver_below = below),
+                        Err(message) => Reply::Error { message },
+                    }
                 };
                 write_reply(&mut w, &reply).await?;
             }
@@ -1923,9 +1984,11 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                 let node = &state.node;
                 // Read settings first: two `lock()` temporaries in one expression would
                 // deadlock (the first guard lives until the end of the statement).
-                let (allow_lock, bluetooth_backup, battery_saver, switches) = {
+                // Also the moment to catch up on the automatic saver (tests rely on it).
+                let _ = state.apply_saver();
+                let (allow_lock, bluetooth_backup, battery_saver, switches, auto_saver_below, saver_active) = {
                     let s = lock(&state.settings);
-                    (s.allow_lock, s.bluetooth, s.battery_saver, s.switches.switches())
+                    (s.allow_lock, s.bluetooth, s.battery_saver, s.switches.switches(), s.auto_saver_below, s.saver_active)
                 };
                 let bluetooth_status = lock(&state.bt_status).clone();
                 let battery = crate::battery::read(&state.battery_root);
@@ -1944,6 +2007,8 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                     connection: !node.is_paused(),
                     battery_saver,
                     switches,
+                    auto_saver_below,
+                    saver_active,
                     battery: battery.map(|b| b.0),
                     charging: battery.is_some_and(|b| b.1),
                 };

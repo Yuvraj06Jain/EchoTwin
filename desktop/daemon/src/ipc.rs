@@ -145,6 +145,10 @@ pub enum Request {
     SetBatterySaver {
         on: bool,
     },
+    /// Turn the battery saver on by itself at or below this battery level (0 = never, ≤ 50).
+    SetAutoSaver {
+        below: u8,
+    },
     /// One of the simple on/off settings (`config::SWITCHES`), saved to config.toml.
     SetSwitch {
         name: String,
@@ -265,6 +269,11 @@ pub enum WatchEvent {
     },
     /// This computer's battery level or charging changed (ask `Status`).
     ComputerBatteryChanged,
+    /// The battery saver went on or off; `auto`: by itself, because the battery is low.
+    SaverChanged {
+        active: bool,
+        auto: bool,
+    },
     /// The connection switch on this computer changed.
     ConnectionChanged {
         on: bool,
@@ -321,6 +330,12 @@ pub enum Reply {
         /// The simple on/off settings by name (`config::SWITCHES`).
         #[serde(default)]
         switches: BTreeMap<String, bool>,
+        /// The level at which the saver turns on by itself (0 = never).
+        #[serde(default)]
+        auto_saver_below: u8,
+        /// The saver is on right now: switched on, or on by itself because the battery is low.
+        #[serde(default)]
+        saver_active: bool,
         /// This computer's battery (0–100), if it has one.
         #[serde(default)]
         battery: Option<u8>,

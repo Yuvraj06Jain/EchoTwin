@@ -53,6 +53,8 @@ struct StatusDto {
     bluetooth_status: String,
     connection: bool,
     battery_saver: bool,
+    auto_saver_below: u8,
+    saver_active: bool,
     /// Simple on/off settings by name (`config::SWITCHES`).
     switches: std::collections::BTreeMap<String, bool>,
     devices: Vec<DeviceInfo>,
@@ -135,6 +137,8 @@ async fn status() -> Result<StatusDto, String> {
             switches,
             battery,
             charging,
+            auto_saver_below,
+            saver_active,
             ..
         } => Ok(StatusDto {
             computer: Computer { name, id, battery, charging },
@@ -146,6 +150,8 @@ async fn status() -> Result<StatusDto, String> {
             bluetooth_status,
             connection,
             battery_saver,
+            auto_saver_below,
+            saver_active,
             switches,
             devices,
         }),
@@ -328,6 +334,11 @@ async fn expect_sent(req: Request) -> Result<bool, String> {
 #[tauri::command]
 async fn dismiss_notification(id: String) -> Result<(), String> {
     expect_done(Request::DismissNotification { id }).await
+}
+
+#[tauri::command]
+async fn set_auto_saver(below: u8) -> Result<(), String> {
+    expect_done(Request::SetAutoSaver { below }).await
 }
 
 #[tauri::command]
@@ -662,6 +673,7 @@ fn main() {
             ring,
             decline_call,
             set_switch,
+            set_auto_saver,
             clear_notifications,
             reply_notification,
             notification_action,

@@ -77,7 +77,7 @@ function fakeTauri() {
         if (!fake.daemonUp) throw 'daemon-down';
         switch (cmd) {
           case 'status':
-            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66', battery: fake.computerBattery ?? null, charging: true }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, battery_saver: fake.saver !== false, switches: { battery_alerts: fake.alerts !== false, pause_media_on_call: true, open_links: true, allow_ring: true }, devices: fake.devices };
+            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66', battery: fake.computerBattery ?? null, charging: true }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, battery_saver: fake.saver !== false, auto_saver_below: fake.autoBelow ?? 20, saver_active: fake.saverActive ?? (fake.saver !== false), switches: { battery_alerts: fake.alerts !== false, pause_media_on_call: true, open_links: true, allow_ring: true }, devices: fake.devices };
           case 'notifications':
             if (fake.slowNext) {
               // Snapshot the data now, answer late (like a reload that started before news arrived).
@@ -147,6 +147,9 @@ function fakeTauri() {
             return null;
           case 'set_battery_saver':
             fake.saver = args.on;
+            return null;
+          case 'set_auto_saver':
+            fake.autoBelow = args.below;
             return null;
           case 'set_bluetooth_backup':
             fake.bt = args.enabled;
@@ -499,6 +502,15 @@ function fakeTauri() {
   await page.screenshot({ path: `${OUT}/app-5b-appearance.png` });
   await page.click('.sheet [data-action="toggle-blur"]'); // back to the defaults
   check(await page.evaluate(() => localStorage.getItem('phonelink.blur') === 'off'), 'blur switched off again');
+  const autoSlider = '.sheet [data-auto-saver]';
+  check((await page.$eval(autoSlider, (i) => i.value)) === '20', 'auto saver slider shows the level from the service');
+  await page.$eval(autoSlider, (i) => { i.value = '35'; i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.waitForTimeout(250);
+  check((await lastCall('set_auto_saver'))[1].below === 35, 'moving the slider saves the level');
+  check((await txt('.sheet [data-auto-saver-value]')) === '≤ 35%', 'and shows it');
+  await page.$eval(autoSlider, (i) => { i.value = '0'; i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.waitForTimeout(250);
+  check((await txt('.sheet [data-auto-saver-value]')) === 'Never' && (await lastCall('set_auto_saver'))[1].below === 0, '0 = never');
   const saver = '.sheet [data-key="batterySaver"]';
   check((await page.getAttribute(saver, 'aria-checked')) === 'true', 'battery saver switch on (from the service)');
   check((await txt('.sheet')).includes('notices that the phone left ~10 s later'), 'battery saver explained');
@@ -761,6 +773,23 @@ function fakeTauri() {
   await page.click(saverTile);
   await page.waitForTimeout(250);
   check((await lastCall('set_battery_saver'))[1].on === true, 'and back on');
+
+  console.log('Automatic battery saver');
+  await page.evaluate(() => {
+    window.__fake.saver = false;
+    window.__fake.saverActive = true; // on by itself: the laptop battery is low
+    window.__emit('phonelink://event', { kind: 'saver_changed', active: true, auto: true });
+  });
+  await page.waitForTimeout(400);
+  check((await txt(saverTile)).includes('Saver · auto'), 'the tile says the saver is on by itself');
+  check(await page.$eval(saverTile, (b) => b.disabled), 'and cannot be switched off while the battery is low');
+  await page.evaluate(() => {
+    window.__fake.saver = true;
+    delete window.__fake.saverActive;
+    window.__emit('phonelink://event', { kind: 'saver_changed', active: true, auto: false });
+  });
+  await page.waitForTimeout(400);
+  check(!(await txt(saverTile)).includes('auto'), 'back to the plain switch');
   await page.screenshot({ path: 'shots/app-phone-status.png' });
 
   console.log('Connection switch');

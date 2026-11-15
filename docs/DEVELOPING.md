@@ -105,6 +105,7 @@ blur). Use the numbered checklist in [SETUP.md](../SETUP.md).
 | `bluetooth_backup` | true | accept the Bluetooth backup link |
 | `connection` | true | the connection switch (`phonelink on/off`) |
 | `battery_saver` | true | fewer background wake-ups (`phonelink saver on/off`; see FEATURES.md "Battery saver") |
+| `auto_saver_below` | 20 | the battery saver turns on by itself at or below this laptop battery % (0 = never, max 50) |
 | `battery_alerts` | true | popups when the phone's battery is low or full |
 | `open_links` | true | the phone may open web links here |
 | `allow_ring` | true | the phone may ring this computer |

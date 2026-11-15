@@ -34,6 +34,9 @@ pub struct Config {
     /// Fewer background wake-ups: slower keep-alive, and a phone that is away is looked
     /// for less often.
     pub battery_saver: bool,
+    /// The battery saver turns on by itself when this computer's battery is at or below this
+    /// percentage and not charging (off again 5% above it). 0 = never. At most 50.
+    pub auto_saver_below: u8,
     /// Popups when the phone's battery is low or full.
     pub battery_alerts: bool,
     /// Let the phone open web links here ("Open on computer").
@@ -62,6 +65,7 @@ impl Default for Config {
             bluetooth_backup: true,
             connection: true,
             battery_saver: true,
+            auto_saver_below: 20,
             battery_alerts: true,
             open_links: true,
             allow_ring: true,

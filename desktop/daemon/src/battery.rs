@@ -8,6 +8,21 @@ pub const DEFAULT_ROOT: &str = "/sys/class/power_supply";
 /// (level 0–100, charging) of the laptop's own battery; `None` on a computer without one.
 /// Batteries of mice, keyboards and headsets (`scope = Device`) are ignored. With several
 /// laptop batteries the level is the average weighted by capacity when known.
+/// Should the battery saver be on by itself? `was`: it is on by itself now. On at or below
+/// `below`% while not charging; off again above `below + 5`% or once charging (so it doesn't
+/// flap around the line). `below == 0` = never.
+pub fn auto_saver(was: bool, battery: Option<(u8, bool)>, below: u8) -> bool {
+    let Some((level, charging)) = battery else { return false };
+    if below == 0 || charging {
+        return false;
+    }
+    if was {
+        level <= below.saturating_add(5)
+    } else {
+        level <= below
+    }
+}
+
 pub fn read(root: &Path) -> Option<(u8, bool)> {
     let mut entries: Vec<_> = std::fs::read_dir(root).ok()?.flatten().collect();
     entries.sort_by_key(|e| e.file_name());
@@ -37,6 +52,19 @@ pub fn read(root: &Path) -> Option<(u8, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_saver_turns_on_when_low_and_off_with_some_room() {
+        let mut on = false;
+        let mut seen = vec![];
+        for (level, charging) in [(40, false), (21, false), (20, false), (23, false), (25, false), (26, false), (19, false), (19, true), (15, false)] {
+            on = auto_saver(on, Some((level, charging)), 20);
+            seen.push(on);
+        }
+        assert_eq!(seen, [false, false, true, true, true, false, true, false, true]);
+        assert!(!auto_saver(true, Some((5, false)), 0), "0 = never");
+        assert!(!auto_saver(false, None, 20), "no battery (desktop PC)");
+    }
 
     fn supply(root: &Path, name: &str, files: &[(&str, &str)]) {
         let d = root.join(name);

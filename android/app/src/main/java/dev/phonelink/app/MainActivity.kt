@@ -72,6 +72,7 @@ class MainActivity : ComponentActivity() {
     private var batteryAlertsOn by mutableStateOf(true)
     /** The Remote screen and the full-screen presenter (volume keys = clicker there). */
     private var remoteOpen by mutableStateOf(false)
+    private var approvalKey by mutableStateOf<String?>(null)
     private var presenting by mutableStateOf(false)
     private var pairedOnDisk by mutableStateOf(false)
 
@@ -153,6 +154,7 @@ class MainActivity : ComponentActivity() {
                     myNetwork = mine.network,
                     computerMedia = computerMedia,
                     commands = commands,
+                    approvalKey = approvalKey,
                     connectionOn = connectionOn,
                     busy = busy,
                     bluetoothProblem = BluetoothBackup.problem,
@@ -216,6 +218,33 @@ class MainActivity : ComponentActivity() {
         override fun lock() = LinkManager.lockComputer()
         override fun ring(on: Boolean) = LinkManager.ringComputer(on)
         override fun openRemote() { remoteOpen = true }
+
+        override fun setupApproval() {
+            if (!Approver.canUse(this@MainActivity)) {
+                notice = "Set up a fingerprint in the phone's settings first"
+                return
+            }
+            val key = try {
+                Approver.enroll()
+            } catch (e: Exception) {
+                notice = "Couldn't create the key: ${e.message}"
+                return
+            }
+            val fp = Approver.fingerprint(key)
+            approvalKey = fp
+            LinkManager.approveEnroll(key) { r ->
+                notice = r.fold(
+                    { name -> "Sent to $name. On it, run: sudo ./packaging/sudo-approval.sh install and check it shows $fp" },
+                    { e -> "Key made, but not sent: ${e.message}. Connect and press Set up again." },
+                )
+            }
+        }
+
+        override fun removeApproval() {
+            Approver.remove()
+            approvalKey = null
+            notice = "Removed. On the computer, run: sudo ./packaging/sudo-approval.sh uninstall"
+        }
         override fun openPresenter() { presenting = true }
         override fun computerMedia(command: dev.phonelink.core.MediaCommand) = LinkManager.computerMedia(command)
         override fun runCommand(id: String) = LinkManager.runCommand(id)
@@ -276,6 +305,7 @@ class MainActivity : ComponentActivity() {
         clipboardOn = Prefs.clipboardSharing(this)
         queueOn = Prefs.queueNotifications(this)
         batteryAlertsOn = Prefs.batteryAlerts(this)
+        approvalKey = Approver.publicKey()?.let(Approver::fingerprint)
         pairedOnDisk = LinkManager.hasPairedDevice(this)
         smsOn = SmsSync.canRead()
         bluetoothOn = BluetoothBackup.allowed()

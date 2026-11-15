@@ -95,6 +95,7 @@
       autoSaverBelow: 20,
       allowCommands: true,
       presentationRemote: true,
+      phoneApproval: true,
       batteryAlerts: true,
       pauseMediaOnCall: true,
       openLinks: true,

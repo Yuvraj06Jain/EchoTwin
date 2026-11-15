@@ -49,6 +49,9 @@ pub struct Config {
     pub allow_commands: bool,
     /// Let the phone act as a presentation clicker (five keys only).
     pub presentation_remote: bool,
+    /// Pass `sudo` approval requests to the phone (only a messenger: the root-owned checker
+    /// decides; switching this off only disables it).
+    pub phone_approval: bool,
     /// Your own buttons for the phone's Remote screen: a name, and a shell command run here.
     /// Only the names go to the phone.
     pub commands: Vec<CommandEntry>,
@@ -79,6 +82,7 @@ impl Default for Config {
             pause_media_on_call: true,
             allow_commands: true,
             presentation_remote: true,
+            phone_approval: true,
             commands: vec![
                 CommandEntry { name: "Suspend".into(), run: "systemctl suspend".into() },
                 CommandEntry { name: "Mute / unmute".into(), run: "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle".into() },
@@ -127,7 +131,7 @@ pub fn check_commands(items: &[CommandEntry]) -> Result<(), String> {
 }
 
 /// Simple on/off settings, set with `Request::SetSwitch` and listed in `Reply::Status`.
-pub const SWITCHES: &[&str] = &["battery_alerts", "open_links", "allow_ring", "pause_media_on_call", "allow_commands", "presentation_remote"];
+pub const SWITCHES: &[&str] = &["battery_alerts", "open_links", "allow_ring", "pause_media_on_call", "allow_commands", "presentation_remote", "phone_approval"];
 
 impl Config {
     pub fn switch(&self, name: &str) -> Option<bool> {
@@ -138,6 +142,7 @@ impl Config {
             "pause_media_on_call" => self.pause_media_on_call,
             "allow_commands" => self.allow_commands,
             "presentation_remote" => self.presentation_remote,
+            "phone_approval" => self.phone_approval,
             _ => return None,
         })
     }
@@ -151,6 +156,7 @@ impl Config {
             "pause_media_on_call" => &mut self.pause_media_on_call,
             "allow_commands" => &mut self.allow_commands,
             "presentation_remote" => &mut self.presentation_remote,
+            "phone_approval" => &mut self.phone_approval,
             _ => return false,
         };
         *slot = on;

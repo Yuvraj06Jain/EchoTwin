@@ -16,3 +16,9 @@ if [[ "${1:-}" == "--purge" ]]; then
 else
   echo "Removed EchoTwin. Data kept in $DATA/phonelink (use --purge to delete)."
 fi
+
+# The sudo approval is root-level and separate: say so if it is still set up.
+if grep -qF echotwin-sudo-approve /etc/pam.d/sudo 2>/dev/null; then
+    echo "Note: sudo approval with the phone is still set up. Remove it with:"
+    echo "  sudo ./packaging/sudo-approval.sh uninstall"
+fi

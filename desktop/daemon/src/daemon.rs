@@ -140,6 +140,9 @@ struct State {
     presenter: crate::present::Presenter,
     /// What plays on this computer (for phones with `remote/1`).
     computer_media: Mutex<Option<phonelink_core::NowPlaying>>,
+    data_dir: PathBuf,
+    /// `sudo` approvals waiting for the phone, by request id.
+    approve_waits: Mutex<HashMap<String, ApproveWait>>,
     /// Contact searches waiting for the phone's answer, by request number.
     contact_waits: Mutex<HashMap<u32, tokio::sync::oneshot::Sender<Vec<phonelink_core::Contact>>>>,
     next_contact_req: std::sync::atomic::AtomicU32,
@@ -159,6 +162,15 @@ async fn computer_media(
             let _ = state.to_phone(&peer, AppMessage::ComputerNowPlaying(now.clone()));
         }
     }
+}
+
+/// Where a relayed approval's answer goes: (approved, signature).
+type ApproveWait = tokio::sync::oneshot::Sender<(bool, Vec<u8>)>;
+
+/// Base64 in 64-column lines, for a PEM file.
+fn pem_body(der: &[u8]) -> String {
+    let b64 = base64::engine::general_purpose::STANDARD.encode(der);
+    b64.as_bytes().chunks(64).map(|l| format!("{}\n", String::from_utf8_lossy(l))).collect()
 }
 
 /// The "this computer is ringing" popup.
@@ -249,6 +261,8 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         computer_media: Mutex::new(None),
         presenter: crate::present::Presenter::start(opts.buses.session.clone(), opts.data_dir.join("remote-control.token")),
         contact_waits: Mutex::new(HashMap::new()),
+        approve_waits: Mutex::new(HashMap::new()),
+        data_dir: opts.data_dir.clone(),
         next_contact_req: std::sync::atomic::AtomicU32::new(1),
         commands: Mutex::new(opts.config.commands.clone()),
         call_pause: crate::mpris::CallPause::start(opts.buses.session.clone()),
@@ -323,7 +337,7 @@ async fn start_node(
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
         cfg.timings = timings(opts.config.battery_saver);
         cfg.capabilities.extend(
-            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS, phonelink_core::CAP_REMOTE, phonelink_core::CAP_CONTACTS, phonelink_core::CAP_PRESENT]
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS, phonelink_core::CAP_REMOTE, phonelink_core::CAP_CONTACTS, phonelink_core::CAP_PRESENT, phonelink_core::CAP_APPROVE]
                 .map(String::from),
         );
         match Node::start(cfg).await {
@@ -982,6 +996,66 @@ impl State {
 
     /// Ask the phone to send an SMS now. Not queued: a text sent hours later, when the
     /// phone happens to reconnect, would be a surprise.
+    /// The phone sent its approval key: keep it for the root-owned setup script to install
+    /// (`sudo ./packaging/sudo-approval.sh install`). Nothing trusts it until then.
+    fn approve_enroll(&self, peer: Fingerprint, der: &[u8]) {
+        // An X.509 SubjectPublicKeyInfo is a DER SEQUENCE.
+        if der.is_empty() || der.len() > phonelink_core::message::MAX_APPROVE_KEY || der[0] != 0x30 {
+            warn!("ignored a malformed approval key from the phone");
+            return;
+        }
+        let path = self.data_dir.join("approve-pending.pem");
+        let pem = format!("-----BEGIN PUBLIC KEY-----\n{}-----END PUBLIC KEY-----\n", pem_body(der));
+        if let Err(e) = std::fs::write(&path, pem) {
+            warn!("could not save the phone's approval key: {e}");
+            return;
+        }
+        let name = self.name_of(&peer);
+        self.status_popup(
+            true,
+            format!("status/approve/{}", peer.short()),
+            format!("{name}'s approval key received"),
+            "Finish in a terminal: sudo ./packaging/sudo-approval.sh install (in the EchoTwin folder).".into(),
+        );
+    }
+
+    /// `phonelink approve-relay`: ask the phone, wait for its signature.
+    async fn approve_relay(&self, what: &str, host: &str, nonce_hex: &str, timeout_secs: u64) -> Result<Vec<u8>, String> {
+        use phonelink_core::message::{valid_approve_text, valid_nonce};
+        if !self.switch_on("phone_approval") {
+            return Err("approving with the phone is switched off".into());
+        }
+        if !valid_nonce(nonce_hex) || !valid_approve_text(what) || !valid_approve_text(host) {
+            return Err("malformed approval request".into());
+        }
+        let fp = self
+            .connected_with(phonelink_core::CAP_APPROVE)
+            .into_iter()
+            .next()
+            .ok_or("no phone connected that can approve")?;
+        let id: String = phonelink_core::MsgId::random().0[..8].iter().map(|b| format!("{b:02x}")).collect();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        lock(&self.approve_waits).insert(id.clone(), tx);
+        let msg = AppMessage::ApproveRequest {
+            id: id.clone(),
+            what: what.into(),
+            host: host.into(),
+            nonce_hex: nonce_hex.into(),
+            sent_ms: now_ms(),
+        };
+        if let Err(e) = self.to_phone(&fp, msg) {
+            lock(&self.approve_waits).remove(&id);
+            return Err(e);
+        }
+        let answer = tokio::time::timeout(Duration::from_secs(timeout_secs.clamp(1, 60)), rx).await;
+        lock(&self.approve_waits).remove(&id);
+        match answer {
+            Ok(Ok((true, sig))) if !sig.is_empty() => Ok(sig),
+            Ok(Ok(_)) => Err("denied on the phone".into()),
+            _ => Err("no answer from the phone".into()),
+        }
+    }
+
     /// A new conversation from the computer: thread 0, the phone sends to `address`.
     fn send_sms_to(&self, device: Option<&str>, address: &str, text: &str) -> Result<String, String> {
         let text = text.trim_end();
@@ -1540,6 +1614,19 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     }
                     continue;
                 }
+                AppMessage::ApproveResponse { id, approved, signature } => {
+                    if signature.len() <= phonelink_core::message::MAX_APPROVE_SIGNATURE {
+                        if let Some(tx) = lock(&state.approve_waits).remove(&id) {
+                            let _ = tx.send((approved, signature));
+                        }
+                    }
+                    continue;
+                }
+                AppMessage::ApproveEnroll { public_key } => {
+                    state.approve_enroll(peer, &public_key);
+                    continue;
+                }
+                AppMessage::ApproveRequest { .. } => continue, // only computer → phone
                 AppMessage::PresentKey { key, sent_ms } => {
                     use phonelink_core::message::{is_fresh, PRESENT_MAX_AGE_MS};
                     let refused = if !state.has_cap(&peer, phonelink_core::CAP_PRESENT) {
@@ -2249,6 +2336,13 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                             message: e.to_string(),
                         },
                     },
+                    Err(message) => Reply::Error { message },
+                };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::ApproveRelay { what, host, nonce_hex, timeout_secs } => {
+                let reply = match state.approve_relay(&what, &host, &nonce_hex, timeout_secs.unwrap_or(30)).await {
+                    Ok(sig) => Reply::ApproveSignature { hex: sig.iter().map(|b| format!("{b:02x}")).collect() },
                     Err(message) => Reply::Error { message },
                 };
                 write_reply(&mut w, &reply).await?;

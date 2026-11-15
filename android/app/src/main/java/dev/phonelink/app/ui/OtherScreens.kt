@@ -122,6 +122,23 @@ fun SettingsScreen(state: UiState, actions: Actions, onOpenSetup: () -> Unit, mo
                 ) { actions.setBatteryAlerts(it) }
             }
         }
+        item { SectionTitle("Approve sudo with fingerprint") }
+        item {
+            Panel {
+                Hint(
+                    state.approvalKey?.let { "Set up · key $it. When the computer runs sudo, approve here with your fingerprint; the computer shows a code to compare. The password always still works." }
+                        ?: "Approve sudo on the computer with your fingerprint instead of typing the password. Set up here, then once on the computer: sudo ./packaging/sudo-approval.sh install"
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = actions::setupApproval) {
+                        Text(if (state.approvalKey == null) "Set up" else "Set up again", color = Pl.AccentText)
+                    }
+                    if (state.approvalKey != null) {
+                        TextButton(onClick = actions::removeApproval) { Text("Remove", color = Pl.Muted) }
+                    }
+                }
+            }
+        }
         item { SectionTitle("Bluetooth backup") }
         item {
             Panel {

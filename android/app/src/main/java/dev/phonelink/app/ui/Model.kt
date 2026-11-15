@@ -30,6 +30,8 @@ data class UiState(
     /** What plays on the computer (Remote screen), and its own buttons. */
     val computerMedia: dev.phonelink.core.PhoneMedia? = null,
     val commands: List<dev.phonelink.core.RemoteButton> = emptyList(),
+    /** The sudo approval key's fingerprint (XXXX-XXXX-…), null when not set up. */
+    val approvalKey: String? = null,
     /** The connection switch (off: disconnected, nothing searching). */
     val connectionOn: Boolean,
     val busy: Boolean,
@@ -44,6 +46,8 @@ interface Actions {
     fun lock()
     fun ring(on: Boolean)
     fun openRemote()
+    fun setupApproval()
+    fun removeApproval()
     fun openPresenter()
     fun computerMedia(command: dev.phonelink.core.MediaCommand)
     fun runCommand(id: String)

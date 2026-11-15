@@ -747,9 +747,15 @@ internal object IntegrityCheckingUniffiLib {
     }
 
     internal fun ensureInitialized() = Unit
+    external fun uniffi_phonelink_ffi_checksum_func_approve_message(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_eventlistener_on_event(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_filesource_open(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_approve_enroll(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_approve_response(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_cancel_transfer(
     ): Int
@@ -886,6 +892,10 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_phonelink_ffi_fn_constructor_phonelink_start(`dataDir`: RustBuffer.ByValue,`deviceName`: RustBuffer.ByValue,`listener`: Long,`files`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_approve_enroll(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`publicKey`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_approve_response(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`requestId`: RustBuffer.ByValue,`approved`: Byte,`signature`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_cancel_transfer(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_clear_transfers(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -984,6 +994,8 @@ internal object UniffiLib {
     ): Byte
     external fun uniffi_phonelink_ffi_fn_method_streamsink_close_link(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_phonelink_ffi_fn_func_approve_message(`what`: RustBuffer.ByValue,`host`: RustBuffer.ByValue,`nonceHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun ffi_phonelink_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun ffi_phonelink_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1103,10 +1115,19 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 }
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
+    if ((lib.uniffi_phonelink_ffi_checksum_func_approve_message() and 0xFFFF) != 57879) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_phonelink_ffi_checksum_method_eventlistener_on_event() and 0xFFFF) != 10404) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_filesource_open() and 0xFFFF) != 34556) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_approve_enroll() and 0xFFFF) != 13113) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_approve_response() and 0xFFFF) != 3125) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_cancel_transfer() and 0xFFFF) != 19790) {
@@ -2392,6 +2413,17 @@ public object FfiConverterTypeFileSource: FfiConverter<FileSource, Long> {
 public interface PhoneLinkInterface {
     
     /**
+     * Send this phone's approval public key (X.509 SubjectPublicKeyInfo, DER) to the
+     * computer, to be installed there by the root-owned setup script.
+     */
+    fun `approveEnroll`(`deviceId`: kotlin.String?, `publicKey`: kotlin.ByteArray): kotlin.String
+    
+    /**
+     * The answer to `ApproveRequested`: the signature (DER) when approved, empty when denied.
+     */
+    fun `approveResponse`(`deviceId`: kotlin.String, `requestId`: kotlin.String, `approved`: kotlin.Boolean, `signature`: kotlin.ByteArray)
+    
+    /**
      * Stop a transfer on both devices.
      */
     fun `cancelTransfer`(`id`: kotlin.String)
@@ -2701,6 +2733,46 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
             UniffiLib.uniffi_phonelink_ffi_fn_clone_phonelink(handle, status)
         }
     }
+
+    
+    /**
+     * Send this phone's approval public key (X.509 SubjectPublicKeyInfo, DER) to the
+     * computer, to be installed there by the root-owned setup script.
+     */
+    @Throws(LinkException::class)override fun `approveEnroll`(`deviceId`: kotlin.String?, `publicKey`: kotlin.ByteArray): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_approve_enroll(
+        it,
+        
+        FfiConverterOptionalString.lower(`deviceId`),
+        FfiConverterByteArray.lower(`publicKey`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The answer to `ApproveRequested`: the signature (DER) when approved, empty when denied.
+     */
+    @Throws(LinkException::class)override fun `approveResponse`(`deviceId`: kotlin.String, `requestId`: kotlin.String, `approved`: kotlin.Boolean, `signature`: kotlin.ByteArray)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_approve_response(
+        it,
+        
+        FfiConverterString.lower(`deviceId`),
+        FfiConverterString.lower(`requestId`),
+        FfiConverterBoolean.lower(`approved`),
+        FfiConverterByteArray.lower(`signature`),_status)
+}
+    }
+    
+    
 
     
     /**
@@ -4205,6 +4277,11 @@ data class Device (
     var `canPresent`: kotlin.Boolean
     , 
     /**
+     * Connected, and can ask this phone to approve `sudo`.
+     */
+    var `canApprove`: kotlin.Boolean
+    , 
+    /**
      * "wifi" or "bluetooth" while connected; empty when offline.
      */
     var `via`: kotlin.String
@@ -4250,6 +4327,7 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalUByte.read(buf),
@@ -4268,6 +4346,7 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.allocationSize(value.`canRing`) +
             FfiConverterBoolean.allocationSize(value.`canRemote`) +
             FfiConverterBoolean.allocationSize(value.`canPresent`) +
+            FfiConverterBoolean.allocationSize(value.`canApprove`) +
             FfiConverterString.allocationSize(value.`via`) +
             FfiConverterOptionalString.allocationSize(value.`bluetooth`) +
             FfiConverterOptionalUByte.allocationSize(value.`battery`) +
@@ -4285,6 +4364,7 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.write(value.`canRing`, buf)
             FfiConverterBoolean.write(value.`canRemote`, buf)
             FfiConverterBoolean.write(value.`canPresent`, buf)
+            FfiConverterBoolean.write(value.`canApprove`, buf)
             FfiConverterString.write(value.`via`, buf)
             FfiConverterOptionalString.write(value.`bluetooth`, buf)
             FfiConverterOptionalUByte.write(value.`battery`, buf)
@@ -5046,6 +5126,26 @@ sealed class LinkEvent {
     }
     
     /**
+     * The computer asks to approve `what` (e.g. "sudo") on `host`. Show `code` and ask for a
+     * fingerprint; sign `approve_message(what, host, nonce_hex)`; answer with
+     * `approve_response(id, request_id, …)`. Already checked to be recent and well formed.
+     */
+    data class ApproveRequested(
+        val `id`: kotlin.String, 
+        val `name`: kotlin.String, 
+        val `requestId`: kotlin.String, 
+        val `what`: kotlin.String, 
+        val `host`: kotlin.String, 
+        val `nonceHex`: kotlin.String, 
+        val `code`: kotlin.String) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
      * The computer searches this phone's contacts (New message). Answer with
      * `contacts_result(id, req, …)` (at most 20).
      */
@@ -5268,53 +5368,62 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            12 -> LinkEvent.ContactsRequested(
+            12 -> LinkEvent.ApproveRequested(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                )
+            13 -> LinkEvent.ContactsRequested(
                 FfiConverterString.read(buf),
                 FfiConverterUInt.read(buf),
                 FfiConverterString.read(buf),
                 )
-            13 -> LinkEvent.ComputerMedia(
+            14 -> LinkEvent.ComputerMedia(
                 FfiConverterString.read(buf),
                 FfiConverterOptionalTypePhoneMedia.read(buf),
                 )
-            14 -> LinkEvent.RemoteCommands(
+            15 -> LinkEvent.RemoteCommands(
                 FfiConverterString.read(buf),
                 FfiConverterSequenceTypeRemoteButton.read(buf),
                 )
-            15 -> LinkEvent.CallDeclineRequested(
+            16 -> LinkEvent.CallDeclineRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            16 -> LinkEvent.RingRequested(
+            17 -> LinkEvent.RingRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterBoolean.read(buf),
                 )
-            17 -> LinkEvent.ClipboardReceived(
+            18 -> LinkEvent.ClipboardReceived(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            18 -> LinkEvent.MediaControlRequested(
+            19 -> LinkEvent.MediaControlRequested(
                 FfiConverterString.read(buf),
                 FfiConverterTypeMediaCommand.read(buf),
                 )
-            19 -> LinkEvent.SmsSendRequested(
+            20 -> LinkEvent.SmsSendRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            20 -> LinkEvent.SmsOlderRequested(
+            21 -> LinkEvent.SmsOlderRequested(
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterULong.read(buf),
                 )
-            21 -> LinkEvent.TransferChanged(
+            22 -> LinkEvent.TransferChanged(
                 FfiConverterTypeFileTransfer.read(buf),
                 )
-            22 -> LinkEvent.RequestResult(
+            23 -> LinkEvent.RequestResult(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
@@ -5420,6 +5529,19 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 + FfiConverterString.allocationSize(value.`id`)
                 + FfiConverterString.allocationSize(value.`name`)
                 + FfiConverterString.allocationSize(value.`url`)
+            )
+        }
+        is LinkEvent.ApproveRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterString.allocationSize(value.`name`)
+                + FfiConverterString.allocationSize(value.`requestId`)
+                + FfiConverterString.allocationSize(value.`what`)
+                + FfiConverterString.allocationSize(value.`host`)
+                + FfiConverterString.allocationSize(value.`nonceHex`)
+                + FfiConverterString.allocationSize(value.`code`)
             )
         }
         is LinkEvent.ContactsRequested -> {
@@ -5597,53 +5719,64 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.write(value.`url`, buf)
                 Unit
             }
-            is LinkEvent.ContactsRequested -> {
+            is LinkEvent.ApproveRequested -> {
                 buf.putInt(12)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterString.write(value.`name`, buf)
+                FfiConverterString.write(value.`requestId`, buf)
+                FfiConverterString.write(value.`what`, buf)
+                FfiConverterString.write(value.`host`, buf)
+                FfiConverterString.write(value.`nonceHex`, buf)
+                FfiConverterString.write(value.`code`, buf)
+                Unit
+            }
+            is LinkEvent.ContactsRequested -> {
+                buf.putInt(13)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterUInt.write(value.`req`, buf)
                 FfiConverterString.write(value.`query`, buf)
                 Unit
             }
             is LinkEvent.ComputerMedia -> {
-                buf.putInt(13)
+                buf.putInt(14)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterOptionalTypePhoneMedia.write(value.`media`, buf)
                 Unit
             }
             is LinkEvent.RemoteCommands -> {
-                buf.putInt(14)
+                buf.putInt(15)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterSequenceTypeRemoteButton.write(value.`items`, buf)
                 Unit
             }
             is LinkEvent.CallDeclineRequested -> {
-                buf.putInt(15)
+                buf.putInt(16)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`key`, buf)
                 Unit
             }
             is LinkEvent.RingRequested -> {
-                buf.putInt(16)
+                buf.putInt(17)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterBoolean.write(value.`on`, buf)
                 Unit
             }
             is LinkEvent.ClipboardReceived -> {
-                buf.putInt(17)
+                buf.putInt(18)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`text`, buf)
                 Unit
             }
             is LinkEvent.MediaControlRequested -> {
-                buf.putInt(18)
+                buf.putInt(19)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterTypeMediaCommand.write(value.`command`, buf)
                 Unit
             }
             is LinkEvent.SmsSendRequested -> {
-                buf.putInt(19)
+                buf.putInt(20)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`clientId`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
@@ -5652,19 +5785,19 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 Unit
             }
             is LinkEvent.SmsOlderRequested -> {
-                buf.putInt(20)
+                buf.putInt(21)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
                 FfiConverterULong.write(value.`beforeMs`, buf)
                 Unit
             }
             is LinkEvent.TransferChanged -> {
-                buf.putInt(21)
+                buf.putInt(22)
                 FfiConverterTypeFileTransfer.write(value.`transfer`, buf)
                 Unit
             }
             is LinkEvent.RequestResult -> {
-                buf.putInt(22)
+                buf.putInt(23)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`key`, buf)
@@ -6230,4 +6363,20 @@ public object FfiConverterSequenceTypeRemoteButton: FfiConverterRustBuffer<List<
         }
     }
 }
+        /**
+         * The exact bytes to sign when approving (identical to the computer's checker).
+         */ fun `approveMessage`(`what`: kotlin.String, `host`: kotlin.String, `nonceHex`: kotlin.String): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_func_approve_message(
+    
+        
+        FfiConverterString.lower(`what`),
+        FfiConverterString.lower(`host`),
+        FfiConverterString.lower(`nonceHex`),_status)
+}
+    )
+    }
+    
+
 

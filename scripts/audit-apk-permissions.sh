@@ -18,6 +18,7 @@ android.permission.RECEIVE_BOOT_COMPLETED
 android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
 android.permission.POST_NOTIFICATIONS
 android.permission.VIBRATE
+android.permission.USE_BIOMETRIC
 android.permission.CAMERA
 android.permission.READ_SMS
 android.permission.SEND_SMS

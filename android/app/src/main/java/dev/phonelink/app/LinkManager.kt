@@ -151,6 +151,14 @@ object LinkManager {
     }
 
     fun computerMedia(command: dev.phonelink.core.MediaCommand) = remote { it.computerMediaControl(null, command) }
+    fun approveResponse(device: String, requestId: String, approved: Boolean, signature: ByteArray) =
+        remote { it.approveResponse(device, requestId, approved, signature) }
+
+    /** Send this phone's approval key to the computer. Returns the computer's name. */
+    fun approveEnroll(publicKey: ByteArray, done: (Result<String>) -> Unit) = io.execute {
+        val r = runCatching { link().approveEnroll(null, publicKey) }
+        main.post { done(r) }
+    }
     fun runCommand(id: String) = remote { it.runCommand(null, id) }
     fun presentKey(key: dev.phonelink.core.PresentKeyFfi) = remote { it.presentKey(null, key) }
 
@@ -317,6 +325,12 @@ object LinkManager {
                     _computerMedia.value = null
                 }
                 is LinkEvent.ComputerMedia -> _computerMedia.value = event.media
+                is LinkEvent.ApproveRequested -> if (Approver.enrolled()) {
+                    Notifications.approve(app, event.id, event.name, event.requestId, event.what, event.host, event.nonceHex, event.code)
+                } else {
+                    // Not set up here: say no at once, so the computer asks for the password.
+                    approveResponse(event.id, event.requestId, false, ByteArray(0))
+                }
                 is LinkEvent.ContactsRequested -> io.execute {
                     runCatching { link().contactsResult(event.id, event.req, SmsSync.searchContacts(event.query)) }
                 }

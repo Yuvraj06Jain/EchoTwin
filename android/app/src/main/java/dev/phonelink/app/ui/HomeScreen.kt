@@ -1,5 +1,19 @@
 package dev.phonelink.app.ui
 
+import android.graphics.Bitmap
+import android.os.Build
+import androidx.compose.foundation.Image
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import dev.phonelink.core.MediaCommand
+import dev.phonelink.core.PhoneMedia
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -97,6 +111,11 @@ fun HomeScreen(state: UiState, actions: Actions, onOpenSetup: () -> Unit, modifi
                 )
             }
             item { ConnectionTile(main, state, actions) }
+            state.computerMedia?.let { media ->
+                if (main.connected && main.canRemote) {
+                    item { ComputerMusicCard(main.name, media, state.computerArt, state.computerPlayedMs, actions) }
+                }
+            }
             if (bluetooth) {
                 item {
                     WarnCard(
@@ -209,9 +228,6 @@ private fun ActionGrid(d: Device, state: UiState, actions: Actions, onNote: () -
         add { m -> ActionTile("Clipboard", Icons.Filled.Share, d.canClipboard && state.clipboardOn, m, actions::sendClipboard) }
         add { m -> ActionTile("Send files", Icons.AutoMirrored.Filled.Send, !bluetooth, m, actions::sendFiles) }
         add { m -> ActionTile("Note", Icons.Filled.Edit, true, m, onNote) }
-        if (d.canRemote) {
-            add { m -> ActionTile("Remote", Icons.Filled.PlayArrow, true, m, actions::openRemote) }
-        }
         if (d.canRing) {
             add { m ->
                 ActionTile(if (ringing) "Stop" else "Ring", Icons.Filled.Notifications, true, m) {
@@ -219,6 +235,12 @@ private fun ActionGrid(d: Device, state: UiState, actions: Actions, onNote: () -
                     actions.ring(ringing)
                 }
             }
+        }
+        if (d.canMute) {
+            add { m -> ActionTile("Mute", null, true, m, glyph = "🔇") { actions.computerMedia(MediaCommand.ToggleMute) } }
+        }
+        if (d.canRemote && state.commands.isNotEmpty()) {
+            add { m -> ActionTile("My buttons", Icons.AutoMirrored.Filled.List, true, m, onClick = actions::openButtons) }
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -228,6 +250,104 @@ private fun ActionGrid(d: Device, state: UiState, actions: Actions, onNote: () -
                 repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
+        // Always its own last row, as wide as three tiles.
+        if (d.canPresent) PresentationTile(actions::openPresenter)
+    }
+}
+
+/** The full-width Presentation tile. */
+@Composable
+private fun PresentationTile(onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        color = Pl.Panel,
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, Pl.Edge),
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconSquare(Icons.Filled.PlayArrow, Pl.AccentText)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text("Presentation", fontWeight = FontWeight.SemiBold)
+                Text("Clicker and pointer", fontSize = 12.sp, color = Pl.Muted)
+            }
+        }
+    }
+}
+
+/** Something played on the computer within this long: the card stays (paused) so you can resume. */
+private const val MUSIC_CARD_MS = 5 * 60_000L
+
+/**
+ * What plays on the computer, under the Connection tile, with the album cover blurred behind
+ * it. Shown while playing and for 5 minutes after it last played.
+ */
+@Composable
+private fun ComputerMusicCard(computer: String, m: PhoneMedia, art: Bitmap?, playedMs: Long, actions: Actions) {
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(m, playedMs) {
+        now = System.currentTimeMillis()
+        if (!m.playing) {
+            val left = MUSIC_CARD_MS - (now - playedMs)
+            if (left > 0) delay(left)
+            now = System.currentTimeMillis()
+        }
+    }
+    if (!m.playing && now - playedMs >= MUSIC_CARD_MS) return
+    val shape = RoundedCornerShape(18.dp)
+    Box(Modifier.fillMaxWidth().clip(shape).border(BorderStroke(1.dp, Pl.Edge), shape)) {
+        val cover = art?.asImageBitmap()
+        if (cover != null) {
+            val blurred = if (Build.VERSION.SDK_INT >= 31) Modifier.blur(24.dp) else Modifier.alpha(0.35f)
+            Image(cover, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize().then(blurred))
+            Box(Modifier.matchParentSize().background(Brush.horizontalGradient(listOf(Color(0xE6111417), Color(0x99111417)))))
+        } else {
+            Box(Modifier.matchParentSize().background(Brush.linearGradient(listOf(Pl.AccentSoft, Pl.Panel))))
+        }
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).background(Pl.AccentSoft),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (cover != null) {
+                        Image(cover, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                    } else {
+                        Text("♪", color = Pl.AccentText, fontSize = 20.sp)
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(m.title.ifBlank { m.app }, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        listOf("Playing on $computer", m.app).filter { it.isNotBlank() }.joinToString(" · "),
+                        fontSize = 12.sp, color = Pl.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RoundKey("−", small = true) { actions.computerMedia(MediaCommand.VolumeDown) }
+                RoundKey("⏮", small = true, enabled = m.canPrevious) { actions.computerMedia(MediaCommand.Previous) }
+                RoundKey(if (m.playing) "❚❚" else "▶", accent = true) { actions.computerMedia(MediaCommand.PlayPause) }
+                RoundKey("⏭", small = true, enabled = m.canNext) { actions.computerMedia(MediaCommand.Next) }
+                RoundKey("+", small = true) { actions.computerMedia(MediaCommand.VolumeUp) }
+            }
+        }
+    }
+}
+
+/** A tinted rounded square holding a text glyph (for symbols the core icon set lacks). */
+@Composable
+private fun GlyphSquare(glyph: String, tint: Color) {
+    Box(
+        Modifier.size(36.dp).background(tint.copy(alpha = 0.16f), RoundedCornerShape(10.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(glyph, fontSize = 17.sp, color = tint)
     }
 }
 
@@ -275,7 +395,14 @@ private fun ShowChip(label: String, on: Boolean, modifier: Modifier, onClick: ()
 }
 
 @Composable
-private fun ActionTile(label: String, icon: ImageVector, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun ActionTile(
+    label: String,
+    icon: ImageVector?,
+    enabled: Boolean,
+    modifier: Modifier,
+    glyph: String? = null,
+    onClick: () -> Unit,
+) {
     val tint = if (enabled) Pl.AccentText else Pl.Muted.copy(alpha = 0.5f)
     Surface(
         modifier = modifier.clickable(enabled = enabled, onClick = onClick),
@@ -288,7 +415,7 @@ private fun ActionTile(label: String, icon: ImageVector, enabled: Boolean, modif
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            IconSquare(icon, tint)
+            if (icon != null) IconSquare(icon, tint) else GlyphSquare(glyph ?: "", tint)
             Text(label, fontSize = 12.sp, color = if (enabled) Pl.Text else Pl.Muted, maxLines = 1)
         }
     }

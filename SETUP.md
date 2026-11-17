@@ -218,13 +218,17 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 73 | Open the EchoTwin window | the sidebar shows the phone and this laptop with their real battery levels and the link (Wi-Fi green / Bluetooth amber / grey when off); Settings → Appearance opacity and blur still work |
 | 74 | On the phone, *forget* the laptop in Bluetooth settings (keep Bluetooth on on both). Turn off the hotspot / leave Wi-Fi | after about 2 minutes the phone connects over Bluetooth by itself, with **no pairing popup** on either device; EchoTwin Settings → Bluetooth backup → Test says "reachable without pairing" |
 | 75 | Window → Settings → "Turn on by itself" at 20 %; unplug the laptop and let it run down below 20 % (or set the slider above the current level to try it now) | a popup "Battery saver on"; the Saver tile reads "Saver · auto"; plugging in turns it off again; `phonelink status` shows "on (by itself, battery …%)" |
-| 76 | Play something on the laptop (YouTube in Firefox, Spotify…); phone Home → **Remote** | title and player shown; previous / play-pause / next and − / + work; pausing on the laptop updates the phone within a second |
-| 77 | Remote → press **Mute / unmute** | the laptop mutes; a popup "… ran: Mute / unmute"; Settings → Phone buttons can add, remove and switch them off |
-| 78 | Open a presentation (LibreOffice Impress, or a PDF full screen); Remote → **Start presenting** → Next | the first time KDE asks to allow remote control: allow it; the slide moves; volume down/up also move; after restarting EchoTwin it works without asking again |
+| 76 | Play something on the laptop (YouTube in Firefox, Spotify…); look at phone Home | a music card under Connection shows the title and player; previous / play-pause / next and − / + work; pausing on the laptop updates the phone within a second |
+| 77 | Laptop window → Settings → Phone buttons: add one (e.g. `notify-send hi`); phone Home → **My buttons** → press it | it runs on the laptop; a popup "… ran: …"; with no buttons the My buttons tile is gone |
+| 78 | Open a presentation (LibreOffice Impress); phone Home → **Presentation** → **▶ Start**, then Next | the first time KDE asks to allow remote control: allow it; the slide moves; volume down/up also move; after restarting EchoTwin it works without asking again |
 | 79 | Window → Messages → **New**, type part of a contact's name | contacts from the phone are suggested; pick one, type, Ctrl+Enter: the SMS is sent and the conversation appears |
 | 85 | Send a WhatsApp chat with five or more messages (or a long Gmail) to the phone | the laptop popup and the window show every line, as the pulled-down notification on the phone does; line breaks are kept |
 | 86 | Phone: Home → **Note** → send "hello"; on the laptop popup press **Copy**, paste somewhere | "hello" is pasted; the phone's clipboard did not change |
 | 87 | Laptop: send a note to the phone; on the phone press **Copy** in its notification, and the ⎘ next to it on Home | both put the note on the phone's clipboard |
+| 88 | Play a YouTube video in Firefox or Chrome on the laptop | the phone's music card shows the video's picture blurred behind it and as the small cover (Spotify: no picture, by design); pause it and wait 5 minutes: the card goes |
+| 89 | Phone Home → **Mute** | the laptop mutes; press again: unmutes |
+| 90 | Open a Canva presentation in the browser; phone Home → **Presentation** → chip **Canva · Ctrl+Alt+P** → **▶ Start** | Canva starts presenting; the button now reads **■ End** (red); Next/Previous move; **■ End** leaves the presentation. If Ctrl+Alt+P does nothing in your Canva, try **Full screen · F11** |
+| 91 | Same with Google Slides (chip **Google Slides · Ctrl+F5**) and PowerPoint / Impress (F5) | each starts and ends; Previous and Next are the same size |
 
 When something fails, include:
 - the step number

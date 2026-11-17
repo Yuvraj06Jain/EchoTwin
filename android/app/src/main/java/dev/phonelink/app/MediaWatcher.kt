@@ -259,6 +259,7 @@ object MediaWatcher {
             is MediaCommand.VolumeUp -> adjustVolume(c, AudioManager.ADJUST_RAISE)
             is MediaCommand.VolumeDown -> adjustVolume(c, AudioManager.ADJUST_LOWER)
             is MediaCommand.SetVolume -> setVolume(c, command.level.toInt())
+            is MediaCommand.ToggleMute -> Unit // only ever sent to the computer
         }
         schedule()
     }

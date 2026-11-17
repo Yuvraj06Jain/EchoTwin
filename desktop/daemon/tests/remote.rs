@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-use phonelink_core::{AppMessage, Event, Fingerprint, MediaAction, Node, NodeConfig, PairingOffer, CAP_REMOTE};
+use phonelink_core::{AppMessage, Event, Fingerprint, MediaAction, Node, NodeConfig, PairingOffer, CAP_MUTE, CAP_REMOTE, CAP_REMOTE_ART};
 use phonelink_desktop::{
     client::Client,
     config::{CommandEntry, Config},
@@ -54,6 +54,7 @@ struct PlayerState {
     status: String,
     title: String,
     presses: Vec<String>,
+    art_url: String,
 }
 
 #[derive(Clone)]
@@ -77,10 +78,14 @@ impl Player {
     #[zbus(property)]
     fn metadata(&self) -> HashMap<String, zbus::zvariant::OwnedValue> {
         let s = self.0.lock().unwrap();
-        HashMap::from([
+        let mut m = HashMap::from([
             ("xesam:title".to_string(), zbus::zvariant::Value::from(s.title.clone()).try_into().unwrap()),
             ("xesam:artist".to_string(), zbus::zvariant::Value::from(vec!["Chillhop".to_string()]).try_into().unwrap()),
-        ])
+        ]);
+        if !s.art_url.is_empty() {
+            m.insert("mpris:artUrl".to_string(), zbus::zvariant::Value::from(s.art_url.clone()).try_into().unwrap());
+        }
+        m
     }
     #[zbus(property)]
     fn can_go_next(&self) -> bool {
@@ -103,7 +108,7 @@ impl Root {
 }
 
 fn player(bus: &str, status: &str, title: &str) -> (Player, zbus::blocking::Connection) {
-    let p = Player(Arc::new(Mutex::new(PlayerState { status: status.into(), title: title.into(), presses: vec![] })));
+    let p = Player(Arc::new(Mutex::new(PlayerState { status: status.into(), title: title.into(), presses: vec![], art_url: String::new() })));
     let c = zbus::blocking::connection::Builder::address(bus)
         .unwrap()
         .name("org.mpris.MediaPlayer2.vlc")
@@ -151,7 +156,15 @@ async fn setup_caps(bus: &str, caps: &[&str]) -> Rig {
     let opts = DaemonOptions {
         data_dir: dir.path().join("data"),
         socket: socket.clone(),
-        config: Config { port: 0, discovery: false, ..Config::default() },
+        config: Config {
+            port: 0,
+            discovery: false,
+            commands: vec![
+                CommandEntry { name: "Suspend".into(), run: "systemctl suspend".into() },
+                CommandEntry { name: "Mute / unmute".into(), run: "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle".into() },
+            ],
+            ..Config::default()
+        },
         config_path: Some(dir.path().join("config.toml")),
         popups: Some(Popups::recording().0),
         buses: Buses { session: Some(bus.to_string()), system: Buses::unreachable().system },
@@ -263,6 +276,11 @@ async fn the_phone_sees_and_controls_what_plays_on_the_laptop() {
     rig.send(AppMessage::ComputerMediaControl { action: MediaAction::VolumeUp });
     eventually("volume up", || rig.effects.log.lock().unwrap().iter().any(|l| l == "volume 5%+")).await;
 
+    // Mute is for phones with mute/1 only (this one has just remote/1).
+    rig.send(AppMessage::ComputerMediaControl { action: MediaAction::ToggleMute });
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(!rig.effects.take().iter().any(|l| l == "mute"), "no mute without mute/1");
+
     // The player quits: nothing plays.
     drop(vlc_conn);
     rig.phone_waits_for("player gone", |m| matches!(m, AppMessage::ComputerNowPlaying(None)).then_some(())).await;
@@ -350,4 +368,63 @@ async fn presentation_keys_are_refused_when_late_or_switched_off() {
     rig.send(AppMessage::PresentKey { key: phonelink_core::PresentKeyKind::Next, sent_ms: now_ms() });
     let msg = rig.phone_waits_for("no portal", refused).await;
     assert!(!msg.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_laptops_album_art_reaches_the_phone_before_the_track_and_mute_works() {
+    let Some(bus) = private_bus() else {
+        eprintln!("dbus-daemon not installed; skipping");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let png = dir.path().join("cover.png");
+    image::RgbImage::from_pixel(300, 300, image::Rgb([200, 40, 90])).save(&png).unwrap();
+    let (vlc, vlc_conn) = player(&bus.address, "Playing", "Lo-fi beats");
+    vlc.0.lock().unwrap().art_url = format!("file://{}", png.display());
+    let mut rig = setup_caps(&bus.address, &[CAP_REMOTE, CAP_MUTE, CAP_REMOTE_ART]).await;
+
+    // On connect: the art first, then the track that names it.
+    let mut art_key = None;
+    let track = timeout(WAIT, async {
+        loop {
+            if let Some(Event::Message { body, .. }) = rig.phone_rx.recv().await {
+                match AppMessage::decode(&body) {
+                    AppMessage::MediaArt { key, image } => {
+                        assert!(phonelink_core::message::is_art_image(&image));
+                        art_key = Some(key);
+                    }
+                    AppMessage::ComputerNowPlaying(Some(n)) if !n.art_key.is_empty() || art_key.is_some() => return n,
+                    _ => {}
+                }
+            }
+        }
+    })
+    .await
+    .expect("art and track");
+    assert_eq!(Some(track.art_key.clone()), art_key, "the art came first, with the track's key");
+    assert_eq!(track.art_key.len(), 16);
+
+    // Art only from the web: no picture is sent, the track has no art key.
+    vlc.0.lock().unwrap().art_url = "https://i.scdn.co/image/ab67".into();
+    vlc.0.lock().unwrap().title = "Next song".into();
+    changed(&vlc_conn);
+    let got = timeout(WAIT, async {
+        let mut arts = 0;
+        loop {
+            if let Some(Event::Message { body, .. }) = rig.phone_rx.recv().await {
+                match AppMessage::decode(&body) {
+                    AppMessage::MediaArt { .. } => arts += 1,
+                    AppMessage::ComputerNowPlaying(Some(n)) if n.title == "Next song" => return (arts, n.art_key),
+                    _ => {}
+                }
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(got, (0, String::new()));
+
+    // The Mute tile.
+    rig.send(AppMessage::ComputerMediaControl { action: MediaAction::ToggleMute });
+    eventually("muted", || rig.effects.log.lock().unwrap().iter().any(|l| l == "mute")).await;
 }

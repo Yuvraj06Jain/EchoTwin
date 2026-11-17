@@ -19,7 +19,7 @@ your messages in memory only.
 
 ### Features
 
-- **Notifications** from the phone as desktop popups: reply, tap their buttons, dismiss
+- **Notifications** from the phone as desktop popups, the whole message: reply, tap their buttons, dismiss
 - **SMS**: read and reply to text messages from the laptop, with contact names
 - **File sharing** both ways: drag and drop, share sheet, Dolphin menu; resumes after drops
 - **Clipboard**: copy on one device, paste on the other
@@ -29,8 +29,10 @@ your messages in memory only.
 - **KDE panel widget**: a little phone in your panel; click for everything, drop files on it
 - **One-time codes**: "Copy 482913" right on the laptop popup
 - **Calls**: "Mom is calling" on the laptop with Decline; laptop music pauses during the call
+- **Notes** both ways, with a Copy button
 - **Open links** on the other device, **ring** a lost phone or laptop, **battery alerts**
-- **Remote**: control the laptop's music and your own buttons from the phone; a **presentation clicker** (volume keys too)
+- **Laptop music on the phone's Home** with the album cover, a **Mute** tile and **My buttons** (your own commands)
+- **Presentation clicker** for PowerPoint, Impress, Google Slides and Canva: one Start/End button, volume keys too
 - **New SMS** from the laptop with contact search; battery saver that turns on by itself when the laptop runs low
 - **Notes** between the devices
 - **Stays connected** after reboots, new IPs and sleep, with Bluetooth backup when Wi-Fi is gone

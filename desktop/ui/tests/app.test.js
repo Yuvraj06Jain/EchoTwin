@@ -538,6 +538,7 @@ function fakeTauri() {
   check((await txt('.sheet [data-auto-saver-value]')) === 'Never' && (await lastCall('set_auto_saver'))[1].below === 0, '0 = never');
   console.log('Phone buttons');
   check((await txt('.sheet')).includes('Phone buttons') && (await txt('.sheet [data-command="0"]')).includes('systemctl suspend'), 'phone buttons listed with their commands');
+  check((await txt('.sheet')).includes('Shown on the phone under My buttons'), 'the buttons are said to be under My buttons on the phone');
   await page.fill('.command-form [name="name"]', 'Lock screen');
   await page.fill('.command-form [name="run"]', 'loginctl lock-session');
   await page.click('.command-form button[type="submit"]');

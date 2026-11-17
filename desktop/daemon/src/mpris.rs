@@ -138,7 +138,8 @@ fn player_prop(c: &Connection, player: &str, name: &str) -> Option<zbus::zvarian
     proxy.get(PLAYER.try_into().ok()?, name).ok()
 }
 
-fn now_playing(c: &Connection, player: &str) -> Option<phonelink_core::NowPlaying> {
+/// What plays, and its `mpris:artUrl` (empty if none). `art_key` is left empty here.
+fn now_playing(c: &Connection, player: &str) -> Option<(phonelink_core::NowPlaying, String)> {
     use zbus::zvariant::OwnedValue;
     let status = status(c, player)?;
     if status == "Stopped" {
@@ -154,7 +155,8 @@ fn now_playing(c: &Connection, player: &str) -> Option<phonelink_core::NowPlayin
         .unwrap_or_default();
     let flag = |k: &str| player_prop(c, player, k).and_then(|v| bool::try_from(v).ok()).unwrap_or(false);
     let cut = |s: String, n: usize| phonelink_core::message::truncate_text(&s, n);
-    Some(phonelink_core::NowPlaying {
+    let art_url = text("mpris:artUrl");
+    Some((phonelink_core::NowPlaying {
         app: cut(identity(c, player), 60),
         package: String::new(),
         title: cut(text("xesam:title"), 200),
@@ -168,7 +170,30 @@ fn now_playing(c: &Connection, player: &str) -> Option<phonelink_core::NowPlayin
         volume: 0,
         max_volume: 0,
         art_key: String::new(),
-    })
+    }, art_url))
+}
+
+/// Album art for the phone: (key, small JPEG).
+pub type Art = (String, Vec<u8>);
+
+/// Makes art once per picture file (by path, size and change time), not on every signal.
+#[derive(Default)]
+struct ArtCache {
+    seen: Option<(String, Option<(u64, std::time::SystemTime)>)>,
+    art: Option<Art>,
+}
+
+impl ArtCache {
+    fn get(&mut self, url: &str) -> Option<Art> {
+        let path = crate::art::art_path(url);
+        let stamp = path.as_ref().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| Some((m.len(), m.modified().ok()?)));
+        let id = (url.to_string(), stamp);
+        if self.seen.as_ref() != Some(&id) {
+            self.art = path.and_then(|p| crate::art::thumbnail(&p)).map(|jpeg| (crate::art::key(&jpeg), jpeg));
+            self.seen = Some(id);
+        }
+        self.art.clone()
+    }
 }
 
 /// The player that counts: one that is playing, else `prefer` (the last one shown) if it is
@@ -186,8 +211,8 @@ pub fn active_player(c: &Connection, prefer: Option<&str>) -> Option<String> {
 }
 
 /// Watches the session bus for players appearing, going and changing (signals only, no
-/// polling) and reports what plays whenever it changes.
-pub fn watch(bus: Option<String>, tx: tokio::sync::mpsc::UnboundedSender<Option<phonelink_core::NowPlaying>>) {
+/// polling) and reports what plays, with its album art, whenever it changes.
+pub fn watch(bus: Option<String>, tx: tokio::sync::mpsc::UnboundedSender<(Option<phonelink_core::NowPlaying>, Option<Art>)>) {
     std::thread::Builder::new()
         .name("phonelink-mpris-watch".into())
         .spawn(move || {
@@ -234,12 +259,20 @@ pub fn watch(bus: Option<String>, tx: tokio::sync::mpsc::UnboundedSender<Option<
             drop(tick_tx);
             let mut shown: Option<String> = None;
             let mut last: Option<Option<phonelink_core::NowPlaying>> = None;
+            let mut cache = ArtCache::default();
             loop {
                 let player = active_player(&c, shown.as_deref());
-                let now = player.as_deref().and_then(|p| now_playing(&c, p));
+                let (now, art) = match player.as_deref().and_then(|p| now_playing(&c, p)) {
+                    Some((mut now, url)) => {
+                        let art = cache.get(&url);
+                        now.art_key = art.as_ref().map(|a| a.0.clone()).unwrap_or_default();
+                        (Some(now), art)
+                    }
+                    None => (None, None),
+                };
                 shown = player;
                 if last.as_ref() != Some(&now) {
-                    if tx.send(now.clone()).is_err() {
+                    if tx.send((now.clone(), art)).is_err() {
                         return;
                     }
                     last = Some(now);
@@ -255,12 +288,14 @@ pub fn watch(bus: Option<String>, tx: tokio::sync::mpsc::UnboundedSender<Option<
         .expect("spawn mpris watch thread");
 }
 
-/// Play/pause, next, previous on the active player; volume of the default output.
-pub fn control(bus: &Option<String>, action: phonelink_core::MediaAction, volume: &dyn Fn(&str) -> bool) -> Result<(), String> {
+/// Play/pause, next, previous on the active player; volume and mute of the default output.
+pub fn control(bus: &Option<String>, action: phonelink_core::MediaAction, effects: &dyn crate::effects::Effects) -> Result<(), String> {
     use phonelink_core::MediaAction::*;
+    let done = |ok: bool, what: &str| if ok { Ok(()) } else { Err(format!("couldn't {what}")) };
     match action {
-        VolumeUp => return if volume("5%+") { Ok(()) } else { Err("couldn't change the volume".into()) },
-        VolumeDown => return if volume("5%-") { Ok(()) } else { Err("couldn't change the volume".into()) },
+        VolumeUp => return done(effects.volume("5%+"), "change the volume"),
+        VolumeDown => return done(effects.volume("5%-"), "change the volume"),
+        ToggleMute => return done(effects.mute_toggle(), "mute the computer"),
         SetVolume(_) => return Ok(()), // the phone shows − / + for the computer
         _ => {}
     }

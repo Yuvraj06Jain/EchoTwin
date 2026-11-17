@@ -84,10 +84,7 @@ impl Default for Config {
             allow_commands: true,
             presentation_remote: true,
             phone_approval: None,
-            commands: vec![
-                CommandEntry { name: "Suspend".into(), run: "systemctl suspend".into() },
-                CommandEntry { name: "Mute / unmute".into(), run: "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle".into() },
-            ],
+            commands: vec![],
             power_supply_dir: None,
         }
     }
@@ -174,7 +171,15 @@ impl Config {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         match std::fs::read_to_string(path) {
             Ok(text) => {
-                toml::from_str(&text).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))
+                let mut c: Self = toml::from_str(&text).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
+                // The two buttons older versions added by themselves: Suspend is gone, and
+                // Mute is now its own tile on the phone. Buttons the user made stay.
+                let old = |e: &CommandEntry| {
+                    (e.name == "Suspend" && e.run == "systemctl suspend")
+                        || (e.name == "Mute / unmute" && e.run == "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle")
+                };
+                c.commands.retain(|e| !old(e));
+                Ok(c)
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(anyhow::anyhow!("{}: {e}", path.display())),
@@ -215,6 +220,33 @@ mod tests {
         );
         std::fs::write(&p, "prot = 1\n").unwrap();
         assert!(Config::load(&p).is_err(), "typos are reported, not ignored");
+    }
+
+    #[test]
+    fn the_old_default_buttons_are_dropped_but_own_buttons_stay() {
+        assert!(Config::default().commands.is_empty());
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("c.toml");
+        std::fs::write(
+            &p,
+            r#"
+[[commands]]
+name = "Suspend"
+run = "systemctl suspend"
+[[commands]]
+name = "Mute / unmute"
+run = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+[[commands]]
+name = "Suspend"
+run = "systemctl hibernate"
+[[commands]]
+name = "Lab VPN"
+run = "nmcli con up lab"
+"#,
+        )
+        .unwrap();
+        let names: Vec<_> = Config::load(&p).unwrap().commands.into_iter().map(|c| c.run).collect();
+        assert_eq!(names, ["systemctl hibernate", "nmcli con up lab"]);
     }
 
     #[test]

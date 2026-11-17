@@ -138,6 +138,12 @@ object LinkManager {
     /** What plays on the computer and its own buttons, for the Remote screen. */
     private val _computerMedia = MutableStateFlow<PhoneMedia?>(null)
     val computerMedia: StateFlow<PhoneMedia?> = _computerMedia
+    /** The computer's album art: (key, picture). Matches `computerMedia.artKey` when current. */
+    private val _computerArt = MutableStateFlow<Pair<String, android.graphics.Bitmap>?>(null)
+    val computerArt: StateFlow<Pair<String, android.graphics.Bitmap>?> = _computerArt
+    /** When something last played on the computer (ms), so a paused player hides after a while. */
+    private val _computerPlayedMs = MutableStateFlow(0L)
+    val computerPlayedMs: StateFlow<Long> = _computerPlayedMs
     private val _commands = MutableStateFlow<List<dev.phonelink.core.RemoteButton>>(emptyList())
     val commands: StateFlow<List<dev.phonelink.core.RemoteButton>> = _commands
 
@@ -316,7 +322,14 @@ object LinkManager {
                     BluetoothBackup.onDisconnected()
                     _computerMedia.value = null
                 }
-                is LinkEvent.ComputerMedia -> _computerMedia.value = event.media
+                is LinkEvent.ComputerMedia -> {
+                    _computerMedia.value = event.media
+                    if (event.media?.playing == true) _computerPlayedMs.value = System.currentTimeMillis()
+                }
+                is LinkEvent.ComputerMediaArt -> {
+                    val bmp = android.graphics.BitmapFactory.decodeByteArray(event.image, 0, event.image.size)
+                    if (bmp != null) _computerArt.value = event.key to bmp
+                }
                 is LinkEvent.ContactsRequested -> io.execute {
                     runCatching { link().contactsResult(event.id, event.req, SmsSync.searchContacts(event.query)) }
                 }

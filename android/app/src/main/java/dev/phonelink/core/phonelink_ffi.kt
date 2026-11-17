@@ -4205,6 +4205,16 @@ data class Device (
     var `canPresent`: kotlin.Boolean
     , 
     /**
+     * Connected, and takes the per-app start keys (Google Slides, Canva, full screen).
+     */
+    var `canPresentApps`: kotlin.Boolean
+    , 
+    /**
+     * Connected, and can be muted from here.
+     */
+    var `canMute`: kotlin.Boolean
+    , 
+    /**
      * "wifi" or "bluetooth" while connected; empty when offline.
      */
     var `via`: kotlin.String
@@ -4250,6 +4260,8 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalUByte.read(buf),
@@ -4268,6 +4280,8 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.allocationSize(value.`canRing`) +
             FfiConverterBoolean.allocationSize(value.`canRemote`) +
             FfiConverterBoolean.allocationSize(value.`canPresent`) +
+            FfiConverterBoolean.allocationSize(value.`canPresentApps`) +
+            FfiConverterBoolean.allocationSize(value.`canMute`) +
             FfiConverterString.allocationSize(value.`via`) +
             FfiConverterOptionalString.allocationSize(value.`bluetooth`) +
             FfiConverterOptionalUByte.allocationSize(value.`battery`) +
@@ -4285,6 +4299,8 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.write(value.`canRing`, buf)
             FfiConverterBoolean.write(value.`canRemote`, buf)
             FfiConverterBoolean.write(value.`canPresent`, buf)
+            FfiConverterBoolean.write(value.`canPresentApps`, buf)
+            FfiConverterBoolean.write(value.`canMute`, buf)
             FfiConverterString.write(value.`via`, buf)
             FfiConverterOptionalString.write(value.`bluetooth`, buf)
             FfiConverterOptionalUByte.write(value.`battery`, buf)
@@ -5074,6 +5090,21 @@ sealed class LinkEvent {
     }
     
     /**
+     * The computer's album art (a small JPEG or PNG), for `ComputerMedia` whose `art_key`
+     * is `key`. Arrives before that `ComputerMedia`.
+     */
+    data class ComputerMediaArt(
+        val `id`: kotlin.String, 
+        val `key`: kotlin.String, 
+        val `image`: kotlin.ByteArray) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
      * The computer's own buttons for the Remote screen.
      */
     data class RemoteCommands(
@@ -5277,44 +5308,49 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.read(buf),
                 FfiConverterOptionalTypePhoneMedia.read(buf),
                 )
-            14 -> LinkEvent.RemoteCommands(
+            14 -> LinkEvent.ComputerMediaArt(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterByteArray.read(buf),
+                )
+            15 -> LinkEvent.RemoteCommands(
                 FfiConverterString.read(buf),
                 FfiConverterSequenceTypeRemoteButton.read(buf),
                 )
-            15 -> LinkEvent.CallDeclineRequested(
+            16 -> LinkEvent.CallDeclineRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            16 -> LinkEvent.RingRequested(
+            17 -> LinkEvent.RingRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterBoolean.read(buf),
                 )
-            17 -> LinkEvent.ClipboardReceived(
+            18 -> LinkEvent.ClipboardReceived(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            18 -> LinkEvent.MediaControlRequested(
+            19 -> LinkEvent.MediaControlRequested(
                 FfiConverterString.read(buf),
                 FfiConverterTypeMediaCommand.read(buf),
                 )
-            19 -> LinkEvent.SmsSendRequested(
+            20 -> LinkEvent.SmsSendRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            20 -> LinkEvent.SmsOlderRequested(
+            21 -> LinkEvent.SmsOlderRequested(
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterULong.read(buf),
                 )
-            21 -> LinkEvent.TransferChanged(
+            22 -> LinkEvent.TransferChanged(
                 FfiConverterTypeFileTransfer.read(buf),
                 )
-            22 -> LinkEvent.RequestResult(
+            23 -> LinkEvent.RequestResult(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
@@ -5437,6 +5473,15 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 4UL
                 + FfiConverterString.allocationSize(value.`id`)
                 + FfiConverterOptionalTypePhoneMedia.allocationSize(value.`media`)
+            )
+        }
+        is LinkEvent.ComputerMediaArt -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterString.allocationSize(value.`key`)
+                + FfiConverterByteArray.allocationSize(value.`image`)
             )
         }
         is LinkEvent.RemoteCommands -> {
@@ -5610,40 +5655,47 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterOptionalTypePhoneMedia.write(value.`media`, buf)
                 Unit
             }
-            is LinkEvent.RemoteCommands -> {
+            is LinkEvent.ComputerMediaArt -> {
                 buf.putInt(14)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterString.write(value.`key`, buf)
+                FfiConverterByteArray.write(value.`image`, buf)
+                Unit
+            }
+            is LinkEvent.RemoteCommands -> {
+                buf.putInt(15)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterSequenceTypeRemoteButton.write(value.`items`, buf)
                 Unit
             }
             is LinkEvent.CallDeclineRequested -> {
-                buf.putInt(15)
+                buf.putInt(16)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`key`, buf)
                 Unit
             }
             is LinkEvent.RingRequested -> {
-                buf.putInt(16)
+                buf.putInt(17)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterBoolean.write(value.`on`, buf)
                 Unit
             }
             is LinkEvent.ClipboardReceived -> {
-                buf.putInt(17)
+                buf.putInt(18)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`text`, buf)
                 Unit
             }
             is LinkEvent.MediaControlRequested -> {
-                buf.putInt(18)
+                buf.putInt(19)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterTypeMediaCommand.write(value.`command`, buf)
                 Unit
             }
             is LinkEvent.SmsSendRequested -> {
-                buf.putInt(19)
+                buf.putInt(20)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`clientId`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
@@ -5652,19 +5704,19 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 Unit
             }
             is LinkEvent.SmsOlderRequested -> {
-                buf.putInt(20)
+                buf.putInt(21)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
                 FfiConverterULong.write(value.`beforeMs`, buf)
                 Unit
             }
             is LinkEvent.TransferChanged -> {
-                buf.putInt(21)
+                buf.putInt(22)
                 FfiConverterTypeFileTransfer.write(value.`transfer`, buf)
                 Unit
             }
             is LinkEvent.RequestResult -> {
-                buf.putInt(22)
+                buf.putInt(23)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`key`, buf)
@@ -5706,6 +5758,12 @@ sealed class MediaCommand {
         companion object
     }
     
+    /**
+     * Mute or unmute the computer (only for `computer_media_control`, needs `can_mute`).
+     */
+    object ToggleMute : MediaCommand()
+    
+    
 
     
 
@@ -5730,6 +5788,7 @@ public object FfiConverterTypeMediaCommand : FfiConverterRustBuffer<MediaCommand
             6 -> MediaCommand.SetVolume(
                 FfiConverterUInt.read(buf),
                 )
+            7 -> MediaCommand.ToggleMute
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
         }
     }
@@ -5772,6 +5831,12 @@ public object FfiConverterTypeMediaCommand : FfiConverterRustBuffer<MediaCommand
                 + FfiConverterUInt.allocationSize(value.`level`)
             )
         }
+        is MediaCommand.ToggleMute -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
     }
 
     override fun write(value: MediaCommand, buf: ByteBuffer) {
@@ -5801,6 +5866,10 @@ public object FfiConverterTypeMediaCommand : FfiConverterRustBuffer<MediaCommand
                 FfiConverterUInt.write(value.`level`, buf)
                 Unit
             }
+            is MediaCommand.ToggleMute -> {
+                buf.putInt(7)
+                Unit
+            }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
     }
 }
@@ -5819,7 +5888,19 @@ enum class PresentKeyFfi {
     PREVIOUS,
     START,
     END,
-    BLANK;
+    BLANK,
+    /**
+     * Ctrl+F5: Google Slides (needs `can_present_apps`).
+     */
+    START_SLIDES,
+    /**
+     * Ctrl+Alt+P: Canva (needs `can_present_apps`).
+     */
+    START_CANVA,
+    /**
+     * F11: full screen, toggles (needs `can_present_apps`).
+     */
+    START_FULLSCREEN;
 
     
 

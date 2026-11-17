@@ -102,14 +102,16 @@ pub fn image_file(text: &str) -> Option<PathBuf> {
     (image && path.is_file()).then_some(path)
 }
 
-fn percent_decode(s: &str) -> String {
+/// `%20` → space, byte-wise (a stray `%` stays as it is).
+pub(crate) fn percent_decode(s: &str) -> String {
     let b = s.as_bytes();
+    let hex = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'%' && i + 2 < b.len() {
-            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                out.push(v);
+            if let (Some(h), Some(l)) = (hex(b[i + 1]), hex(b[i + 2])) {
+                out.push(h << 4 | l);
                 i += 3;
                 continue;
             }

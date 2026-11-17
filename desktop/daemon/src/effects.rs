@@ -12,6 +12,8 @@ pub trait Effects: Send + Sync {
     fn run_command(&self, run: &str) -> Result<(), String>;
     /// Change the default output's volume, e.g. "5%+".
     fn volume(&self, change: &str) -> bool;
+    /// Mute or unmute the default output.
+    fn mute_toggle(&self) -> bool;
 }
 
 /// The real desktop.
@@ -62,6 +64,11 @@ impl Effects for System {
                 .is_ok_and(|s| s.success())
         }
     }
+
+    fn mute_toggle(&self) -> bool {
+        let ok = |cmd: &str, args: &[&str]| std::process::Command::new(cmd).args(args).status().is_ok_and(|s| s.success());
+        ok("wpctl", &["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]) || ok("pactl", &["set-sink-mute", "@DEFAULT_SINK@", "toggle"])
+    }
 }
 
 /// For tests: remembers what would have happened, e.g. `"open https://…"`.
@@ -102,6 +109,11 @@ impl Effects for Recorded {
 
     fn volume(&self, change: &str) -> bool {
         self.note(format!("volume {change}"));
+        true
+    }
+
+    fn mute_toggle(&self) -> bool {
+        self.note("mute".into());
         true
     }
 }

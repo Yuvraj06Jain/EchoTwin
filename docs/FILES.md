@@ -115,8 +115,9 @@ widget) talks to it over a private Unix socket with line-delimited JSON.
 | `src/otp.rs` | Finds one-time codes in notification text (cautiously). | `find_code` |
 | `src/effects.rs` | What the daemon does to the desktop for the phone (open a link, ring), behind a trait so tests record it. | `Effects`, `System`, `Recorded` |
 | `src/ring.rs` | Ringing this computer: generated WAV, player loop (max 1 min), volume up and restored with `wpctl`. | `Ringer`, `ring_wav`, `parse_volume` |
+| `src/art.rs` | Album art of what plays here (local `file://` art only): a JPEG thumbnail of at most 256 px / 64 KiB and its key, for the phone's music card. |
 | `src/mpris.rs` | Media players on this computer (MPRIS): list, status, pause/play; pausing for calls and resuming the same players; following what plays for the phone's Remote screen. | `players`, `status`, `call`, `CallPause`, `watch`, `active_player`, `control` |
-| `src/present.rs` | Presentation remote: five keys through the RemoteDesktop portal (restore token kept), `xdotool` fallback. | `Presenter::{start, submit, wait, press}`, `keycode` |
+| `src/present.rs` | Presentation remote: its keys and chords (per-app start keys) through the RemoteDesktop portal (restore token kept), `xdotool` fallback. | `Presenter::{start, submit, wait, press}`, `keycode` |
 | `tests/daemon.rs` | Real daemon over its socket with a simulated phone: pairing, messages, CLI errors. | |
 | `tests/notifications.rs` | Notification flow end to end (post, update, remove, snapshot, reply/action/dismiss, mute). | |
 | `tests/popups.rs` | Popups against a stand-in notification server on a private D-Bus (replace, close, click). | |
@@ -182,7 +183,7 @@ Package `dev.phonelink.app` in `android/app/src/main/java/dev/phonelink/app/`.
 | `ShareActivity.kt` | "EchoTwin" in Android's Share menu (files → send; text → computer clipboard). |
 | `OpenLinkActivity.kt` | Share → "Open on computer": the first web link in the shared text opens on the laptop. |
 | `Ringer.kt` | The computer rings this phone: alarm sound at full alarm volume, vibration, Stop button (`StopRingReceiver`), 1 min limit. |
-| `ui/RemoteScreen.kt` | Remote screen (what plays on the computer, your buttons, presentation) and the full-screen presenter. |
+| `ui/RemoteScreen.kt` | "My buttons" (`ButtonsScreen`) and the full-screen presenter (`PresenterScreen`: app chip, equal Previous/Next, Start/End toggle, Black). The laptop's music card is `ComputerMusicCard` in `HomeScreen.kt`. |
 | `CallWatcher.kt` | Calls from call notifications (and the phone state as fallback) → `send_call_state`; Decline from the computer. |
 | `ClipboardActivity.kt` | Invisible activity that reads the phone clipboard while focused and sends it. |
 | `Tiles.kt` | Quick Settings tiles: Lock computer, Send clipboard. |

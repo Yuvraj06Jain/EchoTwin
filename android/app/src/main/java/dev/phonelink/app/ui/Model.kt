@@ -33,6 +33,12 @@ data class UiState(
     /** What plays on the computer (Remote screen), and its own buttons. */
     val computerMedia: dev.phonelink.core.PhoneMedia? = null,
     val commands: List<dev.phonelink.core.RemoteButton> = emptyList(),
+    /** The computer's album art for `computerMedia` (null: none, or not for this track). */
+    val computerArt: android.graphics.Bitmap? = null,
+    /** When something last played on the computer (ms; 0 = never). */
+    val computerPlayedMs: Long = 0L,
+    /** Presentation app for Start: office | slides | canva | fullscreen. */
+    val presentApp: String = "office",
     /** The connection switch (off: disconnected, nothing searching). */
     val connectionOn: Boolean,
     val busy: Boolean,
@@ -46,7 +52,8 @@ interface Actions {
     fun reconnect()
     fun lock()
     fun ring(on: Boolean)
-    fun openRemote()
+    fun openButtons()
+    fun setPresentApp(app: String)
     fun openPresenter()
     fun computerMedia(command: dev.phonelink.core.MediaCommand)
     fun runCommand(id: String)

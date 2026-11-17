@@ -33,8 +33,8 @@
 
   const db = {
     commands: [
-      { name: 'Suspend', run: 'systemctl suspend' },
-      { name: 'Mute / unmute', run: 'wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle' },
+      { name: 'Lab VPN', run: 'nmcli connection up lab-vpn' },
+      { name: 'Dim screen', run: 'brightnessctl set 20%' },
     ],
     notifications: [
       { id: 'n1', app: 'WhatsApp', title: 'Rahul', text: 'Are you coming to the lab today? Sir moved the viva to 3 pm.', time: ago(2), canReply: true, actions: ['Mark as read'] },

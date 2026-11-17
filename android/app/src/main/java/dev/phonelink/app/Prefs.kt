@@ -9,6 +9,13 @@ object Prefs {
     private const val QUEUE = "queue_notifications"
     private const val CONNECTION = "connection"
     private const val BATTERY_ALERTS = "battery_alerts"
+    private const val PRESENT_APP = "present_app"
+
+    /** Presentation app for the Start key: office | slides | canva | fullscreen. */
+    fun presentApp(context: Context): String = prefs(context).getString(PRESENT_APP, "office") ?: "office"
+
+    fun setPresentApp(context: Context, app: String) =
+        prefs(context).edit().putString(PRESENT_APP, app).apply()
 
     private fun prefs(context: Context) = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 

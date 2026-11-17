@@ -600,49 +600,82 @@ disconnects mid-call counts as the call ending. Switch: `pause_media_on_call`.
 
 ## 23. Remote: the phone controls the laptop
 
-**What:** the phone's Home has a **Remote** tile. The Remote screen shows what plays on the
-laptop (any MPRIS player: browsers, Spotify, VLC…) with previous / play-pause / next and
-volume − / +, and **your own buttons**: name + command pairs kept on the laptop (window →
-Settings → Phone buttons; "Suspend" and "Mute / unmute" by default; config `[[commands]]`).
+**What:** on the phone's Home, right under the Connection tile, a **music card** for what
+plays on the laptop (any MPRIS player: browsers, Spotify, VLC…): the album cover blurred
+behind it, title, "Playing on <laptop> · <player>", and − ⏮ ▶/❚❚ ⏭ +. It shows while
+something plays and for 5 minutes after it last played (so you can resume), then hides. A
+**Mute** tile mutes or unmutes the laptop. **My buttons** (a tile only when the laptop has at
+least one) are name + command pairs kept on the laptop (window → Settings → Phone buttons;
+config `[[commands]]`). Since v3 there are no default buttons: the old "Suspend" and
+"Mute / unmute" defaults are dropped from existing configs when they load; buttons you made
+stay.
 
 **How:** `mpris::watch` follows players by D-Bus signals (`PropertiesChanged`,
 `NameOwnerChanged`; no polling) and reports the active one (playing, else the last shown if
-paused). The phone sends `ComputerMediaControl`; volume runs `wpctl set-volume` (fallback
-`pactl`). Buttons: the phone only gets ids (8 hex digits of BLAKE3(name)) and names; a
+paused), with its `mpris:artUrl`. Album art: only `file://` URLs (Firefox, Chrome, VLC give
+these); `art.rs` makes a JPEG of at most 256 px and 64 KiB (once per file, `ArtCache`), its
+key is 16 hex digits of BLAKE3. The laptop sends `MediaArt` to phones with `remoteart/1`
+**before** the `ComputerNowPlaying` that names the key, and again on connect. The daemon never
+fetches from the web, so players that only give `https://` art (Spotify) show no picture.
+The phone sends `ComputerMediaControl`; volume runs `wpctl set-volume` (fallback `pactl`),
+`ToggleMute` (`mute/1`) runs `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` (fallback `pactl
+set-sink-mute`). Buttons: the phone only gets ids (8 hex digits of BLAKE3(name)) and names; a
 `RunCommand` runs `sh -c <command>` in the desktop session, detached, only if
 `allow_commands` is on, the id matches and the press is under 2 minutes old. A popup says
 what ran. **The phone can only press buttons you wrote on the laptop.**
 
 | Layer | File | Functions |
 |---|---|---|
-| Laptop | `desktop/daemon/src/mpris.rs` | `watch`, `active_player`, `control` |
-| Laptop | `desktop/daemon/src/config.rs` | `CommandEntry` (`id`), `check_commands` |
-| Laptop | `daemon.rs` | `computer_media` task, `remote_commands`, `run_command`, `Request::{Commands, SetCommands}` |
+| Laptop | `desktop/daemon/src/mpris.rs` | `watch`, `ArtCache`, `active_player`, `control` |
+| Laptop | `desktop/daemon/src/art.rs` | `art_path`, `thumbnail`, `key` |
+| Laptop | `desktop/daemon/src/effects.rs` | `volume`, `mute_toggle` |
+| Laptop | `desktop/daemon/src/config.rs` | `CommandEntry` (`id`), `check_commands`, `Config::load` (drops the old defaults) |
+| Laptop | `daemon.rs` | `computer_media` task (art first), `remote_commands`, `run_command`, `Request::{Commands, SetCommands}` |
 | Window | `app.js` `commandsSection`, `submitCommand`, `saveCommands` | |
-| FFI | `core-ffi/src/lib.rs` | `computer_media_control`, `run_command`, `LinkEvent::{ComputerMedia, RemoteCommands}`, `Device.can_remote` |
-| Phone | `ui/RemoteScreen.kt` (`RemoteScreen`), `LinkManager.{computerMedia, commands, runCommand}` | |
+| FFI | `core-ffi/src/lib.rs` | `computer_media_control` (`ToggleMute` needs `mute/1`), `run_command`, `LinkEvent::{ComputerMedia, ComputerMediaArt, RemoteCommands}`, `Device.{can_remote, can_mute}` |
+| Phone | `ui/HomeScreen.kt` (`ComputerMusicCard`, `ActionGrid`), `ui/RemoteScreen.kt` (`ButtonsScreen`), `LinkManager.{computerMedia, computerArt, computerPlayedMs, commands, runCommand}` | |
 
-**Tests:** `desktop/daemon/tests/remote.rs` (stand-in MPRIS player on a private D-Bus),
-FFI test, UI suite.
+**Tests:** `desktop/daemon/tests/remote.rs` (stand-in MPRIS player on a private D-Bus;
+`the_laptops_album_art_reaches_the_phone_before_the_track_and_mute_works`: art before track,
+none for `https://`, Mute), `art.rs` unit test, `config.rs`
+`the_old_default_buttons_are_dropped_but_own_buttons_stay`, FFI test, UI suite.
 
 ## 24. Presentation remote
 
-**What:** Remote screen → **Start presenting**: big Next, Previous, and Start / Black / End;
-the screen stays on and the phone's volume keys work as a clicker (down = next, up =
-previous). The first press makes KDE ask once to allow remote control; it is remembered.
+**What:** Home → **Presentation** (a full-width tile, always the last row): Previous and
+Next side by side and the same size, one **Start / End** button and **Black**; the screen
+stays on and the phone's volume keys work as a clicker (down = next, up = previous). A chip
+at the top picks the app, because each starts differently:
+
+| Chip | Start | End |
+|---|---|---|
+| PowerPoint / Impress · F5 (default) | F5 | Esc |
+| Google Slides · Ctrl+F5 | Ctrl+F5 | Esc |
+| Canva · Ctrl+Alt+P | Ctrl+Alt+P | Esc |
+| Full screen · F11 | F11 | F11 (toggles) |
+
+Start always pressed F5 before v3; in a browser F5 reloads the page, which is why Canva never
+started and a second press ended the presentation. The Start button turns into a red
+**■ End** once pressed and back after; it starts as Start each time the screen opens. The
+chip (stored in `Prefs` `present_app`) shows only for laptops with `present/2`. Honest
+limits: Canva's Ctrl+Alt+P comes from a third-party shortcut list, not Canva's own help (the
+chip shows the key so you can try another); Black (B) works in PowerPoint, Impress and Google
+Slides. The first press makes KDE ask once to allow remote control; it is remembered.
 
 **How:** `present.rs` uses xdg-desktop-portal `org.freedesktop.portal.RemoteDesktop`
 (keyboard only, `persist_mode` 2): `CreateSession` → `SelectDevices` (with the saved
-`restore_token`) → `Start` → `NotifyKeyboardKeycode` press/release. Keys: Page Down 109,
-Page Up 104, F5 63, Esc 1, B 48. One thread owns the session; keys are queued in arrival
-order; a closed session is reopened once. The restore token lives in
-`<data dir>/remote-control.token` (0600). No portal on X11 → `xdotool key …` if installed.
-Refused when `presentation_remote` is off or the key is over 10 s old. **The phone can only
-send these five keys.**
+`restore_token`) → `Start` → `NotifyKeyboardKeycode` press/release. `keys()` gives a chord
+per key, pressed in order and released in reverse (also after an error, so nothing stays
+held): Page Down 109, Page Up 104, F5 63, Esc 1, B 48, Ctrl+F5 29+63, Ctrl+Alt+P 29+56+25,
+F11 87. One thread owns the session; keys are queued in arrival order; a closed session is
+reopened once. The restore token lives in `<data dir>/remote-control.token` (0600). No portal
+on X11 → `xdotool key …` (`ctrl+F5`, `ctrl+alt+p`, `F11`) if installed. Refused when
+`presentation_remote` is off or the key is over 10 s old. **The phone can only send these
+keys.**
 
-**Tests:** `desktop/daemon/tests/present.rs` (stand-in portal: sequence, keyboard only,
-remembered permission, session reuse, refusal), `remote.rs`
-`presentation_keys_are_refused_when_late_or_switched_off`.
+**Tests:** `desktop/daemon/tests/present.rs` (stand-in portal: sequence, chords, keyboard
+only, remembered permission, session reuse, refusal), `present.rs` unit test (key table),
+`remote.rs` `presentation_keys_are_refused_when_late_or_switched_off`, FFI test.
 
 ## 25. New SMS from the laptop
 

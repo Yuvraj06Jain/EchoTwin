@@ -165,6 +165,14 @@ fn the_first_key_asks_once_then_keys_flow_and_the_permission_is_remembered() {
     let p2 = Presenter::start(Some(bus.address.clone()), token.clone());
     p2.press(PresentKeyKind::Start).unwrap();
     assert_eq!(take(), ["create", "select types=1 persist=2 restore=tok-1", "start", "key 63 1", "key 63 0"]);
+
+    // Start keys for browser apps are chords: pressed in order, released in reverse order.
+    p2.press(PresentKeyKind::StartCanva).unwrap();
+    assert_eq!(take(), ["key 29 1", "key 56 1", "key 25 1", "key 25 0", "key 56 0", "key 29 0"]);
+    p2.press(PresentKeyKind::StartSlides).unwrap();
+    assert_eq!(take(), ["key 29 1", "key 63 1", "key 63 0", "key 29 0"]);
+    p2.press(PresentKeyKind::StartFullscreen).unwrap();
+    assert_eq!(take(), ["key 87 1", "key 87 0"]);
 }
 
 #[test]

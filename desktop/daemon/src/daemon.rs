@@ -142,6 +142,8 @@ struct State {
     presenter: crate::present::Presenter,
     /// What plays on this computer (for phones with `remote/1`).
     computer_media: Mutex<Option<phonelink_core::NowPlaying>>,
+    /// Its album art, for phones with `remoteart/1`.
+    computer_art: Mutex<Option<crate::mpris::Art>>,
     /// Contact searches waiting for the phone's answer, by request number.
     contact_waits: Mutex<HashMap<u32, tokio::sync::oneshot::Sender<Vec<phonelink_core::Contact>>>>,
     next_contact_req: std::sync::atomic::AtomicU32,
@@ -153,11 +155,23 @@ struct State {
 /// What plays on this computer changed: tell phones that use the Remote screen.
 async fn computer_media(
     state: Arc<State>,
-    mut rx: tokio::sync::mpsc::UnboundedReceiver<Option<phonelink_core::NowPlaying>>,
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<(Option<phonelink_core::NowPlaying>, Option<crate::mpris::Art>)>,
 ) {
-    while let Some(now) = rx.recv().await {
+    while let Some((now, art)) = rx.recv().await {
         *lock(&state.computer_media) = now.clone();
+        // New art goes first, so the phone has the picture when the track arrives.
+        let new_art = {
+            let mut kept = lock(&state.computer_art);
+            let changed = art.is_some() && kept.as_ref().map(|a| &a.0) != art.as_ref().map(|a| &a.0);
+            *kept = art.clone();
+            if changed { art } else { None }
+        };
         for peer in state.connected_with(phonelink_core::CAP_REMOTE) {
+            if let Some((key, image)) = &new_art {
+                if state.has_cap(&peer, phonelink_core::CAP_REMOTE_ART) {
+                    let _ = state.to_phone(&peer, AppMessage::MediaArt { key: key.clone(), image: image.clone() });
+                }
+            }
             let _ = state.to_phone(&peer, AppMessage::ComputerNowPlaying(now.clone()));
         }
     }
@@ -250,6 +264,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         calls: Mutex::new(HashMap::new()),
         notes: Mutex::new(std::collections::VecDeque::new()),
         computer_media: Mutex::new(None),
+        computer_art: Mutex::new(None),
         presenter: crate::present::Presenter::start(opts.buses.session.clone(), opts.data_dir.join("remote-control.token")),
         contact_waits: Mutex::new(HashMap::new()),
         next_contact_req: std::sync::atomic::AtomicU32::new(1),
@@ -326,7 +341,7 @@ async fn start_node(
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
         cfg.timings = timings(opts.config.battery_saver);
         cfg.capabilities.extend(
-            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS, phonelink_core::CAP_REMOTE, phonelink_core::CAP_CONTACTS, phonelink_core::CAP_PRESENT]
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS, phonelink_core::CAP_REMOTE, phonelink_core::CAP_CONTACTS, phonelink_core::CAP_PRESENT, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_MUTE, phonelink_core::CAP_REMOTE_ART]
                 .map(String::from),
         );
         match Node::start(cfg).await {
@@ -1311,6 +1326,10 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                 let wants_remote = capabilities.iter().any(|c| c == phonelink_core::CAP_REMOTE);
                 lock(&state.caps).insert(peer, capabilities);
                 if wants_remote {
+                    let art = lock(&state.computer_art).clone();
+                    if let Some((key, image)) = art.filter(|_| state.has_cap(&peer, phonelink_core::CAP_REMOTE_ART)) {
+                        let _ = state.to_phone(&peer, AppMessage::MediaArt { key, image });
+                    }
                     let now = lock(&state.computer_media).clone();
                     let _ = state.to_phone(&peer, AppMessage::ComputerNowPlaying(now));
                     let _ = state.to_phone(&peer, state.remote_commands());
@@ -1535,10 +1554,11 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     continue;
                 }
                 AppMessage::ComputerMediaControl { action } => {
-                    if state.has_cap(&peer, phonelink_core::CAP_REMOTE) {
+                    let cap = if action == phonelink_core::MediaAction::ToggleMute { phonelink_core::CAP_MUTE } else { phonelink_core::CAP_REMOTE };
+                    if state.has_cap(&peer, cap) {
                         let (bus, effects, st) = (state.buses.session.clone(), state.effects.clone(), state.clone());
                         tokio::task::spawn_blocking(move || {
-                            if let Err(message) = crate::mpris::control(&bus, action, &|c| effects.volume(c)) {
+                            if let Err(message) = crate::mpris::control(&bus, action, effects.as_ref()) {
                                 let _ = st.to_phone(&peer, AppMessage::ActionResult { key: "media".into(), ok: false, message });
                             }
                         });

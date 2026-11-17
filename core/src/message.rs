@@ -41,6 +41,12 @@ pub const CAP_RING: &str = "ring/1";
 pub const CAP_REMOTE: &str = "remote/1";
 /// The phone as a presentation clicker (five keys only).
 pub const CAP_PRESENT: &str = "present/1";
+/// The extra start keys (`StartSlides`, `StartCanva`, `StartFullscreen`) are understood.
+pub const CAP_PRESENT2: &str = "present/2";
+/// `MediaAction::ToggleMute` on the computer's default output.
+pub const CAP_MUTE: &str = "mute/1";
+/// The computer sends its album art (`MediaArt`) for the phone's music card.
+pub const CAP_REMOTE_ART: &str = "remoteart/1";
 /// Contact search on the phone, for starting a new SMS on the computer.
 pub const CAP_CONTACTS: &str = "contacts/1";
 /// Longest command name shown on the phone (bytes), and most commands.
@@ -69,6 +75,12 @@ pub enum PresentKeyKind {
     Start,
     End,
     Blank,
+    /// Ctrl+F5 (Google Slides). `CAP_PRESENT2`.
+    StartSlides,
+    /// Ctrl+Alt+P (Canva). `CAP_PRESENT2`.
+    StartCanva,
+    /// F11 (any page or app full screen; toggles). `CAP_PRESENT2`.
+    StartFullscreen,
 }
 
 /// A contact found on the phone.
@@ -230,6 +242,8 @@ pub enum MediaAction {
     VolumeDown,
     /// Absolute media volume, `0..=max_volume`.
     SetVolume(u32),
+    /// Mute or unmute the computer's default output (`CAP_MUTE`; phone → computer only).
+    ToggleMute,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -476,6 +490,10 @@ mod tests {
             },
             AppMessage::RunCommand { id: "ab12cd34".into(), sent_ms: 11 },
             AppMessage::PresentKey { key: PresentKeyKind::Blank, sent_ms: 12 },
+            AppMessage::PresentKey { key: PresentKeyKind::StartSlides, sent_ms: 12 },
+            AppMessage::PresentKey { key: PresentKeyKind::StartCanva, sent_ms: 12 },
+            AppMessage::PresentKey { key: PresentKeyKind::StartFullscreen, sent_ms: 12 },
+            AppMessage::ComputerMediaControl { action: MediaAction::ToggleMute },
             AppMessage::ContactsQuery { req: 7, query: "mo".into() },
             AppMessage::ContactsResult {
                 req: 7,
@@ -583,6 +601,27 @@ mod tests {
             .unwrap()[0],
             11
         );
+    }
+
+    #[test]
+    fn appended_enum_values_keep_their_positions() {
+        let pos = |v: &dyn erased::Enc| v.first();
+        assert_eq!(pos(&MediaAction::ToggleMute), 6);
+        assert_eq!(pos(&PresentKeyKind::Blank), 4);
+        assert_eq!(pos(&PresentKeyKind::StartSlides), 5);
+        assert_eq!(pos(&PresentKeyKind::StartCanva), 6);
+        assert_eq!(pos(&PresentKeyKind::StartFullscreen), 7);
+    }
+
+    mod erased {
+        pub trait Enc {
+            fn first(&self) -> u8;
+        }
+        impl<T: serde::Serialize> Enc for T {
+            fn first(&self) -> u8 {
+                postcard::to_allocvec(self).unwrap()[0]
+            }
+        }
     }
 
     #[test]

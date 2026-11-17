@@ -1,11 +1,15 @@
-//! The phone as a presentation clicker: five keys (next, previous, start, end, black
-//! screen) pressed on this computer.
+//! The phone as a presentation clicker: next, previous, start (per app), end and black
+//! screen, pressed on this computer.
 //!
 //! Wayland doesn't let a program type into other windows, so this asks the desktop through
 //! the xdg-desktop-portal RemoteDesktop interface, the same permission KDE Connect uses. KDE
 //! shows "allow remote control?" once; the portal's restore token (kept in the data
 //! directory, mode 0600) lets later sessions start without asking again. The phone can only
-//! send these five keys: never text, never other keys.
+//! send these keys (and the chords below): never text, never other keys.
+//!
+//! Start differs per app: F5 in PowerPoint and Impress, but in a browser F5 reloads the page
+//! (which ended a Canva presentation). So Google Slides gets Ctrl+F5, Canva Ctrl+Alt+P, and
+//! anything else F11 (full screen).
 //!
 //! On X11 without a portal, `xdotool` (if installed) does the same.
 
@@ -32,14 +36,18 @@ const DEVICE_KEYBOARD: u32 = 1;
 /// Remember the permission until it is revoked.
 const PERSIST_UNTIL_REVOKED: u32 = 2;
 
-/// Linux evdev key codes: what presentation clickers send.
-pub fn keycode(key: PresentKeyKind) -> i32 {
+/// Linux evdev key codes: what presentation clickers send. A chord is pressed in order and
+/// released in reverse order.
+pub fn keys(key: PresentKeyKind) -> &'static [i32] {
     match key {
-        PresentKeyKind::Next => 109,    // Page Down
-        PresentKeyKind::Previous => 104, // Page Up
-        PresentKeyKind::Start => 63,    // F5
-        PresentKeyKind::End => 1,       // Esc
-        PresentKeyKind::Blank => 48,    // B
+        PresentKeyKind::Next => &[109],                // Page Down
+        PresentKeyKind::Previous => &[104],            // Page Up
+        PresentKeyKind::Start => &[63],                // F5 (PowerPoint, Impress)
+        PresentKeyKind::End => &[1],                   // Esc
+        PresentKeyKind::Blank => &[48],                // B
+        PresentKeyKind::StartSlides => &[29, 63],      // Left Ctrl + F5 (Google Slides)
+        PresentKeyKind::StartCanva => &[29, 56, 25],   // Left Ctrl + Left Alt + P (Canva)
+        PresentKeyKind::StartFullscreen => &[87],      // F11
     }
 }
 
@@ -50,6 +58,9 @@ fn xdotool_key(key: PresentKeyKind) -> &'static str {
         PresentKeyKind::Start => "F5",
         PresentKeyKind::End => "Escape",
         PresentKeyKind::Blank => "b",
+        PresentKeyKind::StartSlides => "ctrl+F5",
+        PresentKeyKind::StartCanva => "ctrl+alt+p",
+        PresentKeyKind::StartFullscreen => "F11",
     }
 }
 
@@ -120,13 +131,28 @@ fn press(
             }
         }
         let (c, handle) = session.as_ref().expect("session");
-        let code = keycode(key);
         let options: HashMap<&str, Value<'_>> = HashMap::new();
-        let down = c.call_method(Some(DEST), PATH, Some(IFACE), "NotifyKeyboardKeycode", &(handle, &options, code, 1u32));
-        let up = down.and_then(|_| {
-            c.call_method(Some(DEST), PATH, Some(IFACE), "NotifyKeyboardKeycode", &(handle, &options, code, 0u32))
-        });
-        match up {
+        let send = |code: i32, state: u32| {
+            c.call_method(Some(DEST), PATH, Some(IFACE), "NotifyKeyboardKeycode", &(handle, &options, code, state)).map(|_| ())
+        };
+        let chord = keys(key);
+        let mut result = Ok(());
+        let mut pressed = 0;
+        for &code in chord {
+            result = send(code, 1);
+            if result.is_err() {
+                break;
+            }
+            pressed += 1;
+        }
+        // Release what was pressed, even after an error, so no key stays held down.
+        for &code in chord[..pressed].iter().rev() {
+            let up = send(code, 0);
+            if result.is_ok() {
+                result = up;
+            }
+        }
+        match result {
             Ok(_) => return Ok(()),
             Err(e) => {
                 // The session was closed (revoked, desktop restarted): start a new one once.
@@ -283,8 +309,10 @@ mod tests {
 
     #[test]
     fn clicker_keys() {
-        let all = [PresentKeyKind::Next, PresentKeyKind::Previous, PresentKeyKind::Start, PresentKeyKind::End, PresentKeyKind::Blank];
-        assert_eq!(all.map(keycode), [109, 104, 63, 1, 48]);
-        assert_eq!(all.map(xdotool_key), ["Next", "Prior", "F5", "Escape", "b"]);
+        use PresentKeyKind::*;
+        let all = [Next, Previous, Start, End, Blank, StartSlides, StartCanva, StartFullscreen];
+        let want: [&[i32]; 8] = [&[109], &[104], &[63], &[1], &[48], &[29, 63], &[29, 56, 25], &[87]];
+        assert_eq!(all.map(keys), want);
+        assert_eq!(all.map(xdotool_key), ["Next", "Prior", "F5", "Escape", "b", "ctrl+F5", "ctrl+alt+p", "F11"]);
     }
 }

@@ -53,7 +53,7 @@ import dev.phonelink.app.ui.PhoneLinkTheme
 import dev.phonelink.app.ui.Pl
 import dev.phonelink.app.ui.SettingsScreen
 import dev.phonelink.app.ui.PresenterScreen
-import dev.phonelink.app.ui.RemoteScreen
+import dev.phonelink.app.ui.ButtonsScreen
 import dev.phonelink.app.ui.SetupScreen
 import dev.phonelink.app.ui.UiState
 import dev.phonelink.core.Device
@@ -72,7 +72,8 @@ class MainActivity : ComponentActivity() {
     private var queueOn by mutableStateOf(false)
     private var batteryAlertsOn by mutableStateOf(true)
     /** The Remote screen and the full-screen presenter (volume keys = clicker there). */
-    private var remoteOpen by mutableStateOf(false)
+    private var buttonsOpen by mutableStateOf(false)
+    private var presentApp by mutableStateOf("office")
     private var presenting by mutableStateOf(false)
     private var pairedOnDisk by mutableStateOf(false)
 
@@ -140,6 +141,8 @@ class MainActivity : ComponentActivity() {
                 val mine by StatusWatcher.mine.collectAsStateWithLifecycle()
                 val computerMedia by LinkManager.computerMedia.collectAsStateWithLifecycle()
                 val commands by LinkManager.commands.collectAsStateWithLifecycle()
+                val computerArt by LinkManager.computerArt.collectAsStateWithLifecycle()
+                val computerPlayedMs by LinkManager.computerPlayedMs.collectAsStateWithLifecycle()
                 val state = UiState(
                     myId = myId,
                     devices = devices,
@@ -154,6 +157,9 @@ class MainActivity : ComponentActivity() {
                     myNetwork = mine.network,
                     computerMedia = computerMedia,
                     commands = commands,
+                    computerArt = computerArt?.takeIf { it.first == computerMedia?.artKey }?.second,
+                    computerPlayedMs = computerPlayedMs,
+                    presentApp = presentApp,
                     connectionOn = connectionOn,
                     busy = busy,
                     bluetoothProblem = BluetoothBackup.problem,
@@ -164,10 +170,10 @@ class MainActivity : ComponentActivity() {
                 }
                 var tab by rememberSaveable { mutableIntStateOf(0) }
                 var setupOpen by rememberSaveable { mutableStateOf(false) }
-                BackHandler(enabled = setupOpen || remoteOpen || presenting || tab != 0) {
+                BackHandler(enabled = setupOpen || buttonsOpen || presenting || tab != 0) {
                     when {
                         presenting -> presenting = false
-                        remoteOpen -> remoteOpen = false
+                        buttonsOpen -> buttonsOpen = false
                         setupOpen -> setupOpen = false
                         else -> tab = 0
                     }
@@ -183,14 +189,14 @@ class MainActivity : ComponentActivity() {
                     containerColor = Pl.Bg,
                     snackbarHost = { SnackbarHost(snackbar) },
                     bottomBar = {
-                        if (paired && !setupOpen && !remoteOpen && !presenting) BottomBar(tab) { tab = it }
+                        if (paired && !setupOpen && !buttonsOpen && !presenting) BottomBar(tab) { tab = it }
                     },
                 ) { padding ->
                     val m = Modifier.padding(padding)
                     when {
                         !paired -> PairScreen(busy, ::startScan, m)
-                        presenting -> PresenterScreen(actions, { presenting = false }, m)
-                        remoteOpen -> RemoteScreen(state, actions, { remoteOpen = false }, m)
+                        presenting -> PresenterScreen(state, actions, { presenting = false }, m)
+                        buttonsOpen -> ButtonsScreen(state, actions, { buttonsOpen = false }, m)
                         setupOpen -> SetupScreen(state.access, actions, { setupOpen = false }, m)
                         tab == 1 -> FilesScreen(state, actions, m)
                         tab == 2 -> SettingsScreen(state, actions, { setupOpen = true }, m)
@@ -216,7 +222,11 @@ class MainActivity : ComponentActivity() {
         }
         override fun lock() = LinkManager.lockComputer()
         override fun ring(on: Boolean) = LinkManager.ringComputer(on)
-        override fun openRemote() { remoteOpen = true }
+        override fun openButtons() { buttonsOpen = true }
+        override fun setPresentApp(app: String) {
+            presentApp = app
+            Prefs.setPresentApp(this@MainActivity, app)
+        }
 
         override fun openPresenter() { presenting = true }
         override fun computerMedia(command: dev.phonelink.core.MediaCommand) = LinkManager.computerMedia(command)
@@ -283,6 +293,7 @@ class MainActivity : ComponentActivity() {
         clipboardOn = Prefs.clipboardSharing(this)
         queueOn = Prefs.queueNotifications(this)
         batteryAlertsOn = Prefs.batteryAlerts(this)
+        presentApp = Prefs.presentApp(this)
         pairedOnDisk = LinkManager.hasPairedDevice(this)
         smsOn = SmsSync.canRead()
         bluetoothOn = BluetoothBackup.allowed()

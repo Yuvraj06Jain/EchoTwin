@@ -63,6 +63,10 @@ pub struct Device {
     pub can_remote: bool,
     /// Connected, and takes presentation keys.
     pub can_present: bool,
+    /// Connected, and takes the per-app start keys (Google Slides, Canva, full screen).
+    pub can_present_apps: bool,
+    /// Connected, and can be muted from here.
+    pub can_mute: bool,
     /// "wifi" or "bluetooth" while connected; empty when offline.
     pub via: String,
     /// The computer's Bluetooth address for the backup link (it tells us), if it has one.
@@ -159,6 +163,13 @@ pub enum LinkEvent {
         id: String,
         media: Option<PhoneMedia>,
     },
+    /// The computer's album art (a small JPEG or PNG), for `ComputerMedia` whose `art_key`
+    /// is `key`. Arrives before that `ComputerMedia`.
+    ComputerMediaArt {
+        id: String,
+        key: String,
+        image: Vec<u8>,
+    },
     /// The computer's own buttons for the Remote screen.
     RemoteCommands {
         id: String,
@@ -240,6 +251,8 @@ pub enum MediaCommand {
     VolumeUp,
     VolumeDown,
     SetVolume { level: u32 },
+    /// Mute or unmute the computer (only for `computer_media_control`, needs `can_mute`).
+    ToggleMute,
 }
 
 impl From<MediaCommand> for MediaAction {
@@ -251,6 +264,7 @@ impl From<MediaCommand> for MediaAction {
             MediaCommand::VolumeUp => Self::VolumeUp,
             MediaCommand::VolumeDown => Self::VolumeDown,
             MediaCommand::SetVolume { level } => Self::SetVolume(level),
+            MediaCommand::ToggleMute => Self::ToggleMute,
         }
     }
 }
@@ -277,6 +291,12 @@ pub enum PresentKeyFfi {
     Start,
     End,
     Blank,
+    /// Ctrl+F5: Google Slides (needs `can_present_apps`).
+    StartSlides,
+    /// Ctrl+Alt+P: Canva (needs `can_present_apps`).
+    StartCanva,
+    /// F11: full screen, toggles (needs `can_present_apps`).
+    StartFullscreen,
 }
 
 impl From<MediaAction> for MediaCommand {
@@ -288,6 +308,7 @@ impl From<MediaAction> for MediaCommand {
             MediaAction::VolumeUp => Self::VolumeUp,
             MediaAction::VolumeDown => Self::VolumeDown,
             MediaAction::SetVolume(level) => Self::SetVolume { level },
+            MediaAction::ToggleMute => Self::ToggleMute,
         }
     }
 }
@@ -580,6 +601,8 @@ fn device(node: &Node, caps: &Caps, power: &Power, p: &PeerRecord) -> Device {
         can_ring: connected && has_cap(caps, &p.fingerprint, CAP_RING),
         can_remote: connected && has_cap(caps, &p.fingerprint, CAP_REMOTE),
         can_present: connected && has_cap(caps, &p.fingerprint, CAP_PRESENT),
+        can_present_apps: connected && has_cap(caps, &p.fingerprint, phonelink_core::CAP_PRESENT2),
+        can_mute: connected && has_cap(caps, &p.fingerprint, phonelink_core::CAP_MUTE),
         via: via(node.transport(&p.fingerprint)),
         bluetooth: p.bluetooth.clone(),
         battery,
@@ -692,6 +715,9 @@ impl PhoneLink {
                             CAP_REMOTE,
                             CAP_PRESENT,
                             CAP_CONTACTS,
+                            phonelink_core::CAP_MUTE,
+                            phonelink_core::CAP_PRESENT2,
+                            phonelink_core::CAP_REMOTE_ART,
                         ]
                         .map(String::from),
                     );
@@ -853,6 +879,16 @@ impl PhoneLink {
                             req,
                             query: truncate_text(&query, phonelink_core::message::MAX_CONTACT_QUERY),
                         },
+                        AppMessage::MediaArt { key, image } => {
+                            // From a computer: its album art (phones send theirs the other way).
+                            let ok = has_cap(&pump_caps, &peer, phonelink_core::CAP_REMOTE_ART)
+                                && key.len() <= 64
+                                && phonelink_core::message::is_art_image(&image);
+                            if !ok {
+                                continue;
+                            }
+                            LinkEvent::ComputerMediaArt { id: peer.short(), key, image }
+                        }
                         AppMessage::ComputerNowPlaying(n) => LinkEvent::ComputerMedia {
                             id: peer.short(),
                             media: n.map(PhoneMedia::from_wire),
@@ -1191,7 +1227,11 @@ impl PhoneLink {
 
     /// Control what plays on the computer (Remote screen).
     pub fn computer_media_control(&self, device_id: Option<String>, command: MediaCommand) -> Result<(), LinkError> {
-        let fp = self.connected_one(device_id, CAP_REMOTE, "the remote")?;
+        let fp = if command == MediaCommand::ToggleMute {
+            self.connected_one(device_id, phonelink_core::CAP_MUTE, "muting the computer")?
+        } else {
+            self.connected_one(device_id, CAP_REMOTE, "the remote")?
+        };
         self.node.send(&fp, AppMessage::ComputerMediaControl { action: command.into() }.encode()?)?;
         Ok(())
     }
@@ -1207,13 +1247,20 @@ impl PhoneLink {
     /// A presentation key (Next, Previous, Start, End, Blank). Errors arrive as
     /// `RequestResult` with key `present`.
     pub fn present_key(&self, device_id: Option<String>, key: PresentKeyFfi) -> Result<(), LinkError> {
-        let fp = self.connected_one(device_id, CAP_PRESENT, "the presentation remote")?;
+        let cap = match key {
+            PresentKeyFfi::StartSlides | PresentKeyFfi::StartCanva | PresentKeyFfi::StartFullscreen => phonelink_core::CAP_PRESENT2,
+            _ => CAP_PRESENT,
+        };
+        let fp = self.connected_one(device_id, cap, "the presentation remote")?;
         let key = match key {
             PresentKeyFfi::Next => PresentKeyKind::Next,
             PresentKeyFfi::Previous => PresentKeyKind::Previous,
             PresentKeyFfi::Start => PresentKeyKind::Start,
             PresentKeyFfi::End => PresentKeyKind::End,
             PresentKeyFfi::Blank => PresentKeyKind::Blank,
+            PresentKeyFfi::StartSlides => PresentKeyKind::StartSlides,
+            PresentKeyFfi::StartCanva => PresentKeyKind::StartCanva,
+            PresentKeyFfi::StartFullscreen => PresentKeyKind::StartFullscreen,
         };
         self.node.send(&fp, AppMessage::PresentKey { key, sent_ms: now_ms() }.encode()?)?;
         Ok(())
@@ -1972,7 +2019,7 @@ mod tests {
             cfg.capabilities.extend(caps.iter().map(|c| c.to_string()));
             rt.block_on(Node::start(cfg)).unwrap()
         };
-        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS, CAP_RING, CAP_CALLS, CAP_REMOTE, CAP_PRESENT]);
+        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS, CAP_RING, CAP_CALLS, CAP_REMOTE, CAP_PRESENT, phonelink_core::CAP_MUTE, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_REMOTE_ART]);
         let uri = laptop
             .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
             .to_uri();
@@ -2054,6 +2101,24 @@ mod tests {
         phone.present_key(None, PresentKeyFfi::Blank).unwrap();
         assert!(matches!(next_from_phone(&mut lrx), AppMessage::PresentKey { key: PresentKeyKind::Blank, .. }));
         assert!(phone.devices()[0].can_remote && phone.devices()[0].can_present);
+        let d = &phone.devices()[0];
+        assert!(d.can_mute && d.can_present_apps);
+        phone.computer_media_control(None, MediaCommand::ToggleMute).unwrap();
+        assert!(matches!(next_from_phone(&mut lrx), AppMessage::ComputerMediaControl { action: MediaAction::ToggleMute }));
+        for (ffi, wire) in [
+            (PresentKeyFfi::StartSlides, PresentKeyKind::StartSlides),
+            (PresentKeyFfi::StartCanva, PresentKeyKind::StartCanva),
+            (PresentKeyFfi::StartFullscreen, PresentKeyKind::StartFullscreen),
+        ] {
+            phone.present_key(None, ffi).unwrap();
+            assert!(matches!(next_from_phone(&mut lrx), AppMessage::PresentKey { key, .. } if key == wire));
+        }
+        // The laptop's album art: a bad image is dropped, a good one becomes an event.
+        to_phone(AppMessage::MediaArt { key: "bad".into(), image: b"not a picture".to_vec() });
+        let jpeg = [&[0xFF, 0xD8, 0xFF, 0xE0][..], &[0u8; 64]].concat();
+        to_phone(AppMessage::MediaArt { key: "k1".into(), image: jpeg.clone() });
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::ComputerMediaArt { .. }));
+        assert!(matches!(ev, LinkEvent::ComputerMediaArt { key, image, .. } if key == "k1" && image == jpeg), "the bad one was dropped");
         to_phone(AppMessage::RemoteCommands {
             items: vec![phonelink_core::RemoteCommand { id: "ab12cd34".into(), name: "Suspend".into() }],
         });

@@ -66,7 +66,7 @@ Carried inside `Deliver.body`, postcard-encoded. Anything this build doesn't kno
 | 10 | `LockComputer { sent_ms }` | P→C | `lock/1` | `State::lock_requested` → `lock.rs` | `lock_computer` |
 | 11 | `Clipboard { text, copied_ms }` | both | `clipboard/1` | `ClipboardSync::set` / `share_copies` | `send_clipboard`; `LinkEvent::ClipboardReceived` |
 | 12 | `NowPlaying(Option<NowPlaying>)` | P→C | `media/1` | `MediaStore::update` | `send_now_playing` (MediaWatcher) |
-| 13 | `MediaArt { key, image }` | P→C | `media/1` | `MediaStore::set_art` | `send_media_art` |
+| 13 | `MediaArt { key, image }` | P→C, and C→P | `media/1`; C→P `remoteart/1` | P→C: `MediaStore::set_art`. C→P: sent by the `computer_media` task before the `ComputerNowPlaying` naming `key` | P→C: `send_media_art`. C→P: `LinkEvent::ComputerMediaArt` (checked `is_art_image`, key ≤ 64) |
 | 14 | `MediaControl { action }` | C→P | `media/1` | `Request::MediaControl` | `LinkEvent::MediaControlRequested` → `MediaWatcher.control` |
 | 15 | `FileCancel { id }` | both | `files/1` | `Transfers::on_message` | `Transfers::on_message` (in core) |
 | 16 | `SmsSnapshot { threads }` | P→C | `sms/1` | `SmsStore::snapshot` | `sms_snapshot` on connect |
@@ -98,7 +98,7 @@ posted_ms, can_reply, actions }`, `NowPlaying { app, package, title, artist, alb
 duration_ms, position_ms, playing, can_previous, can_next, volume, max_volume, art_key }`,
 `SmsThread { id, address, name, messages, has_older }`, `SmsMessage { id, from_me, body,
 date_ms, state, read }`, `SmsState { Received, Sent, Sending, Failed }`,
-`MediaAction { PlayPause, Next, Previous, VolumeUp, VolumeDown, SetVolume(u32) }`,
+`MediaAction { PlayPause, Next, Previous, VolumeUp, VolumeDown, SetVolume(u32), ToggleMute }`, `PresentKeyKind { Next, Previous, Start, End, Blank, StartSlides, StartCanva, StartFullscreen }`,
 `PhoneStatus { battery: Option<u8>, charging, network, signal }`,
 `CallPhase { Idle, Ringing, Active }`.
 
@@ -123,7 +123,10 @@ hide what's missing. That is how an older phone app keeps working with a newer l
 | `links/1` | `CAP_LINKS` | Open a web link on the other device |
 | `ring/1` | `CAP_RING` | Ring the other device |
 | `remote/1` | `CAP_REMOTE` | Remote screen: the laptop's media players and your own buttons |
-| `present/1` | `CAP_PRESENT` | Presentation clicker (five keys) |
+| `present/1` | `CAP_PRESENT` | Presentation clicker (Next, Previous, Start = F5, End, Blank) |
+| `present/2` | `CAP_PRESENT2` | The per-app start keys `StartSlides`, `StartCanva`, `StartFullscreen` |
+| `mute/1` | `CAP_MUTE` | `MediaAction::ToggleMute` on the computer (phone → computer only) |
+| `remoteart/1` | `CAP_REMOTE_ART` | The computer sends its album art (`MediaArt` C→P) |
 | `contacts/1` | `CAP_CONTACTS` | Contact search for a new SMS |
 
 Lists: laptop `start_node` in `desktop/daemon/src/daemon.rs`; phone `PhoneLink::start` in

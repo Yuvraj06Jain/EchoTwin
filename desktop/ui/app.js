@@ -1251,7 +1251,7 @@
   }
   if (api.setBlur) applyAppearance(); // only inside the desktop app
 
-  /** Your own buttons for the phone's Remote screen. */
+  /** Your own buttons, shown on the phone under My buttons. */
   function commandsSection(s) {
     if (!state.commands || !('allowCommands' in s)) return '';
     const rows = state.commands
@@ -1259,8 +1259,8 @@
           <button type="button" class="btn btn-ghost btn-sm" data-action="command-remove" data-index="${i}" aria-label="Remove ${esc(c.name)}">Remove</button></div>`)
       .join('');
     return `<div class="sheet-section"><p class="section-label">Phone buttons</p>
-        ${switchRow('Let your phone press these', "Shown on the phone's Remote screen. The phone only sees the names; the commands stay here, and nothing else can be run.", 'toggle-setting', s.allowCommands !== false, 'data-key="allowCommands"')}
-        ${rows || '<div class="row faint">No buttons yet.</div>'}
+        ${switchRow('Let your phone press these', "Shown on the phone under My buttons. The phone only sees the names; the commands stay here, and nothing else can be run.", 'toggle-setting', s.allowCommands !== false, 'data-key="allowCommands"')}
+        ${rows || '<div class="row faint">No buttons yet. Add one below.</div>'}
         ${state.commands.length < 20 ? `<form class="command-form" data-form="command">
           <input class="text-input" name="name" maxlength="40" placeholder="Name, e.g. Lock screen" aria-label="Button name" required>
           <input class="text-input mono" name="run" maxlength="500" placeholder="Command, e.g. loginctl lock-session" aria-label="Command" required>
@@ -1286,7 +1286,7 @@
     const run = form.elements.run.value.trim();
     if (!name || !run) return;
     await saveCommands([...state.commands, { name, run }]);
-    toast(`Added “${name}” to your phone's Remote screen`);
+    toast(`Added “${name}” to My buttons on your phone`);
     $('.command-form [name="name"]')?.focus();
   }
 

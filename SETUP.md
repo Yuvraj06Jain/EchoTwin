@@ -324,6 +324,8 @@ When something fails, include:
 | laptop Settings: *Bluetooth backup — not available: no Bluetooth adapter found* | turn Bluetooth on (KDE system tray). `bluetoothctl show` should list a controller |
 | phone shows *Not paired in Bluetooth settings: takes over 2 min after Wi-Fi drops* | normal: the backup works without pairing after 2 minutes; pair them in the system Bluetooth settings for a 15 s takeover (EchoTwin never starts pairing itself) |
 | *Offline · Allow "Nearby devices"* | phone app: tap **Allow Nearby devices** |
+| phone: *… didn't answer over Bluetooth* | on the laptop, `phonelink status` must say "Bluetooth backup: ready" and `bluetoothctl show \| grep -i 7a1d5c3e` must print the EchoTwin service. Phone Settings → Bluetooth backup → **Test** lists every attempt (service record, channels 22–24) with Android's reason: send a screenshot of it if it still fails |
+| phone: *Android refused the Bluetooth connection* | phone Settings → Apps → EchoTwin → Permissions → *Nearby devices* → Allow. (Versions before v3 showed this as "didn't answer" because of a bug that also blocked every connection: update the app.) |
 | *Offline · The computer has the Bluetooth backup off* | laptop app → Settings → *Bluetooth backup* on |
 | it never switches to Bluetooth | the backup starts 15 s after Wi-Fi is gone, then retries every 30 s–2 min. Check `journalctl --user -u phonelinkd -n 30` for "connected over Bluetooth" |
 | files say *Waiting for Wi-Fi* | by design over Bluetooth; they continue when Wi-Fi is back |

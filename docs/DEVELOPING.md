@@ -58,6 +58,7 @@ Local build (needs Android SDK + NDK): `./scripts/build-android.sh`.
 | Kotlin bindings on the JVM | `./scripts/test-kotlin-bindings.sh` | |
 | <a id="ui-tests"></a>Window UI (preview + fake Tauri) | `cd desktop/ui/tests && npm install && npx playwright install chromium && npm test` | ~115 + ~174 checks, screenshots in `desktop/ui/tests/shots/` |
 | Widget shell quoting | `node packaging/plasmoid/tests/shell.test.js` | hostile file names must stay names |
+| Android source guard | `./scripts/check-android-source.sh` | fails on Bluetooth calls that need BLUETOOTH_SCAN (EchoTwin doesn't have it; `cancelDiscovery()` broke the backup once). CI runs it first |
 | QML syntax | `qmlformat <file>.qml > /dev/null` (package `qt6-declarative-dev-tools`) | Plasma itself can't run in CI |
 
 How the laptop tests work without hardware:

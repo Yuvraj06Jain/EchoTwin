@@ -173,33 +173,65 @@ object BluetoothBackup {
     /**
      * An RFCOMM socket to the computer: by service lookup first, then straight to the
      * channels the laptop listens on (some phones' lookups miss a freshly added service).
+     *
+     * Never scans and never cancels a scan: both need BLUETOOTH_SCAN, which EchoTwin doesn't
+     * have (scripts/check-android-source.sh keeps it that way). Throws a SecurityException
+     * if Android refused any attempt, else an IOException; either way the message lists
+     * every attempt ("service record: …", "channel 22: …").
      */
     @SuppressLint("MissingPermission")
     private fun open(device: BluetoothDevice): BluetoothSocket {
-        app.getSystemService(BluetoothManager::class.java)?.adapter?.cancelDiscovery()
         // Not paired in Bluetooth settings: an insecure link, so no pairing popup appears.
         // (The TLS session on top authenticates and encrypts; never call createBond().)
         val secure = device.bondState == BluetoothDevice.BOND_BONDED
-        var last: Exception? = null
+        val tried = mutableListOf<String>()
+        var refused = false
+        fun note(what: String, e: Throwable) {
+            val cause = if (e is java.lang.reflect.InvocationTargetException) e.targetException ?: e else e
+            if (cause is SecurityException) refused = true
+            tried += "$what: ${cause.javaClass.simpleName}: ${cause.message ?: "no details"}"
+        }
         try {
             val s = if (secure) device.createRfcommSocketToServiceRecord(SERVICE)
             else device.createInsecureRfcommSocketToServiceRecord(SERVICE)
-            return s.also { it.connect() }
+            try {
+                s.connect()
+                return s
+            } catch (e: Exception) {
+                runCatching { s.close() }
+                throw e
+            }
         } catch (e: Exception) {
-            last = e
+            note("service record", e)
         }
         val method = if (secure) "createRfcommSocket" else "createInsecureRfcommSocket"
         for (ch in CHANNELS) {
             try {
                 val s = device.javaClass.getMethod(method, Int::class.javaPrimitiveType)
                     .invoke(device, ch) as BluetoothSocket
-                s.connect()
-                return s
+                try {
+                    s.connect()
+                    return s
+                } catch (e: Exception) {
+                    runCatching { s.close() }
+                    throw e
+                }
             } catch (e: Exception) {
-                last = e
+                note("channel $ch", e)
             }
         }
-        throw last ?: IllegalStateException("no socket")
+        val text = tried.joinToString("\n")
+        throw if (refused) SecurityException(text) else java.io.IOException(text)
+    }
+
+    /** What to show when [open] failed: the truth, not a guess. */
+    private fun explain(computer: Device, e: Exception): String = when (e) {
+        is SecurityException ->
+            "Android refused the Bluetooth connection (${e.message?.lineSequence()?.firstOrNull()}). Check that \"Nearby devices\" is allowed for EchoTwin."
+        is java.io.IOException ->
+            "${computer.name} didn't answer over Bluetooth. Is EchoTwin running there with Bluetooth " +
+                "backup on, and Bluetooth switched on?"
+        else -> "Bluetooth error: ${e.javaClass.simpleName}: ${e.message}"
     }
 
     private fun tryConnect() {
@@ -216,8 +248,7 @@ object BluetoothBackup {
         val sock = try {
             open(device)
         } catch (e: Exception) {
-            problem = "${computer.name} didn't answer over Bluetooth. Is EchoTwin running there " +
-                "with Bluetooth backup on, and Bluetooth switched on?"
+            problem = explain(computer, e)
             return retryLater()
         }
         problem = null
@@ -283,8 +314,10 @@ object BluetoothBackup {
                         "after Wi-Fi drops (pair them in Bluetooth settings for 15 s)."
                 }
             } catch (e: Exception) {
-                "${computer.name} didn't answer over Bluetooth (${e.javaClass.simpleName}). Check that " +
-                    "Bluetooth backup is on in EchoTwin on the computer and that `phonelink status` says ready."
+                problem = explain(computer, e)
+                val detail = if (e is java.io.IOException) " Check that Bluetooth backup is on in EchoTwin " +
+                    "on the computer and that `phonelink status` says ready." else ""
+                "${explain(computer, e)}$detail\n\nAttempts:\n${e.message}"
             }
         }
         main.post { report(result) }

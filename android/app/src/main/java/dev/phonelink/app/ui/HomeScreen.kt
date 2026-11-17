@@ -230,14 +230,14 @@ private fun ActionGrid(d: Device, state: UiState, actions: Actions, onNote: () -
         add { m -> ActionTile("Note", Icons.Filled.Edit, true, m, onNote) }
         if (d.canRing) {
             add { m ->
-                ActionTile(if (ringing) "Stop" else "Ring", Icons.Filled.Notifications, true, m) {
+                ActionTile(if (ringing) "Stop" else "Ring", Icons.Filled.Notifications, true, m, onClick = {
                     ringing = !ringing
                     actions.ring(ringing)
-                }
+                })
             }
         }
         if (d.canMute) {
-            add { m -> ActionTile("Mute", null, true, m, glyph = "🔇") { actions.computerMedia(MediaCommand.ToggleMute) } }
+            add { m -> ActionTile("Mute", null, true, m, onClick = { actions.computerMedia(MediaCommand.ToggleMute) }, glyph = "🔇") }
         }
         if (d.canRemote && state.commands.isNotEmpty()) {
             add { m -> ActionTile("My buttons", Icons.AutoMirrored.Filled.List, true, m, onClick = actions::openButtons) }
@@ -400,8 +400,8 @@ private fun ActionTile(
     icon: ImageVector?,
     enabled: Boolean,
     modifier: Modifier,
-    glyph: String? = null,
     onClick: () -> Unit,
+    glyph: String? = null,
 ) {
     val tint = if (enabled) Pl.AccentText else Pl.Muted.copy(alpha = 0.5f)
     Surface(

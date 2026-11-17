@@ -128,7 +128,7 @@ hide what's missing. That is how an older phone app keeps working with a newer l
 | `calls/2` | `CAP_CALLS2` | `CallInfo` with the call notification's buttons, and `CallAction` |
 | `links/1` | `CAP_LINKS` | Open a web link on the other device |
 | `ring/1` | `CAP_RING` | Ring the other device |
-| `remote/1` | `CAP_REMOTE` | Remote screen: the laptop's media players and your own buttons |
+| `remote/1` | `CAP_REMOTE` | The phone as a remote: the laptop's music card and My buttons |
 | `present/1` | `CAP_PRESENT` | Presentation clicker (Next, Previous, Start = F5, End, Blank) |
 | `present/2` | `CAP_PRESENT2` | The per-app start keys `StartSlides`, `StartCanva`, `StartFullscreen` |
 | `mute/1` | `CAP_MUTE` | `MediaAction::ToggleMute` on the computer (phone → computer only) |

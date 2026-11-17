@@ -116,7 +116,7 @@ widget) talks to it over a private Unix socket with line-delimited JSON.
 | `src/effects.rs` | What the daemon does to the desktop for the phone (open a link, ring), behind a trait so tests record it. | `Effects`, `System`, `Recorded` |
 | `src/ring.rs` | Ringing this computer: generated WAV, player loop (max 1 min), volume up and restored with `wpctl`. | `Ringer`, `ring_wav`, `parse_volume` |
 | `src/art.rs` | Album art of what plays here (local `file://` art only): a JPEG thumbnail of at most 256 px / 64 KiB and its key, for the phone's music card. |
-| `src/mpris.rs` | Media players on this computer (MPRIS): list, status, pause/play; pausing for calls and resuming the same players; following what plays for the phone's Remote screen. | `players`, `status`, `call`, `CallPause`, `watch`, `active_player`, `control` |
+| `src/mpris.rs` | Media players on this computer (MPRIS): list, status, pause/play; pausing for calls and resuming the same players; following what plays (and its album art) for the phone's music card; the phone's media keys in order. | `players`, `status`, `call`, `CallPause`, `watch`, `ArtCache`, `active_player`, `Controls`, `control` |
 | `src/present.rs` | Presentation remote: its keys and chords (per-app start keys) through the RemoteDesktop portal (restore token kept), `xdotool` fallback. | `Presenter::{start, submit, wait, press}`, `keycode` |
 | `tests/daemon.rs` | Real daemon over its socket with a simulated phone: pairing, messages, CLI errors. | |
 | `tests/notifications.rs` | Notification flow end to end (post, update, remove, snapshot, reply/action/dismiss, mute). | |
@@ -127,7 +127,7 @@ widget) talks to it over a private Unix socket with line-delimited JSON.
 | `tests/sms.rs` | Conversations, sending, older messages. | |
 | `tests/bluetooth.rs` | Bluetooth backup against a stand-in BlueZ (socketpair as RFCOMM). | |
 | `tests/status.rs` | Battery/network both ways, the widget JSON through the real CLI, battery alerts, switches, links and ringing both ways. | |
-| `tests/remote.rs` | The Remote screen: stand-in MPRIS player, your own buttons (refusals, editing), presentation refusals. | |
+| `tests/remote.rs` | The phone as a remote: stand-in MPRIS player (music card, album art, Mute), My buttons (refusals, editing), presentation refusal, the pointers. | |
 | `tests/present.rs` | Presentation keys against a stand-in desktop portal. | |
 | `tests/calls.rs` | Calls: the card at the top or else a KDE notification after 4 s, Answer/Decline/End reaching the phone, Decline, media paused and resumed, against stand-in MPRIS players. | |
 

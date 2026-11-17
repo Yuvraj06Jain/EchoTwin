@@ -457,8 +457,10 @@ with a fake Tauri); see [DEVELOPING.md](DEVELOPING.md#ui-tests).
 (`docs/design/phone-concepts.html`, style 3): this phone and the computer drawn side by side
 and filled to their battery levels, the link between them (Wi-Fi green, Bluetooth amber,
 grey when off; the dashes drift only while connected and on screen), then the connection
-tile, action tiles (Lock, Clipboard, Send files, Note, Ring) and chips for what shows on the
-computer. A "Finish setup" checklist for
+tile, the laptop's music card (§23), action tiles (Lock, Clipboard, Send files, Note, Ring,
+Mute, My buttons; each only when usable), the full-width Presentation tile as the last row,
+chips for what shows on the computer, and notes from the computer with a Copy button. The
+v3 layout is in `docs/design/v3-preview.html`. A "Finish setup" checklist for
 notification access, background running, SMS, Nearby devices, Phone status; pairing screen
 when nothing is paired.
 
@@ -466,7 +468,7 @@ when nothing is paired.
 |---|---|
 | Colours, shared widgets | `android/…/ui/Theme.kt` (`Pl`, `Panel` (18 dp tiles), `SwitchRow`, `Chip`) |
 | The phone + laptop picture | `android/…/ui/TwinHeader.kt` (`TwinHeader`, `Link`, `PhoneOutline`, `LaptopOutline`, `LinkLine`) |
-| Home | `android/…/ui/HomeScreen.kt` (`ConnectionTile`, `ActionGrid`, `ActionTile`, `ShowChip`, `TransferCard`, `NoteDialog`) |
+| Home | `android/…/ui/HomeScreen.kt` (`ConnectionTile`, `ComputerMusicCard`, `ActionGrid`, `ActionTile`, `PresentationTile`, `ShowChip`, `TransferCard`, `NoteCard`, `NoteDialog`) |
 | This phone's battery/network on Home | `StatusWatcher.mine` (a `StateFlow`) → `UiState.my*` |
 | Files / Settings / Setup / Pair | `android/…/ui/OtherScreens.kt` (`FilesScreen`, `SettingsScreen`, `SetupScreen` + `Step`, `PairScreen`) |
 | What a button does | `MainActivity.kt` `actions` object (implements `ui/Model.kt` `Actions`) |

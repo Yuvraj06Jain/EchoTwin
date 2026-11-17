@@ -11,7 +11,12 @@ out=${1:-/tmp/echotwin-widget.png}
 case "$out" in /*) ;; *) out="$PWD/$out" ;; esac
 tmp="$here/.harness-run.qml"
 trap 'rm -f "$tmp"' EXIT
-sed "s|OUT_PATH|$out|" "$here/harness.qml" > "$tmp"
+# ECHOTWIN_PREVIEW_CALL=1: with a call in progress (the call strip and the panel's handset).
+call=null
+if [ "${ECHOTWIN_PREVIEW_CALL:-}" = 1 ]; then
+  call='{ id: "9C21", name: "Galaxy S24 FE", phase: "active", caller: "Mom", actions: ["end", "mute", "speaker"], active_ms: Date.now() - 83000 }'
+fi
+sed -e "s|OUT_PATH|$out|" -e "s|CALL_VALUE|$call|" "$here/harness.qml" > "$tmp"
 rm -f "$out"
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QUICK_CONTROLS_STYLE=Basic \
   timeout 60 /usr/lib/qt6/bin/qmlscene -I "$here/stubs" "$tmp" 2>&1 |

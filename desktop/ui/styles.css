@@ -766,3 +766,16 @@ img.app-badge.app-icon { background: transparent; object-fit: contain; }
 ::-webkit-scrollbar-thumb { background: #33383f; border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-thumb:hover { background: #454b53; background-clip: padding-box; border: 3px solid transparent; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* The call on the phone, at the top of the sidebar (ringing or active). */
+.call-tile { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-color: rgba(61, 187, 130, .35); }
+.call-tile .grow { min-width: 0; }
+.call-tile strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.call-tile .small { font-size: 12px; }
+.call-av { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #fff; background: var(--c); box-shadow: 0 0 0 3px rgba(61, 187, 130, .3); }
+.call-buttons { display: flex; gap: 6px; flex: none; }
+.round-btn { width: 32px; height: 32px; border-radius: 50%; border: 0; display: grid; place-items: center; font-size: 14px; color: #fff; cursor: pointer; }
+.round-btn.ok { background: #23905f; }
+.round-btn.no { background: #d9534f; }
+.round-btn.nt { background: var(--raised, #25292e); color: var(--text, #e6e8ea); }
+.round-btn:focus-visible { outline: 2px solid var(--accent-text, #3dbb82); outline-offset: 2px; }

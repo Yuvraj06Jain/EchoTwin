@@ -157,6 +157,7 @@
         device,
         mode: device ? (device.connected ? 'connected' : 'offline') : 'unpaired',
         saver: { batterySaver, autoSaverBelow, saverAuto: saverActive && !batterySaver },
+        call: s.call ? { id: s.call.id, name: s.call.name, phase: s.call.phase, caller: s.call.caller, actions: s.call.actions || [], activeMs: s.call.active_ms || null } : null,
       };
     },
 
@@ -310,6 +311,9 @@
     },
     async setCommands(items) {
       await invoke('set_commands', { items });
+    },
+    async callAction(action) {
+      await invoke('call_action', { action });
     },
     async declineCall(deviceId) {
       await invoke('decline_call', { device: deviceId || null });

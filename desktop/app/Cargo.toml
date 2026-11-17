@@ -34,9 +34,13 @@ libc = "0.2"
 wayland-client = "0.31"
 wayland-backend = { version = "0.3", features = ["client_system"] }
 wayland-protocols-plasma = { version = "0.3", features = ["client"] }
+# Call card and pointer above full-screen windows on Wayland (wlr-layer-shell, which KWin
+# supports). Needs libgtk-layer-shell; without it build with --no-default-features.
+gtk-layer-shell = { version = "0.8", features = ["v0_6"], optional = true }
 
 [features]
 # Embed the UI in the binary and serve it over Tauri's own protocol (no dev server, no
 # localhost). Always on: this project has no separate front-end dev server.
-default = ["custom-protocol"]
+default = ["custom-protocol", "layer-shell"]
+layer-shell = ["dep:gtk-layer-shell"]
 custom-protocol = ["tauri/custom-protocol"]

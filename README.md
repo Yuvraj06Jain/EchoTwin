@@ -28,7 +28,7 @@ your messages in memory only.
 - **Battery and 5G/4G status** of the phone on the laptop, laptop battery on the phone
 - **KDE panel widget**: a little phone in your panel; click for everything, drop files on it
 - **One-time codes**: "Copy 482913" right on the laptop popup
-- **Calls**: "Mom is calling" on the laptop with Decline; laptop music pauses during the call
+- **Calls**: a card at the top of the laptop screen with Answer / Decline, then End, Mute and Speaker from the widget or window (audio stays on the phone); laptop music pauses during the call
 - **Notes** both ways, with a Copy button
 - **Open links** on the other device, **ring** a lost phone or laptop, **battery alerts**
 - **Laptop music on the phone's Home** with the album cover, a **Mute** tile and **My buttons** (your own commands)

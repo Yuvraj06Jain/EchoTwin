@@ -20,6 +20,7 @@ Window {
         property real seenMs: 0
         property var st: ({
             paired: true, connection: true, battery_saver: true,
+            call: CALL_VALUE,
             phone: { id: "9C21", name: "Galaxy S24 FE", connected: true, via: "wifi", paused_by_peer: false, can_ring: true,
                      status: { battery: 82, charging: true, network: "5G", signal: 3 } },
             media: { app: "YouTube Music", title: "Tum Hi Ho", artist: "Arijit Singh", playing: true, can_previous: true, can_next: true,

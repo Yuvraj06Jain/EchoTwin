@@ -13,7 +13,7 @@ use std::{
 
 use anyhow::{bail, Context};
 use base64::Engine;
-use phonelink_core::{
+use phonelink_core::{CallActionKind, CallPhase, 
     lan::Lan,
     transfer::{Direction, PathOpener, TransferConfig, TransferInfo, TransferState, Transfers, CAP_FILES},
     message::{
@@ -134,8 +134,12 @@ struct State {
     battery_alerts: Mutex<HashMap<Fingerprint, phonelink_core::alerts::BatteryAlerts>>,
     battery_root: PathBuf,
     effects: Arc<dyn crate::effects::Effects>,
+    /// The phone's media buttons for this computer, in order.
+    media_keys: crate::mpris::Controls,
     /// Phones with a call going on: (phase, caller, call notification key).
-    calls: Mutex<HashMap<Fingerprint, (phonelink_core::CallPhase, String, String)>>,
+    calls: Mutex<HashMap<Fingerprint, CallNow>>,
+    /// When the app was last started in the background (for the call card).
+    app_started: Mutex<Option<std::time::Instant>>,
     /// The latest notes from the phone that got a popup: (popup id, text), for its Copy button.
     notes: Mutex<std::collections::VecDeque<(String, String)>>,
     /// Presses the presentation remote's keys (portal session on its own thread).
@@ -174,6 +178,32 @@ async fn computer_media(
             }
             let _ = state.to_phone(&peer, AppMessage::ComputerNowPlaying(now.clone()));
         }
+    }
+}
+
+/// A call on a phone.
+#[derive(Debug, Clone)]
+struct CallNow {
+    phase: CallPhase,
+    caller: String,
+    key: String,
+    actions: Vec<CallActionKind>,
+    /// This computer's clock when the call became active.
+    active_ms: Option<u64>,
+    /// The app showed the card for this ring.
+    card_shown: bool,
+    /// The KDE notification is up for this ring.
+    kde_shown: bool,
+}
+
+/// How long the app gets to show the call card before the KDE notification shows instead.
+const CALL_CARD_WAIT: Duration = Duration::from_secs(4);
+
+fn phase_name(p: CallPhase) -> &'static str {
+    match p {
+        CallPhase::Idle => "idle",
+        CallPhase::Ringing => "ringing",
+        CallPhase::Active => "active",
     }
 }
 
@@ -216,6 +246,8 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         },
         Arc::new(PathOpener),
     )?;
+    let effects: Arc<dyn crate::effects::Effects> =
+        opts.effects.clone().unwrap_or_else(|| Arc::new(crate::effects::System::new(&opts.data_dir)));
     let state = Arc::new(State {
         node: node.clone(),
         port,
@@ -262,6 +294,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         status_sent: Mutex::new(HashMap::new()),
         battery_alerts: Mutex::new(HashMap::new()),
         calls: Mutex::new(HashMap::new()),
+        app_started: Mutex::new(None),
         notes: Mutex::new(std::collections::VecDeque::new()),
         computer_media: Mutex::new(None),
         computer_art: Mutex::new(None),
@@ -270,10 +303,8 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         next_contact_req: std::sync::atomic::AtomicU32::new(1),
         commands: Mutex::new(opts.config.commands.clone()),
         call_pause: crate::mpris::CallPause::start(opts.buses.session.clone()),
-        effects: opts
-            .effects
-            .clone()
-            .unwrap_or_else(|| Arc::new(crate::effects::System::new(&opts.data_dir))),
+        effects: effects.clone(),
+        media_keys: crate::mpris::Controls::start(opts.buses.session.clone(), effects),
         lan: Mutex::new(None),
         discovery: opts.config.discovery,
         battery_root: opts
@@ -341,7 +372,7 @@ async fn start_node(
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
         cfg.timings = timings(opts.config.battery_saver);
         cfg.capabilities.extend(
-            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS, phonelink_core::CAP_REMOTE, phonelink_core::CAP_CONTACTS, phonelink_core::CAP_PRESENT, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_MUTE, phonelink_core::CAP_REMOTE_ART]
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS, phonelink_core::CAP_REMOTE, phonelink_core::CAP_CONTACTS, phonelink_core::CAP_PRESENT, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_MUTE, phonelink_core::CAP_REMOTE_ART, phonelink_core::CAP_CALLS2]
                 .map(String::from),
         );
         match Node::start(cfg).await {
@@ -548,61 +579,160 @@ impl State {
         self.popup_to(true, format!("status/battery/{}", peer.short()), title, body, crate::popups::Tab::Notifications);
     }
 
-    /// The phone's call situation changed: popup, pausing media, the window's banner.
-    fn call_changed(&self, peer: Fingerprint, phase: phonelink_core::CallPhase, caller: &str, key: &str) {
-        use phonelink_core::CallPhase;
+    /// The phone's call situation changed: the card or a KDE popup, pausing media, the
+    /// window's and the widget's call controls.
+    fn call_changed(self: &Arc<Self>, peer: Fingerprint, phase: CallPhase, caller: &str, key: &str, actions: Vec<CallActionKind>) {
         let caller = phonelink_core::message::truncate_text(caller, phonelink_core::message::MAX_CALLER);
-        let any_call = {
+        let mut actions = actions;
+        actions.truncate(phonelink_core::message::MAX_CALL_ACTIONS);
+        let card = phase == CallPhase::Ringing && self.switch_on("call_popup");
+        let (any_call, new_ring, kde_shown) = {
             let mut calls = lock(&self.calls);
+            let prev = calls.get(&peer).cloned();
+            let new_ring = phase == CallPhase::Ringing
+                && !prev.as_ref().is_some_and(|p| p.phase == CallPhase::Ringing && p.key == key);
             if phase == CallPhase::Idle {
                 calls.remove(&peer);
             } else {
-                calls.insert(peer, (phase, caller.clone(), key.to_string()));
+                let active_ms = match phase {
+                    CallPhase::Active => prev.as_ref().and_then(|p| p.active_ms).or(Some(now_ms())),
+                    _ => None,
+                };
+                let keep = prev.filter(|_| !new_ring);
+                calls.insert(
+                    peer,
+                    CallNow {
+                        phase,
+                        caller: caller.clone(),
+                        key: key.to_string(),
+                        actions: actions.clone(),
+                        active_ms,
+                        card_shown: keep.as_ref().is_some_and(|p| p.card_shown),
+                        kde_shown: keep.as_ref().is_some_and(|p| p.kde_shown),
+                    },
+                );
             }
-            !calls.is_empty()
+            (!calls.is_empty(), new_ring, calls.get(&peer).is_some_and(|c| c.kde_shown))
         };
-        let name = self.name_of(&peer);
-        let popup = format!("call/{}", peer.short());
-        if phase == CallPhase::Ringing && self.notifications_on() {
-            let title = if caller.is_empty() { "Incoming call".to_string() } else { format!("{caller} is calling") };
-            self.popup_with(
-                popup,
-                title,
-                format!("On {name}"),
-                crate::popups::Tab::Notifications,
-                vec![("call-decline".into(), "Decline".into())],
-                0,
-            );
-        } else {
-            self.popups.send(PopupCmd::Close { id: popup });
+        if phase != CallPhase::Ringing {
+            self.popups.send(PopupCmd::Close { id: format!("call/{}", peer.short()) });
+        } else if new_ring && card {
+            // The app shows the card and says so; if it doesn't within 4 s (not installed,
+            // no layer-shell, …), the KDE notification shows instead.
+            self.start_app();
+            let (st, k) = (self.clone(), key.to_string());
+            tokio::spawn(async move {
+                tokio::time::sleep(CALL_CARD_WAIT).await;
+                let waiting = lock(&st.calls).get(&peer).is_some_and(|c| c.phase == CallPhase::Ringing && c.key == k && !c.card_shown);
+                if waiting {
+                    st.call_notification(peer);
+                }
+            });
+        } else if !card || kde_shown {
+            self.call_notification(peer); // new, or updated (other buttons, a name)
         }
         if !any_call {
             self.call_pause.set(false);
         } else if self.switch_on("pause_media_on_call") {
             self.call_pause.set(true);
         }
-        let phase = match phase {
-            CallPhase::Idle => "idle",
-            CallPhase::Ringing => "ringing",
-            CallPhase::Active => "active",
-        };
+        let active_ms = lock(&self.calls).get(&peer).and_then(|c| c.active_ms);
         self.broadcast(WatchEvent::CallChanged {
             id: peer.short(),
-            name,
-            phase: phase.into(),
+            name: self.name_of(&peer),
+            phase: phase_name(phase).into(),
             caller,
+            actions: actions.iter().map(|a| a.as_str().to_string()).collect(),
+            active_ms,
+            card,
         });
     }
 
-    fn decline_call(&self, peer: Fingerprint) -> Result<(), String> {
-        let key = lock(&self.calls)
-            .get(&peer)
-            .filter(|(phase, ..)| *phase == phonelink_core::CallPhase::Ringing)
-            .map(|(_, _, key)| key.clone())
-            .ok_or("no call is ringing on the phone")?;
-        self.to_phone(&peer, AppMessage::CallDecline { key })?;
-        self.popups.send(PopupCmd::Close { id: format!("call/{}", peer.short()) });
+    /// The KDE notification for a ringing call, with Answer / Decline as the phone offers.
+    fn call_notification(&self, peer: Fingerprint) {
+        let Some(call) = ({
+            let mut calls = lock(&self.calls);
+            calls.get_mut(&peer).filter(|c| c.phase == CallPhase::Ringing).map(|c| {
+                c.kde_shown = true;
+                c.clone()
+            })
+        }) else {
+            return;
+        };
+        if !self.notifications_on() {
+            return;
+        }
+        let title = if call.caller.is_empty() { "Incoming call".to_string() } else { format!("{} is calling", call.caller) };
+        let mut buttons = vec![];
+        if call.actions.contains(&CallActionKind::Answer) {
+            buttons.push(("call-answer".to_string(), "Answer".to_string()));
+        }
+        if call.actions.contains(&CallActionKind::Decline) {
+            buttons.push(("call-decline".to_string(), "Decline".to_string()));
+        }
+        self.popup_with(
+            format!("call/{}", peer.short()),
+            title,
+            format!("On {}", self.name_of(&peer)),
+            crate::popups::Tab::Notifications,
+            buttons,
+            0,
+        );
+    }
+
+    /// The app showed the call card: no KDE notification (and close one shown meanwhile).
+    fn call_card_shown(&self, short: &str) {
+        let peer = {
+            let mut calls = lock(&self.calls);
+            calls.iter_mut().find(|(fp, _)| fp.short() == short).map(|(fp, c)| {
+                c.card_shown = true;
+                (*fp, std::mem::take(&mut c.kde_shown))
+            })
+        };
+        if let Some((peer, true)) = peer {
+            self.popups.send(PopupCmd::Close { id: format!("call/{}", peer.short()) });
+        }
+    }
+
+    /// Start the app in the background, at most once every 30 s.
+    fn start_app(&self) {
+        let mut last = lock(&self.app_started);
+        if last.is_some_and(|t| t.elapsed() < Duration::from_secs(30)) {
+            return;
+        }
+        *last = Some(std::time::Instant::now());
+        self.effects.start_app();
+    }
+
+    /// Press `action` on the phone's call (it must be one the call offers now).
+    fn call_action(&self, peer: Fingerprint, action: CallActionKind) -> Result<(), String> {
+        let call = lock(&self.calls).get(&peer).cloned().ok_or("there is no call on the phone")?;
+        if !call.actions.contains(&action) {
+            return Err(format!("the phone's call screen doesn't offer {} right now", action.as_str()));
+        }
+        if self.has_cap(&peer, phonelink_core::CAP_CALLS2) {
+            self.to_phone(&peer, AppMessage::CallAction { key: call.key, action })?;
+        } else {
+            // An older phone (calls/1) only knows Decline.
+            self.to_phone(&peer, AppMessage::CallDecline { key: call.key })?;
+        }
+        if matches!(action, CallActionKind::Answer | CallActionKind::Decline) {
+            self.popups.send(PopupCmd::Close { id: format!("call/{}", peer.short()) });
+        }
         Ok(())
+    }
+
+    /// The call for the window and widget (the first phone that has one).
+    fn call_view(&self) -> Option<crate::ipc::CallView> {
+        let (peer, c) = lock(&self.calls).iter().next().map(|(p, c)| (*p, c.clone()))?;
+        Some(crate::ipc::CallView {
+            id: peer.short(),
+            name: self.name_of(&peer),
+            phase: phase_name(c.phase).into(),
+            caller: c.caller,
+            actions: c.actions.iter().map(|a| a.as_str().to_string()).collect(),
+            active_ms: c.active_ms,
+        })
     }
 
     /// The button names for the phone (ids, never the commands).
@@ -792,13 +922,13 @@ impl State {
             }
             return;
         }
-        if key == "call-decline" {
+        if let Some(action) = key.strip_prefix("call-").and_then(CallActionKind::parse) {
             let peer = popup_id
                 .strip_prefix("call/")
                 .and_then(|short| lock(&self.calls).keys().copied().find(|fp| fp.short() == short));
             if let Some(peer) = peer {
-                if let Err(e) = self.decline_call(peer) {
-                    warn!("could not decline: {e}");
+                if let Err(e) = self.call_action(peer, action) {
+                    warn!("could not {}: {e}", action.as_str());
                 }
             }
             return;
@@ -1361,7 +1491,7 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                 last_disconnect.insert(peer, std::time::Instant::now());
                 if lock(&state.calls).contains_key(&peer) {
                     // We'll never hear that the call ended: treat it as ended.
-                    state.call_changed(peer, phonelink_core::CallPhase::Idle, "", "");
+                    state.call_changed(peer, CallPhase::Idle, "", "", vec![]);
                 }
                 lock(&state.caps).remove(&peer);
                 lock(&state.phone_status).remove(&peer);
@@ -1556,12 +1686,15 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                 AppMessage::ComputerMediaControl { action } => {
                     let cap = if action == phonelink_core::MediaAction::ToggleMute { phonelink_core::CAP_MUTE } else { phonelink_core::CAP_REMOTE };
                     if state.has_cap(&peer, cap) {
-                        let (bus, effects, st) = (state.buses.session.clone(), state.effects.clone(), state.clone());
-                        tokio::task::spawn_blocking(move || {
-                            if let Err(message) = crate::mpris::control(&bus, action, effects.as_ref()) {
-                                let _ = st.to_phone(&peer, AppMessage::ActionResult { key: "media".into(), ok: false, message });
-                            }
-                        });
+                        let st = state.clone();
+                        state.media_keys.press(
+                            action,
+                            Box::new(move |r| {
+                                if let Err(message) = r {
+                                    let _ = st.to_phone(&peer, AppMessage::ActionResult { key: "media".into(), ok: false, message });
+                                }
+                            }),
+                        );
                     }
                     continue;
                 }
@@ -1619,11 +1752,20 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                 }
                 AppMessage::ComputerNowPlaying(_) | AppMessage::RemoteCommands { .. } | AppMessage::ContactsQuery { .. } => continue,
                 AppMessage::CallState { state: phase, caller, key } => {
-                    state.call_changed(peer, phase, &caller, &key);
+                    // An older phone (calls/1): only Decline, while ringing.
+                    let actions = if phase == CallPhase::Ringing { vec![CallActionKind::Decline] } else { vec![] };
+                    state.call_changed(peer, phase, &caller, &key, actions);
+                    continue;
+                }
+                AppMessage::CallInfo { key, caller, phase, actions } => {
+                    if state.has_cap(&peer, phonelink_core::CAP_CALLS2) {
+                        state.call_changed(peer, phase, &caller, &key, actions);
+                    }
                     continue;
                 }
                 // Only ever computer → phone.
                 AppMessage::CallDecline { .. }
+                | AppMessage::CallAction { .. }
                 | AppMessage::MediaControl { .. }
                 | AppMessage::ComputerStatus { .. }
                 | AppMessage::ClipboardImage { .. } => continue,
@@ -2262,6 +2404,7 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                     saver_active,
                     battery: battery.map(|b| b.0),
                     charging: battery.is_some_and(|b| b.1),
+                    call: state.call_view(),
                 };
                 write_reply(&mut w, &reply).await?;
             }
@@ -2326,13 +2469,28 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
             }
             Request::DeclineCall { device } => {
                 let reply = match state.resolve(device.as_deref()) {
-                    Ok(p) => match state.decline_call(p.fingerprint) {
+                    Ok(p) => match state.call_action(p.fingerprint, CallActionKind::Decline) {
                         Ok(()) => Reply::Done,
                         Err(message) => Reply::Error { message },
                     },
                     Err(message) => Reply::Error { message },
                 };
                 write_reply(&mut w, &reply).await?;
+            }
+            Request::CallAction { device, action } => {
+                let reply = match (state.resolve(device.as_deref()), CallActionKind::parse(&action)) {
+                    (Err(message), _) => Reply::Error { message },
+                    (_, None) => Reply::Error { message: format!("unknown call action {action:?}") },
+                    (Ok(p), Some(a)) => match state.call_action(p.fingerprint, a) {
+                        Ok(()) => Reply::Done,
+                        Err(message) => Reply::Error { message },
+                    },
+                };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::CallPopupShown { id } => {
+                state.call_card_shown(&id);
+                write_reply(&mut w, &Reply::Done).await?;
             }
             Request::PopupAction { id, key } => {
                 state.popup_action(&id, &key);

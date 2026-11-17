@@ -49,6 +49,8 @@ pub struct Config {
     pub allow_commands: bool,
     /// Let the phone act as a presentation clicker (five keys only).
     pub presentation_remote: bool,
+    /// Show a ringing call as a card at the top of the screen (else a KDE notification).
+    pub call_popup: bool,
     /// Ignored, from an older version (sudo approval was removed in v3). Still accepted so an
     /// old `config.toml` keeps loading.
     #[serde(skip_serializing)]
@@ -83,6 +85,7 @@ impl Default for Config {
             pause_media_on_call: true,
             allow_commands: true,
             presentation_remote: true,
+            call_popup: true,
             phone_approval: None,
             commands: vec![],
             power_supply_dir: None,
@@ -129,7 +132,7 @@ pub fn check_commands(items: &[CommandEntry]) -> Result<(), String> {
 }
 
 /// Simple on/off settings, set with `Request::SetSwitch` and listed in `Reply::Status`.
-pub const SWITCHES: &[&str] = &["battery_alerts", "open_links", "allow_ring", "pause_media_on_call", "allow_commands", "presentation_remote"];
+pub const SWITCHES: &[&str] = &["battery_alerts", "open_links", "allow_ring", "pause_media_on_call", "allow_commands", "presentation_remote", "call_popup"];
 
 impl Config {
     pub fn switch(&self, name: &str) -> Option<bool> {
@@ -140,6 +143,7 @@ impl Config {
             "pause_media_on_call" => self.pause_media_on_call,
             "allow_commands" => self.allow_commands,
             "presentation_remote" => self.presentation_remote,
+            "call_popup" => self.call_popup,
             _ => return None,
         })
     }
@@ -153,6 +157,7 @@ impl Config {
             "pause_media_on_call" => &mut self.pause_media_on_call,
             "allow_commands" => &mut self.allow_commands,
             "presentation_remote" => &mut self.presentation_remote,
+            "call_popup" => &mut self.call_popup,
             _ => return false,
         };
         *slot = on;

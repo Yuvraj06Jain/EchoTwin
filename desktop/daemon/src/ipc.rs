@@ -182,6 +182,16 @@ pub enum Request {
     DeclineCall {
         device: Option<String>,
     },
+    /// Press a button of the phone's call: "answer", "decline", "end", "mute", "speaker" or
+    /// "hold" (only one the call offers right now). Replies `Done` once asked.
+    CallAction {
+        device: Option<String>,
+        action: String,
+    },
+    /// The app shows the call card for phone `id`: no KDE notification needed.
+    CallPopupShown {
+        id: String,
+    },
     /// The same as pressing button `key` on our popup `id` (e.g. "note-copy").
     PopupAction {
         id: String,
@@ -231,6 +241,16 @@ pub enum WatchEvent {
         name: String,
         phase: String,
         caller: String,
+        /// Buttons the phone's call notification offers: "answer", "decline", "end",
+        /// "mute", "speaker", "hold".
+        #[serde(default)]
+        actions: Vec<String>,
+        /// This computer's clock when the call became active (for the timer).
+        #[serde(default)]
+        active_ms: Option<u64>,
+        /// Show the card at the top of the screen (ringing, and `call_popup` on).
+        #[serde(default)]
+        card: bool,
     },
     Paired {
         id: String,
@@ -363,6 +383,9 @@ pub enum Reply {
         battery: Option<u8>,
         #[serde(default)]
         charging: bool,
+        /// The call on the phone, if there is one.
+        #[serde(default)]
+        call: Option<CallView>,
     },
     Notifications {
         items: Vec<NotificationInfo>,
@@ -420,4 +443,16 @@ pub enum Reply {
 
 fn yes() -> bool {
     true
+}
+
+/// A call on the phone, as the window and the widget show it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CallView {
+    pub id: String,
+    pub name: String,
+    /// "ringing" or "active".
+    pub phase: String,
+    pub caller: String,
+    pub actions: Vec<String>,
+    pub active_ms: Option<u64>,
 }

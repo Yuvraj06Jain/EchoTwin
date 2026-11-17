@@ -793,6 +793,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_app_icon(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_call_info(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_call_state(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_send_clipboard(
@@ -928,6 +930,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_app_icon(`ptr`: Long,`package`: RustBuffer.ByValue,`png`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_send_call_info(`ptr`: Long,`phase`: RustBuffer.ByValue,`caller`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,`actions`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_call_state(`ptr`: Long,`phase`: RustBuffer.ByValue,`caller`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Int
     external fun uniffi_phonelink_ffi_fn_method_phonelink_send_clipboard(`ptr`: Long,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1170,6 +1174,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_app_icon() and 0xFFFF) != 29622) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_call_info() and 0xFFFF) != 48436) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_send_call_state() and 0xFFFF) != 65133) {
@@ -2500,6 +2507,13 @@ public interface PhoneLinkInterface {
     fun `sendAppIcon`(`package`: kotlin.String, `png`: kotlin.ByteArray)
     
     /**
+     * Tell connected computers about a call and the buttons its notification offers:
+     * `CallInfo` to computers with `calls/2`, the older `CallState` to `calls/1` ones.
+     * Returns how many got it.
+     */
+    fun `sendCallInfo`(`phase`: CallPhaseFfi, `caller`: kotlin.String, `key`: kotlin.String, `actions`: List<CallActionFfi>): kotlin.UInt
+    
+    /**
      * Tell connected computers about a call (ringing, ongoing, ended). `caller` may be
      * empty; `key` is the call notification's key (for Decline). Returns how many got it.
      */
@@ -3071,6 +3085,29 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
 }
     }
     
+    
+
+    
+    /**
+     * Tell connected computers about a call and the buttons its notification offers:
+     * `CallInfo` to computers with `calls/2`, the older `CallState` to `calls/1` ones.
+     * Returns how many got it.
+     */
+    @Throws(LinkException::class)override fun `sendCallInfo`(`phase`: CallPhaseFfi, `caller`: kotlin.String, `key`: kotlin.String, `actions`: List<CallActionFfi>): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_send_call_info(
+        it,
+        
+        FfiConverterTypeCallPhaseFfi.lower(`phase`),
+        FfiConverterString.lower(`caller`),
+        FfiConverterString.lower(`key`),
+        FfiConverterSequenceTypeCallActionFfi.lower(`actions`),_status)
+}
+    }
+    )
+    }
     
 
     
@@ -4833,6 +4870,47 @@ public object FfiConverterTypeBatteryAlertKind: FfiConverterRustBuffer<BatteryAl
 
 
 /**
+ * A button of the phone's call notification.
+ */
+
+enum class CallActionFfi {
+    
+    ANSWER,
+    DECLINE,
+    END,
+    MUTE,
+    SPEAKER,
+    HOLD;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCallActionFfi: FfiConverterRustBuffer<CallActionFfi> {
+    override fun read(buf: ByteBuffer) = try {
+        CallActionFfi.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: CallActionFfi) = 4UL
+
+    override fun write(value: CallActionFfi, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
  * A music button pressed on the computer.
  * Where a call on this phone is.
  */
@@ -5132,6 +5210,21 @@ sealed class LinkEvent {
     }
     
     /**
+     * The computer presses `action` on the call whose notification key is `key`. Answer
+     * with `send_action_result(id, "call", ok, message)`.
+     */
+    data class CallActionRequested(
+        val `id`: kotlin.String, 
+        val `key`: kotlin.String, 
+        val `action`: dev.phonelink.core.CallActionFfi) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
      * The computer asks this phone to ring loudly (`on`) or to stop. Already checked to
      * be recent.
      */
@@ -5321,36 +5414,41 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            17 -> LinkEvent.RingRequested(
+            17 -> LinkEvent.CallActionRequested(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterTypeCallActionFfi.read(buf),
+                )
+            18 -> LinkEvent.RingRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterBoolean.read(buf),
                 )
-            18 -> LinkEvent.ClipboardReceived(
+            19 -> LinkEvent.ClipboardReceived(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            19 -> LinkEvent.MediaControlRequested(
+            20 -> LinkEvent.MediaControlRequested(
                 FfiConverterString.read(buf),
                 FfiConverterTypeMediaCommand.read(buf),
                 )
-            20 -> LinkEvent.SmsSendRequested(
+            21 -> LinkEvent.SmsSendRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            21 -> LinkEvent.SmsOlderRequested(
+            22 -> LinkEvent.SmsOlderRequested(
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterULong.read(buf),
                 )
-            22 -> LinkEvent.TransferChanged(
+            23 -> LinkEvent.TransferChanged(
                 FfiConverterTypeFileTransfer.read(buf),
                 )
-            23 -> LinkEvent.RequestResult(
+            24 -> LinkEvent.RequestResult(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
@@ -5498,6 +5596,15 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 4UL
                 + FfiConverterString.allocationSize(value.`id`)
                 + FfiConverterString.allocationSize(value.`key`)
+            )
+        }
+        is LinkEvent.CallActionRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterString.allocationSize(value.`key`)
+                + FfiConverterTypeCallActionFfi.allocationSize(value.`action`)
             )
         }
         is LinkEvent.RingRequested -> {
@@ -5674,28 +5781,35 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.write(value.`key`, buf)
                 Unit
             }
-            is LinkEvent.RingRequested -> {
+            is LinkEvent.CallActionRequested -> {
                 buf.putInt(17)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterString.write(value.`key`, buf)
+                FfiConverterTypeCallActionFfi.write(value.`action`, buf)
+                Unit
+            }
+            is LinkEvent.RingRequested -> {
+                buf.putInt(18)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterBoolean.write(value.`on`, buf)
                 Unit
             }
             is LinkEvent.ClipboardReceived -> {
-                buf.putInt(18)
+                buf.putInt(19)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`text`, buf)
                 Unit
             }
             is LinkEvent.MediaControlRequested -> {
-                buf.putInt(19)
+                buf.putInt(20)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterTypeMediaCommand.write(value.`command`, buf)
                 Unit
             }
             is LinkEvent.SmsSendRequested -> {
-                buf.putInt(20)
+                buf.putInt(21)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`clientId`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
@@ -5704,19 +5818,19 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 Unit
             }
             is LinkEvent.SmsOlderRequested -> {
-                buf.putInt(21)
+                buf.putInt(22)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
                 FfiConverterULong.write(value.`beforeMs`, buf)
                 Unit
             }
             is LinkEvent.TransferChanged -> {
-                buf.putInt(22)
+                buf.putInt(23)
                 FfiConverterTypeFileTransfer.write(value.`transfer`, buf)
                 Unit
             }
             is LinkEvent.RequestResult -> {
-                buf.putInt(23)
+                buf.putInt(24)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`key`, buf)
@@ -6308,6 +6422,34 @@ public object FfiConverterSequenceTypeRemoteButton: FfiConverterRustBuffer<List<
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeRemoteButton.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeCallActionFfi: FfiConverterRustBuffer<List<CallActionFfi>> {
+    override fun read(buf: ByteBuffer): List<CallActionFfi> {
+        val len = buf.getInt()
+        return List<CallActionFfi>(len) {
+            FfiConverterTypeCallActionFfi.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CallActionFfi>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCallActionFfi.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CallActionFfi>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCallActionFfi.write(it, buf)
         }
     }
 }

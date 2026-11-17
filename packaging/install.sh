@@ -31,6 +31,7 @@ app_libs_ok() {
   case "$out" in *"not found"*) return 1 ;; esac
 }
 webkit_dev() { pkg-config --exists webkit2gtk-4.1 2>/dev/null; }
+# Check the call card / pointer overlay on this desktop: bin/phonelink-app --overlay-check
 webkit_hint() {
   echo "    Kubuntu/Ubuntu:  sudo apt install $1"
   echo "    Arch:            sudo pacman -S webkit2gtk-4.1"
@@ -86,7 +87,15 @@ if prebuilt_ok phonelink-app; then
   fi
 elif command -v cargo >/dev/null && webkit_dev; then
   echo "Building the EchoTwin window from source..."
-  cargo build --release --locked -p phonelink-app
+  if pkg-config --exists gtk-layer-shell-0 2>/dev/null; then
+    cargo build --release --locked -p phonelink-app
+  else
+    # Without it the call card at the top of the screen and the presentation pointer can't
+    # float over full-screen windows on Wayland: calls show as notifications instead.
+    echo "Note: libgtk-layer-shell is missing, so the call card and the presentation pointer are left out."
+    echo "    Kubuntu/Ubuntu:  sudo apt install libgtk-layer-shell-dev   (then run this script again)"
+    cargo build --release --locked -p phonelink-app --no-default-features --features custom-protocol
+  fi
   install -Dm755 target/release/phonelink-app "$BIN/phonelink-app"
   APP_OK=1
 else

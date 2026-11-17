@@ -575,28 +575,63 @@ phone Home "Ring" tile.
 
 ## 22. Calls
 
-**What:** when the phone rings, the laptop shows "Mom is calling · On Galaxy S24 FE" with
-**Decline** (the popup stays until the call is answered or ends) and a banner in the
-window. Music or video playing on the laptop pauses during the call and resumes after.
+**What:** nothing on screen until the phone rings. Then a **card slides down at the top
+centre of the laptop screen** (also over a full-screen presentation): the caller's initial,
+name ("Unknown caller" without one), "Incoming call · <phone>", a red **Decline** and a green
+**Answer**. Answering keeps the call on the phone (audio stays there); the card goes, and the
+**call strip** shows at the top of the widget popup and the window's sidebar: caller, "On call ·
+mm:ss", and the buttons the phone's call notification offers right now (**End** always;
+**Mute**, **Speaker**, **Hold** when the dialer shows them). Music or video playing on the
+laptop pauses during the call and resumes after. The panel icon gets a small green handset
+during a call. Off (`call_popup`, window → Settings → "Show calls at the top of the screen"):
+a KDE notification with Answer / Decline instead.
 
 **How:** the phone reads call notifications (`Notification.CATEGORY_CALL`: Samsung's dialer,
-WhatsApp and others): incoming if `android.callType` is 1 or a button says
-Answer/Accept; caller from `android.callPerson`, else the title. If no call notification
-shows up within 1.5 s of the phone's own "ringing" state, it sends Ringing without a name.
-Decline presses the notification's Decline/Reject/Hang up button. The laptop pauses every
-MPRIS player that is *Playing* and later resumes only those, if they are still paused
-(`mpris::CallPause`, one thread so pause/resume never overtake each other). A phone that
-disconnects mid-call counts as the call ending. Switch: `pause_media_on_call`.
+WhatsApp and others): incoming if `android.callType` is 1 or a button says Answer/Accept;
+caller from `android.callPerson`, else the title; each button is classified by its title
+(answer|accept|pick up · decline|reject|dismiss · hang up|end|disconnect · mute · speaker ·
+hold|resume). It sends `CallInfo` (`calls/2`) with those buttons whenever the call, the caller
+or the buttons change; an older laptop (`calls/1`) gets `CallState`. A press on the laptop
+sends `CallAction`; the phone presses the same notification button (on Android 14+ allowed to
+open the call screen from the background). If no call notification shows up within 1.5 s of
+the phone's own "ringing" state, it sends Ringing without a name or buttons.
+
+On the laptop, a new ring with `call_popup` on starts the app in the background (`Effects::
+start_app`, at most every 30 s; `phonelink-app --background` opens no main window and quits
+a minute after its last window hid), which shows the card as a layer-shell overlay
+(`overlay.rs`, see below) and answers `Request::CallPopupShown`. If that doesn't come within 4 s
+(app missing, no layer-shell, anything), the KDE notification shows instead, with Answer and
+Decline as offered. The timer counts from this computer's clock when the call became active
+(`active_ms`), and ticks only while a call is active and the window or popup is open (the
+widget hash never changes because of it). The laptop pauses every MPRIS player that is
+*Playing* and later resumes only those, if they are still paused (`mpris::CallPause`). A phone
+that disconnects mid-call counts as the call ending. Switches: `call_popup`,
+`pause_media_on_call`. CLI: `phonelink call answer|decline|end|mute|speaker|hold`.
+
+**Overlays (`desktop/app/src/overlay.rs`):** Wayland doesn't let a normal window place itself
+or stay above a full-screen window, so the card (and the presentation pointer, §24) are
+**layer-shell** surfaces on the Overlay layer (KWin supports the protocol; Plasma's panels use
+it), never taking the keyboard: needs `libgtk-layer-shell` (cargo feature `layer-shell`, on by
+default; `install.sh` builds without it and says so if the headers are missing). On X11 they
+are always-on-top windows placed on the primary monitor. Check on your desktop with
+`phonelink-app --overlay-check` (a sample card for 20 s). Verified here under sway (headless):
+the card sits at the top centre above a full-screen window.
 
 | Layer | File | Functions |
 |---|---|---|
-| Phone | `CallWatcher.kt` (`posted`, `removed`, `telephony`, `decline`), `MirrorService`, `StatusWatcher` | |
-| FFI | `core-ffi/src/lib.rs` | `send_call_state`, `LinkEvent::CallDeclineRequested` |
-| Laptop | `mpris.rs` (`players`, `status`, `call`, `CallPause`); `daemon.rs` `call_changed`, `decline_call`, `Request::DeclineCall`, `WatchEvent::CallChanged` | |
-| Window | `app.js` `renderChrome` call banner, `decline-call` | |
+| Phone | `CallWatcher.kt` (`posted`, `kindOf`, `act`, `decline`, `removed`, `telephony`, `resend`), `MirrorService`, `StatusWatcher`, `LinkManager.sendCallInfo` | |
+| FFI | `core-ffi/src/lib.rs` | `send_call_info` (`calls/2` or `CallState`), `send_call_state`, `LinkEvent::{CallActionRequested, CallDeclineRequested}`, `CallActionFfi` |
+| Laptop | `daemon.rs` `call_changed`, `call_notification`, `call_card_shown`, `call_action`, `call_view`, `start_app`; `Request::{CallAction, CallPopupShown, DeclineCall}`; `WatchEvent::CallChanged` (`actions`, `active_ms`, `card`); `Reply::Status.call` | `mpris.rs` `CallPause`; `popups.rs` `start_app_background` |
+| App | `desktop/app/src/main.rs` `call_card`, `call_card_on_start`, `call_action`, `--background`, `exit_when_idle`, `--overlay-check`; `overlay.rs` | |
+| Window | `call.html` + `call.js` (the card); `app.js` `callTile`, `updateCallTimer`, `call-action` | |
+| Widget | `CallStrip.qml`, `CompactRepresentation.qml` (handset badge); `phonelink widget` `call` | |
 
-**No "Silence":** Android only lets an app mute the ringer with Do Not Disturb access.
-**Tests:** `tests/calls.rs` (stand-in media players on a private D-Bus), FFI test, UI suite.
+**No "Silence":** Android only lets an app mute the ringer with Do Not Disturb access. If
+Answer doesn't work on a phone, the fallback (`TelecomManager.acceptRingingCall`) needs the
+ANSWER_PHONE_CALLS permission, which EchoTwin doesn't ask for.
+**Tests:** `tests/calls.rs` (stand-in media players; the card-or-notification fallback after
+4 s, buttons reaching the phone, refusals, `active_ms`, a `calls/1` phone), FFI test, UI suites
+(the window's call tile and timer; `overlay.test.js` for the card).
 
 ## 23. Remote: the phone controls the laptop
 

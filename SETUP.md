@@ -229,6 +229,11 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 89 | Phone Home → **Mute** | the laptop mutes; press again: unmutes |
 | 90 | Open a Canva presentation in the browser; phone Home → **Presentation** → chip **Canva · Ctrl+Alt+P** → **▶ Start** | Canva starts presenting; the button now reads **■ End** (red); Next/Previous move; **■ End** leaves the presentation. If Ctrl+Alt+P does nothing in your Canva, try **Full screen · F11** |
 | 91 | Same with Google Slides (chip **Google Slides · Ctrl+F5**) and PowerPoint / Impress (F5) | each starts and ends; Previous and Next are the same size |
+| 92 | Laptop: `sudo apt install libgtk-layer-shell-dev`, update (see the top of this file), then `phonelink-app --overlay-check` | a sample call card appears at the top centre of the screen for 20 s, also over a full-screen window (open a presentation full screen first) |
+| 93 | Call the phone from another phone | the card slides down at the top of the laptop screen with the caller, Decline and Answer; laptop music pauses |
+| 94 | Press **Answer** on the card | the call is answered on the phone (talk on the phone); the card goes; the widget popup and the window's sidebar show "On call · 00:0x" with End (and Mute / Speaker / Hold if your dialer shows them) |
+| 95 | Press **Mute**, then **End** in the window (or `phonelink call end`) | the phone mutes, then hangs up; the strip goes; music resumes |
+| 96 | Call again and press **Decline** on the card; then switch Settings → "Show calls at the top of the screen" off and call again | declined on the phone; with the switch off a normal KDE notification with Answer / Decline shows instead of the card |
 
 When something fails, include:
 - the step number

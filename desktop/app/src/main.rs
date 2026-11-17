@@ -13,15 +13,16 @@ use std::{sync::Mutex, time::Duration};
 
 use phonelink_desktop::{
     client::Client,
-    ipc::{AppInfo, DeviceInfo, NotificationInfo, Reply, Request},
+    ipc::{AppInfo, DeviceInfo, NotificationInfo, Reply, Request, WatchEvent},
     paths,
 };
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tokio::sync::oneshot;
 
 #[cfg(target_os = "linux")]
 mod blur;
+mod overlay;
 
 /// Error string the UI recognises as "the background service is not running".
 const DAEMON_DOWN: &str = "daemon-down";
@@ -58,6 +59,8 @@ struct StatusDto {
     /// Simple on/off settings by name (`config::SWITCHES`).
     switches: std::collections::BTreeMap<String, bool>,
     devices: Vec<DeviceInfo>,
+    /// The call on the phone, if any.
+    call: Option<phonelink_desktop::ipc::CallView>,
 }
 
 #[derive(Serialize)]
@@ -139,6 +142,7 @@ async fn status() -> Result<StatusDto, String> {
             charging,
             auto_saver_below,
             saver_active,
+            call,
             ..
         } => Ok(StatusDto {
             computer: Computer { name, id, battery, charging },
@@ -154,6 +158,7 @@ async fn status() -> Result<StatusDto, String> {
             saver_active,
             switches,
             devices,
+            call,
         }),
         r => Err(unexpected(r)),
     }
@@ -170,6 +175,12 @@ async fn send_note(text: String, device: Option<String>) -> Result<bool, String>
 #[tauri::command]
 async fn decline_call(device: Option<String>) -> Result<(), String> {
     expect_done(Request::DeclineCall { device }).await
+}
+
+/// A button of the phone's call: "answer", "decline", "end", "mute", "speaker", "hold".
+#[tauri::command]
+async fn call_action(action: String) -> Result<(), String> {
+    expect_done(Request::CallAction { device: None, action }).await
 }
 
 #[tauri::command]
@@ -535,7 +546,12 @@ async fn watch_daemon(app: AppHandle) {
         if let Ok(mut c) = Client::connect(&paths::socket_path()).await {
             if c.send(&Request::Watch).await.is_ok() {
                 report(&mut last, true);
+                // A call may already be ringing (the service started us for it).
+                tauri::async_runtime::spawn(call_card_on_start(app.clone()));
                 while let Ok(Some(Reply::Event { event })) = c.next().await {
+                    if let WatchEvent::CallChanged { id, card, .. } = &event {
+                        tauri::async_runtime::spawn(call_card(app.clone(), id.clone(), *card));
+                    }
                     let _ = app.emit("phonelink://event", event);
                 }
             }
@@ -545,12 +561,52 @@ async fn watch_daemon(app: AppHandle) {
     }
 }
 
+/// The call card at the top of the screen: shown while a call rings (and `call_popup` is on),
+/// hidden otherwise. The service is told when it shows, so it skips the KDE notification.
+async fn call_card(app: AppHandle, id: String, show: bool) {
+    if !show {
+        let a = app.clone();
+        let _ = app.run_on_main_thread(move || overlay::hide(&a, "call"));
+        return;
+    }
+    match overlay::show(&app, "call", "call.html", overlay::Kind::TopCard { width: 440, height: 96 }).await {
+        Ok(()) => {
+            let _ = app.emit_to("call", "phonelink://call-card", ());
+            let _ = expect_done(Request::CallPopupShown { id }).await;
+        }
+        Err(e) => eprintln!("phonelink-app: no call card ({e}); the service shows a notification instead"),
+    }
+}
+
+async fn overlay_check(app: AppHandle) {
+    let r = overlay::show(&app, "call", "call.html", overlay::Kind::TopCard { width: 440, height: 96 }).await;
+    eprintln!("phonelink-app: overlay check: {}", match &r { Ok(()) => "call card shown".to_string(), Err(e) => e.clone() });
+    let sample = serde_json::json!({ "kind": "call_changed", "id": "check", "name": "this computer", "phase": "ringing",
+        "caller": "Overlay check", "actions": ["answer", "decline"], "card": true });
+    // Again every second: the page may still be loading the first time.
+    for _ in 0..20 {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let _ = app.emit_to("call", "phonelink://event", sample.clone());
+    }
+    app.exit(if r.is_ok() { 0 } else { 1 });
+}
+
+async fn call_card_on_start(app: AppHandle) {
+    let Ok(Reply::Status { call: Some(call), switches, .. }) = request(Request::Status).await else { return };
+    let on = switches.get("call_popup").copied().unwrap_or(true);
+    if call.phase == "ringing" && on {
+        call_card(app, call.id, true).await;
+    }
+}
+
 /// What a launch asks for: `--show=<tab>` and `--activation-token=<token>` (both sent by
 /// the service when a popup is clicked).
 #[derive(Debug, Default, PartialEq)]
 struct LaunchRequest {
     tab: Option<String>,
     token: Option<String>,
+    /// `--background`: started by the service for the call card or pointer; no main window.
+    background: bool,
 }
 
 fn launch_request(args: &[String]) -> LaunchRequest {
@@ -560,6 +616,8 @@ fn launch_request(args: &[String]) -> LaunchRequest {
             if ["notifications", "messages", "files", "note"].contains(&t) {
                 req.tab = Some(t.to_string());
             }
+        } else if a == "--background" {
+            req.background = true;
         } else if let Some(t) = a.strip_prefix("--activation-token=") {
             if !t.is_empty() && t.len() <= 512 && t.bytes().all(|b| b.is_ascii_graphic()) {
                 req.token = Some(t.to_string());
@@ -641,10 +699,61 @@ fn use_activation_token(window: &tauri::WebviewWindow, token: &str) {
     }
 }
 
-/// Bring the window forward (unminimised, focused) and show what was asked for.
+/// The main window. `tab`: one of the fixed names from `launch_request`.
+fn build_main(app: &AppHandle, tab: Option<&str>, demo: bool) -> tauri::Result<WebviewWindow> {
+    let mut init = String::new();
+    if demo {
+        init.push_str("window.__PHONELINK_DEMO__ = true;");
+    }
+    if let Some(tab) = tab {
+        // Only one of the fixed names (see launch_request), so safe to inline.
+        init.push_str(&format!("window.__PHONELINK_OPEN_TAB__ = {tab:?};"));
+    }
+    WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+        .title("EchoTwin")
+        .inner_size(1180.0, 760.0)
+        .min_inner_size(900.0, 600.0)
+        .decorations(false)
+        .transparent(true)
+        .resizable(true)
+        .center()
+        .initialization_script(&init)
+        .build()
+}
+
+/// Started with `--background` and the main window never opened: quit once no window has
+/// been visible for a minute (the call card and pointer hide when done).
+async fn exit_when_idle(app: AppHandle) {
+    let mut idle = 0;
+    loop {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        if app.get_webview_window("main").is_some() {
+            return; // opened normally meanwhile: an ordinary window from now on
+        }
+        let visible = app.webview_windows().values().any(|w| w.is_visible().unwrap_or(false));
+        idle = if visible { 0 } else { idle + 5 };
+        if idle >= 60 {
+            app.exit(0);
+            return;
+        }
+    }
+}
+
+/// Bring the window forward (unminimised, focused) and show what was asked for; make it
+/// first if this instance was started in the background.
 fn bring_forward(app: &AppHandle, req: LaunchRequest) {
+    if req.background {
+        return; // already running: the service only wanted us up
+    }
     let app2 = app.clone();
     let _ = app.run_on_main_thread(move || {
+        if app2.get_webview_window("main").is_none() {
+            let demo = std::env::var_os("PHONELINK_DEMO").is_some();
+            if let Err(e) = build_main(&app2, req.tab.as_deref(), demo) {
+                eprintln!("phonelink-app: could not open the window: {e}");
+                return;
+            }
+        }
         let Some(w) = app2.get_webview_window("main") else { return };
         let _ = w.unminimize();
         let _ = w.show();
@@ -701,6 +810,7 @@ fn main() {
             open_url,
             ring,
             decline_call,
+            call_action,
             set_switch,
             set_auto_saver,
             commands,
@@ -733,24 +843,15 @@ fn main() {
             start_daemon
         ])
         .setup(move |app| {
-            let mut init = String::new();
-            if demo {
-                init.push_str("window.__PHONELINK_DEMO__ = true;");
+            if std::env::args().any(|a| a == "--overlay-check") {
+                // Hidden: shows a sample call card for 20 s to check the overlay on this
+                // desktop (packaging/install.sh hints at it; tests use it under sway).
+                tauri::async_runtime::spawn(overlay_check(app.handle().clone()));
+            } else if first.background {
+                tauri::async_runtime::spawn(exit_when_idle(app.handle().clone()));
+            } else {
+                build_main(app.handle(), first.tab.as_deref(), demo)?;
             }
-            if let Some(tab) = &first.tab {
-                // Only one of three fixed names (see launch_request), so safe to inline.
-                init.push_str(&format!("window.__PHONELINK_OPEN_TAB__ = {tab:?};"));
-            }
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("EchoTwin")
-                .inner_size(1180.0, 760.0)
-                .min_inner_size(900.0, 600.0)
-                .decorations(false)
-                .transparent(true)
-                .resizable(true)
-                .center()
-                .initialization_script(&init)
-                .build()?;
             #[cfg(target_os = "linux")]
             if let (Some(t), Some(w)) = (&first.token, app.get_webview_window("main")) {
                 use_activation_token(&w, t);
@@ -796,11 +897,14 @@ mod launch_tests {
         assert_eq!(
             launch_request(&args(&["x", "--show=notifications", "--activation-token=kwin-1"])),
             LaunchRequest {
+                background: false,
                 tab: Some("notifications".into()),
                 token: Some("kwin-1".into())
             }
         );
         assert_eq!(launch_request(&args(&["x", "--show=note"])).tab.as_deref(), Some("note"), "the widget's Note button");
+        assert!(launch_request(&args(&["x", "--background"])).background);
+        assert!(!launch_request(&args(&["x", "--background=1"])).background);
         let bad = launch_request(&args(&["x", "--show=\";alert(1)//", "--activation-token=a b"]));
         assert_eq!(bad, LaunchRequest::default());
     }

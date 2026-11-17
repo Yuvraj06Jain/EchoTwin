@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "overlay",
+  "description": "The call card and the pointer: they only hear events (and call their own commands).",
+  "windows": ["call", "pointer"],
+  "permissions": ["core:event:default"]
+}

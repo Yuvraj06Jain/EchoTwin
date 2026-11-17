@@ -77,7 +77,7 @@ function fakeTauri() {
         if (!fake.daemonUp) throw 'daemon-down';
         switch (cmd) {
           case 'status':
-            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66', battery: fake.computerBattery ?? null, charging: true }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, battery_saver: fake.saver !== false, auto_saver_below: fake.autoBelow ?? 20, saver_active: fake.saverActive ?? (fake.saver !== false), switches: { battery_alerts: fake.alerts !== false, pause_media_on_call: true, open_links: true, allow_ring: true, allow_commands: true }, devices: fake.devices };
+            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66', battery: fake.computerBattery ?? null, charging: true }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, battery_saver: fake.saver !== false, auto_saver_below: fake.autoBelow ?? 20, saver_active: fake.saverActive ?? (fake.saver !== false), switches: { battery_alerts: fake.alerts !== false, pause_media_on_call: true, open_links: true, allow_ring: true, allow_commands: true, call_popup: true }, devices: fake.devices, call: fake.call || null };
           case 'notifications':
             if (fake.slowNext) {
               // Snapshot the data now, answer late (like a reload that started before news arrived).
@@ -182,6 +182,7 @@ function fakeTauri() {
             return fake.deliveredNow;
           case 'ring':
           case 'decline_call':
+          case 'call_action':
             return null;
           case 'unpair':
             fake.devices = fake.devices.filter((d) => d.id !== args.device);
@@ -284,19 +285,29 @@ function fakeTauri() {
   await page.evaluate(() => { delete window.__fake.devices[0].capabilities; });
 
   console.log('Calls');
-  await page.evaluate(() => window.__emit('phonelink://event', { kind: 'call_changed', id: '9C21-7E04-B3A8-51DF', name: 'Galaxy S24 FE', phase: 'ringing', caller: 'Mom' }));
+  const ID = '9C21-7E04-B3A8-51DF';
+  await page.evaluate((id) => window.__emit('phonelink://event', { kind: 'call_changed', id, name: 'Galaxy S24 FE', phase: 'ringing', caller: 'Mom', actions: ['answer', 'decline'], card: true }), ID);
   await page.waitForTimeout(150);
-  check(await visible('#offline-banner'), 'a ringing call shows a banner');
-  check((await txt('#offline-banner')).includes('Mom is calling'), 'banner names the caller');
-  await page.click('#offline-banner [data-action="decline-call"]');
+  check(await visible('.call-tile'), 'a ringing call shows the call tile at the top of the sidebar');
+  check((await txt('.call-tile')).includes('Mom') && (await txt('.call-tile')).includes('Incoming call'), 'the tile names the caller');
+  check(!(await visible('#offline-banner')), 'no banner for calls any more');
+  check((await page.$$eval('.call-tile [data-call]', (b) => b.map((x) => x.dataset.call))).join() === 'answer,decline', 'only the buttons the phone offers');
+  await page.click('.call-tile [data-call="answer"]');
   await page.waitForTimeout(200);
-  check((await lastCall('decline_call'))[1].device === '9C21-7E04-B3A8-51DF', 'Decline goes to the service');
-  await page.evaluate(() => window.__emit('phonelink://event', { kind: 'call_changed', id: '9C21-7E04-B3A8-51DF', name: 'Galaxy S24 FE', phase: 'active', caller: 'Mom' }));
+  check((await lastCall('call_action'))[1].action === 'answer', 'Answer goes to the service');
+  const started = Date.now() - 83000;
+  await page.evaluate(([id, t]) => window.__emit('phonelink://event', { kind: 'call_changed', id, name: 'Galaxy S24 FE', phase: 'active', caller: 'Mom', actions: ['end', 'mute', 'speaker'], active_ms: t }), [ID, started]);
   await page.waitForTimeout(150);
-  check((await page.$$eval('#offline-banner [data-action="decline-call"]', (b) => b.length)) === 0, 'no Decline once answered');
-  await page.evaluate(() => window.__emit('phonelink://event', { kind: 'call_changed', id: '9C21-7E04-B3A8-51DF', name: 'Galaxy S24 FE', phase: 'idle', caller: '' }));
+  check(/On call · 01:2[34]/.test(await txt('.call-tile')), `the timer counts from the start (${await txt('.call-tile .small')})`);
+  check((await page.$$eval('.call-tile [data-call]', (b) => b.map((x) => x.dataset.call))).join() === 'mute,speaker,end', 'in-call buttons: Mute, Speaker, End');
+  await page.waitForTimeout(1100);
+  check(/01:2[45]/.test(await txt('.call-tile .small')), 'the timer ticks');
+  await page.click('.call-tile [data-call="end"]');
+  await page.waitForTimeout(200);
+  check((await lastCall('call_action'))[1].action === 'end', 'End goes to the service');
+  await page.evaluate((id) => window.__emit('phonelink://event', { kind: 'call_changed', id, name: 'Galaxy S24 FE', phase: 'idle', caller: '' }), ID);
   await page.waitForTimeout(150);
-  check(!(await visible('#offline-banner')), 'the banner goes when the call ends');
+  check(!(await visible('.call-tile')), 'the tile goes when the call ends');
   check((await page.$$eval('[data-clock]', (e) => e.length)) === 0, 'no clock drawing any more (one timer fewer)');
   check((await txt('#device-panel .twin')).includes('kubuntu'), 'the twin tile names this computer');
   check((await txt('#device-panel .twin .pill')) === 'Wi-Fi', 'the link pill says Wi-Fi');
@@ -539,6 +550,7 @@ function fakeTauri() {
   console.log('Phone buttons');
   check((await txt('.sheet')).includes('Phone buttons') && (await txt('.sheet [data-command="0"]')).includes('systemctl suspend'), 'phone buttons listed with their commands');
   check((await txt('.sheet')).includes('Shown on the phone under My buttons'), 'the buttons are said to be under My buttons on the phone');
+  check((await txt('.sheet')).includes('Show calls at the top of the screen'), 'the call card switch is in Settings');
   await page.fill('.command-form [name="name"]', 'Lock screen');
   await page.fill('.command-form [name="run"]', 'loginctl lock-session');
   await page.click('.command-form button[type="submit"]');

@@ -157,6 +157,13 @@ PlasmaExtras.Representation {
         ColumnLayout {
             spacing: 10
 
+            CallStrip {
+                Layout.fillWidth: true
+                Layout.fillHeight: false
+                Layout.preferredHeight: 60
+                call: root.online ? (root.st.call || null) : null
+            }
+
             // Rows with a fixed height must say so: a layout whose children fill would
             // otherwise grow too and squeeze the middle row.
             RowLayout {

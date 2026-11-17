@@ -31,6 +31,7 @@
   // Simple on/off settings: shown when the service reports them.
   const SWITCH_ROWS = [
     ['batteryAlerts', 'Battery alerts', "A popup when your phone's battery is low (15%) or fully charged."],
+    ['callPopup', 'Show calls at the top of the screen', 'When your phone rings, a card with Answer and Decline appears at the top of this screen, even over a full-screen presentation. Off: a normal notification.'],
     ['pauseMediaOnCall', 'Pause music during calls', 'Music and videos playing here pause when your phone rings or you make a call, and continue when the call ends.'],
     ['openLinks', 'Let your phone open links here', 'Share a link on your phone and choose "Open on computer": it opens in your browser here. Only web links.'],
     ['presentationRemote', 'Presentation remote', "Your phone can press next / previous slide, start, end and black screen here (nothing else). The first time, KDE asks once to allow remote control."],
@@ -248,6 +249,7 @@
     state.mode = st.mode;
     requestedMode = st.mode;
     state.computer = st.computer;
+    if ("call" in st) state.call = st.call || null;
     state.device = st.device;
     state.devices = st.devices || (st.device ? [st.device] : []);
     if (notifications) applyNotifications(notifications);
@@ -324,13 +326,8 @@
     gear.title = gear.disabled ? 'Settings are available once the service is running' : 'Settings';
 
     const offline = view === 'main' && d && !d.connected;
-    const call = view === 'main' && state.call;
-    el.banner.hidden = !offline && !call;
-    if (call) {
-      const who = call.caller || (call.phase === 'ringing' ? 'Incoming call' : 'On a call');
-      const what = call.phase === 'ringing' ? (call.caller ? 'is calling' : '') : 'call in progress';
-      el.banner.innerHTML = `${icon('phone')}<span class="grow"><strong>${esc(who)}</strong> ${esc(what)} · ${esc(call.name)}</span>${call.phase === 'ringing' && api.declineCall ? '<button type="button" class="btn btn-sm" data-action="decline-call">Decline</button>' : ''}`;
-    } else if (offline && connectionOff()) {
+    el.banner.hidden = !offline;
+    if (offline && connectionOff()) {
       el.banner.innerHTML = `${icon('alert')}<span class="grow"><strong>The connection is switched off.</strong> ${esc(d.name)} won't connect and nothing searches for it until you turn it back on.</span><button type="button" class="btn btn-sm" data-action="toggle-connection">Turn on</button>`;
     } else if (offline && d.pausedByPeer) {
       el.banner.innerHTML = `${icon('alert')}<span class="grow"><strong>${esc(d.name)} switched its connection off.</strong> It reconnects as soon as it's turned back on in the phone app.</span>`;
@@ -371,8 +368,59 @@
     return ['Offline', 'off'];
   }
 
+  const CALL_BUTTONS = [
+    ['answer', 'Answer', '✆', 'ok'],
+    ['mute', 'Mute', '🔇', 'nt'],
+    ['speaker', 'Speaker', '🔊', 'nt'],
+    ['hold', 'Hold', '⏸', 'nt'],
+    ['decline', 'Decline', '✕', 'no'],
+    ['end', 'End call', '✕', 'no'],
+  ];
+
+  /** "01:23" since the call became active (or 1:02:03 after an hour). */
+  function callTime(sinceMs) {
+    const s = Math.max(0, Math.floor((Date.now() - sinceMs) / 1000));
+    const two = (n) => String(n).padStart(2, '0');
+    const h = Math.floor(s / 3600);
+    return h ? `${h}:${two(Math.floor(s / 60) % 60)}:${two(s % 60)}` : `${two(Math.floor(s / 60))}:${two(s % 60)}`;
+  }
+
+  /** The call on the phone, at the top of the sidebar: who, ringing or the time, the buttons it offers. */
+  function callTile() {
+    const c = state.call;
+    if (!c) return '';
+    const name = c.caller || 'Unknown caller';
+    const line = c.phase === 'ringing' ? `Incoming call · ${esc(c.name)}` : `On call${c.activeMs ? ` · <span data-call-time>${callTime(c.activeMs)}</span>` : ''}`;
+    const offered = new Set(c.actions || []);
+    const buttons = CALL_BUTTONS.filter(([k]) => offered.has(k))
+      .map(([k, label, glyph, kind]) => `<button type="button" class="round-btn ${kind}" data-action="call-action" data-call="${k}" aria-label="${label}" title="${label}">${glyph}</button>`)
+      .join('');
+    return `<section class="tile call-tile" aria-label="Call">
+        <span class="call-av" style="--c:${colorFor(name)}" aria-hidden="true">${esc(initial(name))}</span>
+        <div class="grow"><strong>${esc(name)}</strong><div class="faint small">${line}</div></div>
+        <div class="call-buttons">${buttons}</div>
+      </section>`;
+  }
+
+  /** The call timer ticks only while a call is active and the window can be seen. */
+  let callTimer = null;
+  function updateCallTimer() {
+    const want = !!(state.call && state.call.phase === 'active' && state.call.activeMs && !document.hidden);
+    if (want && !callTimer) {
+      callTimer = setInterval(() => {
+        const t = $('[data-call-time]');
+        if (t && state.call && state.call.activeMs) t.textContent = callTime(state.call.activeMs);
+      }, 1000);
+    } else if (!want && callTimer) {
+      clearInterval(callTimer);
+      callTimer = null;
+    }
+  }
+  document.addEventListener('visibilitychange', () => updateCallTimer());
+
   function renderDevice() {
     const d = state.device;
+    updateCallTimer();
     if (!d) {
       el.device.innerHTML = '';
       return;
@@ -400,7 +448,7 @@
     const saverShown = !!state.settings && 'batterySaver' in state.settings;
     const tile = (action, ic, label, extraAttrs = '') =>
       `<button type="button" class="action" data-action="${action}"${extraAttrs}><span class="icon-square">${icon(ic)}</span><span class="action-label">${label}</span></button>`;
-    el.device.innerHTML = `
+    el.device.innerHTML = `${callTile()}
       <section class="tile twin ${live ? 'live' : ''} link-${linkClass}" aria-label="${esc(d.name)} and this computer">
         <div class="twin-dev">
           <span class="twin-pic ${low ? 'warn' : live ? '' : 'off'}${hasBattery ? ` battery${low ? ' low' : ''}` : ''}">${phoneSvg(hasBattery ? d.battery : null)}</span>
@@ -1466,6 +1514,7 @@
     }
     if (seq !== deviceSeq || state.serviceDown) return undefined;
     state.computer = st.computer;
+    if ("call" in st) state.call = st.call || null;
     if (state.settings && st.saver) Object.assign(state.settings, st.saver);
     state.device = st.device;
     state.devices = st.devices || (st.device ? [st.device] : []);
@@ -1486,8 +1535,9 @@
     }
     if (ev.kind === 'locked_by_phone') return undefined;
     if (ev.kind === 'call_changed') {
-      state.call = ev.phase === 'idle' ? null : { id: ev.id, name: ev.name, phase: ev.phase, caller: ev.caller };
-      return renderChrome();
+      state.call = ev.phase === 'idle' ? null
+        : { id: ev.id, name: ev.name, phase: ev.phase, caller: ev.caller, actions: ev.actions || (ev.phase === 'ringing' ? ['decline'] : []), activeMs: ev.active_ms || null };
+      return renderDevice();
     }
     if (ev.kind === 'phone_status_changed' || ev.kind === 'computer_battery_changed' || ev.kind === 'saver_changed') return refreshDevice();
     if (ev.kind === 'media_changed') return refreshMedia();
@@ -1604,6 +1654,18 @@
         return openNoteDialog();
       case 'new-sms':
         return openNewSmsDialog();
+      case 'call-action': {
+        if (!state.call) return undefined;
+        const what = a.dataset.call;
+        a.disabled = true;
+        try {
+          if (api.callAction) await api.callAction(what);
+          else if (what === 'decline') await api.declineCall(state.call.id);
+        } finally {
+          a.disabled = false;
+        }
+        return undefined;
+      }
       case 'decline-call': {
         if (!state.call) return undefined;
         await api.declineCall(state.call.id);

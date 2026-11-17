@@ -14,6 +14,9 @@ pub trait Effects: Send + Sync {
     fn volume(&self, change: &str) -> bool;
     /// Mute or unmute the default output.
     fn mute_toggle(&self) -> bool;
+    /// Start the EchoTwin app without its window (for the call card and the pointer). If it
+    /// already runs, nothing happens.
+    fn start_app(&self);
 }
 
 /// The real desktop.
@@ -69,6 +72,10 @@ impl Effects for System {
         let ok = |cmd: &str, args: &[&str]| std::process::Command::new(cmd).args(args).status().is_ok_and(|s| s.success());
         ok("wpctl", &["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]) || ok("pactl", &["set-sink-mute", "@DEFAULT_SINK@", "toggle"])
     }
+
+    fn start_app(&self) {
+        crate::popups::start_app_background();
+    }
 }
 
 /// For tests: remembers what would have happened, e.g. `"open https://…"`.
@@ -115,5 +122,9 @@ impl Effects for Recorded {
     fn mute_toggle(&self) -> bool {
         self.note("mute".into());
         true
+    }
+
+    fn start_app(&self) {
+        self.note("app".into());
     }
 }

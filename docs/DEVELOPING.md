@@ -31,7 +31,7 @@ cargo build --release            # phonelinkd, phonelink, phonelink-app
 
 Build dependencies: see [SETUP.md](../SETUP.md) section 1 (Rust stable, `build-essential`,
 WebKitGTK). Building the window from source also needs the WebKitGTK/GTK development
-packages (`libwebkit2gtk-4.1-dev`, `libgtk-3-dev`; `install.sh` tells you if they're missing).
+packages (`libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libgtk-layer-shell-dev` for the call card and pointer; `install.sh` tells you if they're missing).
 
 ## The Android APK (GitHub Actions)
 
@@ -56,7 +56,9 @@ Local build (needs Android SDK + NDK): `./scripts/build-android.sh`.
 | One test file | `cargo test -p phonelink-desktop --test sms` | |
 | Lint | `cargo clippy --workspace --all-targets` | keep it warning-free |
 | Kotlin bindings on the JVM | `./scripts/test-kotlin-bindings.sh` | |
-| <a id="ui-tests"></a>Window UI (preview + fake Tauri) | `cd desktop/ui/tests && npm install && npx playwright install chromium && npm test` | ~115 + ~174 checks, screenshots in `desktop/ui/tests/shots/` |
+| <a id="ui-tests"></a>Window UI (preview + fake Tauri) | `cd desktop/ui/tests && npm install && npx playwright install chromium && npm test` | ~115 + ~234 checks plus `overlay.test.js` (the call card), screenshots in `desktop/ui/tests/shots/` |
+| Overlays on a real compositor (manual) | `sway` headless + `phonelink-app --overlay-check` + `grim` | see FEATURES §22 |
+| Widget look with a call | `ECHOTWIN_PREVIEW_CALL=1 packaging/plasmoid/tests/preview/render.sh /tmp/w.png` | |
 | Widget shell quoting | `node packaging/plasmoid/tests/shell.test.js` | hostile file names must stay names |
 | Android source guard | `./scripts/check-android-source.sh` | fails on Bluetooth calls that need BLUETOOTH_SCAN (EchoTwin doesn't have it; `cancelDiscovery()` broke the backup once). CI runs it first |
 | QML syntax | `qmlformat <file>.qml > /dev/null` (package `qt6-declarative-dev-tools`) | Plasma itself can't run in CI |
@@ -114,6 +116,7 @@ blur). Use the numbered checklist in [SETUP.md](../SETUP.md).
 | `commands` | none (before v3: Suspend, Mute / unmute; those two are dropped on load) | `[[commands]]` tables with `name` and `run` (a shell command run here); only names go to the phone |
 | `presentation_remote` | true | the phone may press the five presentation keys |
 | `pause_media_on_call` | true | pause music/videos here during phone calls |
+| `call_popup` | true | a ringing call shows as the card at the top of the screen (else a KDE notification) |
 | `power_supply_dir` | `/sys/class/power_supply` | tests only |
 
 Window appearance is stored by the page (`localStorage` keys `phonelink.opacity`,

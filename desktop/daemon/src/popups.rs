@@ -382,9 +382,19 @@ fn valid_token(t: &str) -> bool {
 
 /// Launch the window, or focus it if it is already open (the app is single-instance).
 pub fn open_app(tab: Tab, token: Option<String>) {
+    launch(app_args(tab, token.as_deref()), token);
+}
+
+/// Start the app without a window (it shows the call card or the pointer, and quits a
+/// minute after they are gone). If it already runs, it stays as it is.
+pub fn start_app_background() {
+    launch(vec!["--background".into()], None);
+}
+
+fn launch(args: Vec<String>, token: Option<String>) {
     let exe = app_exe();
     let mut cmd = Command::new(&exe);
-    cmd.args(app_args(tab, token.as_deref()));
+    cmd.args(args);
     for (k, v) in session_env() {
         if std::env::var_os(&k).is_none() {
             cmd.env(k, v);

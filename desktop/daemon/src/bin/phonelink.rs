@@ -53,6 +53,12 @@ enum Cmd {
         to: Option<String>,
         url: String,
     },
+    /// Press a button of the phone's call: answer, decline, end, mute, speaker or hold
+    /// (only the ones its call screen offers right now; see `phonelink status`).
+    Call {
+        #[arg(value_parser = ["answer", "decline", "end", "mute", "speaker", "hold"])]
+        action: String,
+    },
     /// Ring your phone loudly (even on silent) to find it; `phonelink ring stop` stops it.
     Ring {
         #[arg(value_parser = ["start", "stop"], default_value = "start")]
@@ -126,6 +132,7 @@ async fn widget_state(c: &mut Client) -> anyhow::Result<serde_json::Value> {
         connection,
         saver_active: battery_saver,
         battery_saver: saver_switch,
+        call,
         ..
     } = status
     else {
@@ -201,6 +208,8 @@ async fn widget_state(c: &mut Client) -> anyhow::Result<serde_json::Value> {
             "can_ring": d.connected && d.capabilities.iter().any(|c| c == phonelink_core::CAP_RING),
         })),
         "media": media,
+        // Changes only when the call does (no ticking timer: the widget counts itself).
+        "call": call,
         "notifications": notifications,
         "sms": sms,
         "transfers": transfers,
@@ -332,7 +341,9 @@ fn print_devices(devices: &[DeviceInfo]) {
 fn print_event(e: &WatchEvent) {
     match e {
         WatchEvent::Paired { id, name } => println!("paired        {id}  {name}"),
-        WatchEvent::CallChanged { id, name, phase, caller } => println!("call          {id}  {name}: {phase} {caller}"),
+        WatchEvent::CallChanged { id, name, phase, caller, actions, .. } => {
+            println!("call          {id}  {name}: {phase} {caller} [{}]", actions.join(" "))
+        }
         WatchEvent::Connected { id, name, via } => println!("connected     {id}  {name} ({via})"),
         WatchEvent::Disconnected { id, name } => println!("disconnected  {id}  {name}"),
         WatchEvent::Text { id, name, text } => println!("message       {id}  {name}: {text}"),
@@ -478,6 +489,11 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             if !cli.json {
                 println!("Unpaired {device}. It can no longer connect.");
             }
+        }
+        Cmd::Call { action } => {
+            let r = c.request(&Request::CallAction { device: None, action: action.clone() }).await?;
+            fail_on_error(&r)?;
+            println!("Asked your phone to {action}");
         }
         Cmd::Ring { action } => {
             let on = action == "start";

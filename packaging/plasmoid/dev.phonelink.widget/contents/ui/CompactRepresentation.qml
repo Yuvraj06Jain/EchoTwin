@@ -104,6 +104,25 @@ MouseArea {
         }
     }
 
+    // On a call: a small green handset at the bottom corner.
+    Rectangle {
+        visible: root.online && !!root.st.call && root.st.call.phase === "active"
+        height: Math.max(10, Math.round(body.height * 0.55))
+        width: height
+        radius: height / 2
+        color: root.green
+        border.width: 1.5
+        border.color: Kirigami.Theme.backgroundColor
+        x: body.x + body.width - width * 0.45
+        y: body.y + body.height - height * 0.6
+        Text {
+            anchors.centerIn: parent
+            text: "\u2706"
+            color: "white"
+            font.pixelSize: parent.height * 0.62
+        }
+    }
+
     // How many new things since you last opened the popup.
     Rectangle {
         visible: compact.count > 0

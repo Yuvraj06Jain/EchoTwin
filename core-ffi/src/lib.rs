@@ -181,6 +181,13 @@ pub enum LinkEvent {
         id: String,
         key: String,
     },
+    /// The computer presses `action` on the call whose notification key is `key`. Answer
+    /// with `send_action_result(id, "call", ok, message)`.
+    CallActionRequested {
+        id: String,
+        key: String,
+        action: CallActionFfi,
+    },
     /// The computer asks this phone to ring loudly (`on`) or to stop. Already checked to
     /// be recent.
     RingRequested {
@@ -234,6 +241,44 @@ pub enum CallPhaseFfi {
     Idle,
     Ringing,
     Active,
+}
+
+/// A button of the phone's call notification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum CallActionFfi {
+    Answer,
+    Decline,
+    End,
+    Mute,
+    Speaker,
+    Hold,
+}
+
+impl From<CallActionFfi> for phonelink_core::CallActionKind {
+    fn from(a: CallActionFfi) -> Self {
+        match a {
+            CallActionFfi::Answer => Self::Answer,
+            CallActionFfi::Decline => Self::Decline,
+            CallActionFfi::End => Self::End,
+            CallActionFfi::Mute => Self::Mute,
+            CallActionFfi::Speaker => Self::Speaker,
+            CallActionFfi::Hold => Self::Hold,
+        }
+    }
+}
+
+impl From<phonelink_core::CallActionKind> for CallActionFfi {
+    fn from(a: phonelink_core::CallActionKind) -> Self {
+        use phonelink_core::CallActionKind as K;
+        match a {
+            K::Answer => Self::Answer,
+            K::Decline => Self::Decline,
+            K::End => Self::End,
+            K::Mute => Self::Mute,
+            K::Speaker => Self::Speaker,
+            K::Hold => Self::Hold,
+        }
+    }
 }
 
 /// The computer's battery just went low or full.
@@ -718,6 +763,7 @@ impl PhoneLink {
                             phonelink_core::CAP_MUTE,
                             phonelink_core::CAP_PRESENT2,
                             phonelink_core::CAP_REMOTE_ART,
+                            phonelink_core::CAP_CALLS2,
                         ]
                         .map(String::from),
                     );
@@ -874,6 +920,9 @@ impl PhoneLink {
                             }
                         }
                         AppMessage::CallDecline { key } => LinkEvent::CallDeclineRequested { id: peer.short(), key },
+                        AppMessage::CallAction { key, action } => {
+                            LinkEvent::CallActionRequested { id: peer.short(), key, action: action.into() }
+                        }
                         AppMessage::ContactsQuery { req, query } => LinkEvent::ContactsRequested {
                             id: peer.short(),
                             req,
@@ -1211,6 +1260,43 @@ impl PhoneLink {
         };
         let caller = phonelink_core::message::truncate_text(&caller, phonelink_core::message::MAX_CALLER);
         self.send_connected(CAP_CALLS, AppMessage::CallState { state, caller, key })
+    }
+
+    /// Tell connected computers about a call and the buttons its notification offers:
+    /// `CallInfo` to computers with `calls/2`, the older `CallState` to `calls/1` ones.
+    /// Returns how many got it.
+    pub fn send_call_info(&self, phase: CallPhaseFfi, caller: String, key: String, actions: Vec<CallActionFfi>) -> Result<u32, LinkError> {
+        let phase = match phase {
+            CallPhaseFfi::Idle => phonelink_core::CallPhase::Idle,
+            CallPhaseFfi::Ringing => phonelink_core::CallPhase::Ringing,
+            CallPhaseFfi::Active => phonelink_core::CallPhase::Active,
+        };
+        let caller = phonelink_core::message::truncate_text(&caller, phonelink_core::message::MAX_CALLER);
+        let mut kinds: Vec<phonelink_core::CallActionKind> = Vec::new();
+        for a in actions {
+            let k = a.into();
+            if !kinds.contains(&k) && kinds.len() < phonelink_core::message::MAX_CALL_ACTIONS {
+                kinds.push(k);
+            }
+        }
+        let info = AppMessage::CallInfo { key: key.clone(), caller: caller.clone(), phase, actions: kinds }.encode()?;
+        let old = AppMessage::CallState { state: phase, caller, key }.encode()?;
+        let mut n = 0;
+        for p in self.node.peers() {
+            if !self.node.is_connected(&p.fingerprint) {
+                continue;
+            }
+            let body = if has_cap(&self.caps, &p.fingerprint, phonelink_core::CAP_CALLS2) {
+                &info
+            } else if has_cap(&self.caps, &p.fingerprint, CAP_CALLS) {
+                &old
+            } else {
+                continue;
+            };
+            self.node.send(&p.fingerprint, body.clone())?;
+            n += 1;
+        }
+        Ok(n)
     }
 
     /// The answer to `ContactsRequested` `req` (cut to 20 contacts).
@@ -2019,7 +2105,7 @@ mod tests {
             cfg.capabilities.extend(caps.iter().map(|c| c.to_string()));
             rt.block_on(Node::start(cfg)).unwrap()
         };
-        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS, CAP_RING, CAP_CALLS, CAP_REMOTE, CAP_PRESENT, phonelink_core::CAP_MUTE, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_REMOTE_ART]);
+        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS, CAP_RING, CAP_CALLS, CAP_REMOTE, CAP_PRESENT, phonelink_core::CAP_MUTE, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_REMOTE_ART, phonelink_core::CAP_CALLS2]);
         let uri = laptop
             .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
             .to_uri();
@@ -2153,6 +2239,17 @@ mod tests {
         to_phone(AppMessage::CallDecline { key: "k1".into() });
         let ev = wait(&rx, |e| matches!(e, LinkEvent::CallDeclineRequested { .. }));
         assert!(matches!(ev, LinkEvent::CallDeclineRequested { key, .. } if key == "k1"));
+        // calls/2: the buttons go along (no repeats, at most six); a press comes back.
+        let many = vec![CallActionFfi::Answer, CallActionFfi::Decline, CallActionFfi::Answer, CallActionFfi::Mute];
+        assert_eq!(phone.send_call_info(CallPhaseFfi::Ringing, "Mom".into(), "k2".into(), many).unwrap(), 1);
+        use phonelink_core::CallActionKind as K;
+        assert!(matches!(
+            next_from_phone(&mut lrx),
+            AppMessage::CallInfo { phase: phonelink_core::CallPhase::Ringing, actions, key, .. } if actions == vec![K::Answer, K::Decline, K::Mute] && key == "k2"
+        ));
+        to_phone(AppMessage::CallAction { key: "k2".into(), action: K::Answer });
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::CallActionRequested { .. }));
+        assert!(matches!(ev, LinkEvent::CallActionRequested { key, action: CallActionFfi::Answer, .. } if key == "k2"));
 
         // Ringing both ways; an old ring request (queued somewhere) is ignored.
         assert_eq!(phone.ring_computer(None, true).unwrap(), "Kubuntu");

@@ -33,6 +33,8 @@ pub const CAP_CLIPBOARD_IMAGE: &str = "clipimage/1";
 pub const CAP_STATUS: &str = "status/1";
 /// Incoming/ongoing calls shown on the computer, with Decline.
 pub const CAP_CALLS: &str = "calls/1";
+/// `CallInfo` (with the call screen's buttons) and `CallAction` (press one of them).
+pub const CAP_CALLS2: &str = "calls/2";
 /// Open a web link on the other device.
 pub const CAP_LINKS: &str = "links/1";
 /// Ring the other device loudly (to find it).
@@ -92,6 +94,8 @@ pub struct Contact {
 
 /// Longest caller name sent (bytes).
 pub const MAX_CALLER: usize = 100;
+/// Most buttons in one `CallInfo`.
+pub const MAX_CALL_ACTIONS: usize = 6;
 /// Longest link (bytes).
 pub const MAX_URL: usize = 2048;
 /// A link or ring request older than this is ignored (it waited somewhere too long).
@@ -104,6 +108,37 @@ pub enum CallPhase {
     Idle,
     Ringing,
     Active,
+}
+
+/// A button on the phone's call screen notification, as the computer can press it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CallActionKind {
+    Answer,
+    Decline,
+    End,
+    Mute,
+    Speaker,
+    Hold,
+}
+
+impl CallActionKind {
+    pub const ALL: [CallActionKind; 6] = [Self::Answer, Self::Decline, Self::End, Self::Mute, Self::Speaker, Self::Hold];
+
+    /// "answer", "decline", … (IPC, CLI, the window and the widget).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Answer => "answer",
+            Self::Decline => "decline",
+            Self::End => "end",
+            Self::Mute => "mute",
+            Self::Speaker => "speaker",
+            Self::Hold => "hold",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|a| a.as_str() == s)
+    }
 }
 
 /// A link that is safe to hand to a browser: `http`/`https` only, a host, no control
@@ -399,6 +434,12 @@ pub enum AppMessage {
     /// RETIRED in v3 (sudo approval removed). Never sent; kept only so later variants keep
     /// their positions.
     ApproveEnroll { public_key: Vec<u8> },
+    /// Phone → computer: the call and the buttons its call notification offers right now
+    /// (`CAP_CALLS2`; to `calls/1` computers the phone sends `CallState` instead). At most
+    /// [`MAX_CALL_ACTIONS`] buttons.
+    CallInfo { key: String, caller: String, phase: CallPhase, actions: Vec<CallActionKind> },
+    /// Computer → phone: press that button of call `key` (`CAP_CALLS2`).
+    CallAction { key: String, action: CallActionKind },
 }
 
 /// Album art must be a small JPEG or PNG.
@@ -478,6 +519,13 @@ mod tests {
                 key: "0|com.samsung.android.incallui|1".into(),
             },
             AppMessage::CallDecline { key: "k".into() },
+            AppMessage::CallInfo {
+                key: "0|incallui|1".into(),
+                caller: "Mom".into(),
+                phase: CallPhase::Ringing,
+                actions: CallActionKind::ALL.to_vec(),
+            },
+            AppMessage::CallAction { key: "0|incallui|1".into(), action: CallActionKind::Hold },
             AppMessage::OpenUrl {
                 url: "https://example.org/a?b=1".into(),
                 sent_ms: 9,
@@ -607,6 +655,11 @@ mod tests {
     fn appended_enum_values_keep_their_positions() {
         let pos = |v: &dyn erased::Enc| v.first();
         assert_eq!(pos(&MediaAction::ToggleMute), 6);
+        let call = AppMessage::CallInfo { key: String::new(), caller: String::new(), phase: CallPhase::Idle, actions: vec![] };
+        assert_eq!(pos(&call), 39, "after the three retired approval variants");
+        assert_eq!(pos(&AppMessage::CallAction { key: String::new(), action: CallActionKind::Answer }), 40);
+        assert_eq!(CallActionKind::ALL.map(|a| pos(&a)), [0, 1, 2, 3, 4, 5]);
+        assert_eq!(CallActionKind::ALL.map(|a| CallActionKind::parse(a.as_str())), CallActionKind::ALL.map(Some));
         assert_eq!(pos(&PresentKeyKind::Blank), 4);
         assert_eq!(pos(&PresentKeyKind::StartSlides), 5);
         assert_eq!(pos(&PresentKeyKind::StartCanva), 6);

@@ -288,6 +288,35 @@ pub fn watch(bus: Option<String>, tx: tokio::sync::mpsc::UnboundedSender<(Option
         .expect("spawn mpris watch thread");
 }
 
+/// What to do once a press has been handled.
+pub type Done = Box<dyn FnOnce(Result<(), String>) + Send>;
+
+/// The phone's media buttons for this computer, handled one at a time in the order they
+/// came (two quick presses must reach the player in that order).
+#[derive(Clone)]
+pub struct Controls {
+    tx: mpsc::Sender<(phonelink_core::MediaAction, Done)>,
+}
+
+impl Controls {
+    pub fn start(bus: Option<String>, effects: std::sync::Arc<dyn crate::effects::Effects>) -> Self {
+        let (tx, rx) = mpsc::channel::<(phonelink_core::MediaAction, Done)>();
+        std::thread::Builder::new()
+            .name("phonelink-media-keys".into())
+            .spawn(move || {
+                while let Ok((action, done)) = rx.recv() {
+                    done(control(&bus, action, effects.as_ref()));
+                }
+            })
+            .expect("spawn media keys thread");
+        Self { tx }
+    }
+
+    pub fn press(&self, action: phonelink_core::MediaAction, done: Done) {
+        let _ = self.tx.send((action, done));
+    }
+}
+
 /// Play/pause, next, previous on the active player; volume and mute of the default output.
 pub fn control(bus: &Option<String>, action: phonelink_core::MediaAction, effects: &dyn crate::effects::Effects) -> Result<(), String> {
     use phonelink_core::MediaAction::*;

@@ -92,13 +92,15 @@ Carried inside `Deliver.body`, postcard-encoded. Anything this build doesn't kno
 | 36 | `ApproveRequest { id, what, host, nonce_hex, sent_ms }` | — | — | retired in v3 (sudo approval removed), never sent; ignored if received | — |
 | 37 | `ApproveResponse { id, approved, signature }` | — | — | retired in v3, never sent; ignored | — |
 | 38 | `ApproveEnroll { public_key }` | — | — | retired in v3, never sent; ignored | — |
+| 39 | `CallInfo { key, caller, phase: CallPhase, actions: Vec<CallActionKind> }` | P→C | `calls/2` | `State::call_changed` (card or notification, pause media, call strip) | `send_call_info` (`CallWatcher`) |
+| 40 | `CallAction { key, action: CallActionKind }` | C→P | `calls/2` | `State::call_action` (`Request::CallAction`, the card, popup buttons) | `LinkEvent::CallActionRequested` → `CallWatcher.act` |
 
 Payload types (`message.rs`): `PhoneNotification { key, package, app, title, text,
 posted_ms, can_reply, actions }`, `NowPlaying { app, package, title, artist, album,
 duration_ms, position_ms, playing, can_previous, can_next, volume, max_volume, art_key }`,
 `SmsThread { id, address, name, messages, has_older }`, `SmsMessage { id, from_me, body,
 date_ms, state, read }`, `SmsState { Received, Sent, Sending, Failed }`,
-`MediaAction { PlayPause, Next, Previous, VolumeUp, VolumeDown, SetVolume(u32), ToggleMute }`, `PresentKeyKind { Next, Previous, Start, End, Blank, StartSlides, StartCanva, StartFullscreen }`,
+`CallActionKind { Answer, Decline, End, Mute, Speaker, Hold }` (at most `MAX_CALL_ACTIONS` = 6 in a `CallInfo`), `MediaAction { PlayPause, Next, Previous, VolumeUp, VolumeDown, SetVolume(u32), ToggleMute }`, `PresentKeyKind { Next, Previous, Start, End, Blank, StartSlides, StartCanva, StartFullscreen }`,
 `PhoneStatus { battery: Option<u8>, charging, network, signal }`,
 `CallPhase { Idle, Ringing, Active }`.
 
@@ -120,6 +122,7 @@ hide what's missing. That is how an older phone app keeps working with a newer l
 | `status/1` | `CAP_STATUS` | Battery and network both ways |
 | `clipimage/1` | `CAP_CLIPBOARD_IMAGE` | Images copied on the laptop go to the phone's clipboard |
 | `calls/1` | `CAP_CALLS` | Call popups with Decline |
+| `calls/2` | `CAP_CALLS2` | `CallInfo` with the call notification's buttons, and `CallAction` |
 | `links/1` | `CAP_LINKS` | Open a web link on the other device |
 | `ring/1` | `CAP_RING` | Ring the other device |
 | `remote/1` | `CAP_REMOTE` | Remote screen: the laptop's media players and your own buttons |

@@ -3,7 +3,7 @@
   "private": true,
   "description": "Browser tests for desktop/ui: the preview (mock API) and the app (fake Tauri).",
   "scripts": {
-    "test": "node preview.test.js && node app.test.js"
+    "test": "node preview.test.js && node app.test.js && node overlay.test.js"
   },
   "dependencies": {
     "jsqr": "^1.4.0",

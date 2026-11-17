@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="dark">
+  <title>EchoTwin call</title>
+  <style>
+    html, body { margin: 0; background: transparent; overflow: hidden; font: 14px/1.3 system-ui, "Noto Sans", sans-serif; color: #e6e8ea; }
+    .card { box-sizing: border-box; margin: 4px 6px; height: 84px; display: flex; align-items: center; gap: 12px; padding: 0 16px;
+      background: rgba(26, 30, 34, .96); border: 1px solid rgba(255, 255, 255, .1); border-radius: 16px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
+    .card[hidden] { display: none; }
+    @media (prefers-reduced-motion: no-preference) { .card.in { animation: down .18s ease-out; } }
+    @keyframes down { from { transform: translateY(-110%); opacity: 0; } to { transform: none; opacity: 1; } }
+    .av { flex: none; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 18px; color: #fff;
+      box-shadow: 0 0 0 3px rgba(61, 187, 130, .35); }
+    .who { flex: 1; min-width: 0; }
+    .name { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sub { color: #9aa0a6; font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    button { flex: none; width: 44px; height: 44px; border-radius: 50%; border: 0; color: #fff; font-size: 18px; cursor: pointer; display: grid; place-items: center; }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    button[hidden] { display: none; }
+    .no { background: #d9534f; }
+    .ok { background: #23905f; }
+  </style>
+</head>
+<body>
+  <div class="card" id="card" role="alertdialog" aria-labelledby="name" aria-describedby="sub" hidden>
+    <div class="av" id="av" aria-hidden="true"></div>
+    <div class="who"><div class="name" id="name"></div><div class="sub" id="sub"></div></div>
+    <button type="button" class="no" id="decline" aria-label="Decline" title="Decline">✕</button>
+    <button type="button" class="ok" id="answer" aria-label="Answer" title="Answer">✆</button>
+  </div>
+  <script src="call.js"></script>
+</body>
+</html>

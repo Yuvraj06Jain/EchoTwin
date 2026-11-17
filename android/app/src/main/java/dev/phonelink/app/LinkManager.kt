@@ -282,7 +282,8 @@ object LinkManager {
     fun sendMediaArt(key: String, image: ByteArray) = onIo { it.sendMediaArt(key, image) }
 
     /** A call started, changed or ended (connected computers only). */
-    fun sendCallState(phase: CallPhaseFfi, caller: String, key: String) = onIo { it.sendCallState(phase, caller, key) }
+    fun sendCallInfo(phase: CallPhaseFfi, caller: String, key: String, actions: List<dev.phonelink.core.CallActionFfi>) =
+        onIo { it.sendCallInfo(phase, caller, key, actions) }
 
     /** Battery and network for connected computers (not queued). */
     fun sendPhoneStatus(battery: Int?, charging: Boolean, network: String, signal: Int) = onIo {
@@ -359,6 +360,7 @@ object LinkManager {
                 }
                 is LinkEvent.OpenUrlRequested -> Notifications.link(app, event.name, event.url)
                 is LinkEvent.CallDeclineRequested -> handleRequest(event.id, "call") { CallWatcher.decline(it, event.key) }
+                is LinkEvent.CallActionRequested -> handleRequest(event.id, "call") { CallWatcher.act(it, event.key, event.action) }
                 is LinkEvent.RingRequested -> if (event.on) Ringer.start(app, event.name) else Ringer.stop()
                 is LinkEvent.ComputerStatus -> event.alert?.let { alert ->
                     if (Prefs.batteryAlerts(app)) {

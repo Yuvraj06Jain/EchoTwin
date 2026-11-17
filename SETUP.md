@@ -222,6 +222,9 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 77 | Remote → press **Mute / unmute** | the laptop mutes; a popup "… ran: Mute / unmute"; Settings → Phone buttons can add, remove and switch them off |
 | 78 | Open a presentation (LibreOffice Impress, or a PDF full screen); Remote → **Start presenting** → Next | the first time KDE asks to allow remote control: allow it; the slide moves; volume down/up also move; after restarting EchoTwin it works without asking again |
 | 79 | Window → Messages → **New**, type part of a contact's name | contacts from the phone are suggested; pick one, type, Ctrl+Enter: the SMS is sent and the conversation appears |
+| 85 | Send a WhatsApp chat with five or more messages (or a long Gmail) to the phone | the laptop popup and the window show every line, as the pulled-down notification on the phone does; line breaks are kept |
+| 86 | Phone: Home → **Note** → send "hello"; on the laptop popup press **Copy**, paste somewhere | "hello" is pasted; the phone's clipboard did not change |
+| 87 | Laptop: send a note to the phone; on the phone press **Copy** in its notification, and the ⎘ next to it on Home | both put the note on the phone's clipboard |
 
 When something fails, include:
 - the step number

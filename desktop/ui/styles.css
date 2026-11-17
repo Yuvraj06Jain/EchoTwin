@@ -504,7 +504,7 @@ img.app-badge.app-icon { background: transparent; object-fit: contain; }
 .notif.leaving { opacity: 0; transform: translateX(12px); }
 .notif-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .notif-time { color: var(--text-3); font-size: 12px; white-space: nowrap; }
-.notif-text { grid-column: 1 / -1; color: var(--text-2); overflow-wrap: anywhere; padding-right: 4px; }
+.notif-text { grid-column: 1 / -1; color: var(--text-2); overflow-wrap: anywhere; white-space: pre-line; padding-right: 4px; }
 .notif-actions { grid-column: 1 / -1; display: flex; gap: 10px; margin-top: 8px; align-items: center; }
 .icon-btn-sm { width: 24px; height: 24px; color: var(--text-3); }
 .icon-btn-sm svg.i { width: 14px; height: 14px; }

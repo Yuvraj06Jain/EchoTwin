@@ -149,7 +149,7 @@ All in `message.rs` unless noted.
 | Constant | Value | Use |
 |---|---|---|
 | `MAX_FRAME_LEN` (`wire.rs`) | 1 MiB | largest frame |
-| `MAX_NOTIFICATION_TEXT` | 2000 bytes | notification text is cut with "…" |
+| `MAX_NOTIFICATION_TEXT` | 4000 bytes (2000 before v3) | notification text; the phone keeps the newest lines of a long chat and starts it with "…" |
 | `MAX_SNAPSHOT_ITEMS` | 100 | notifications per snapshot |
 | `MAX_CLIPBOARD_TEXT` | 64 KiB | clipboard text |
 | `MAX_ART_BYTES` | 64 KiB | album art (JPEG/PNG only, `is_art_image`) |

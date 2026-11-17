@@ -36,8 +36,8 @@ object LinkManager {
     private val _devices = MutableStateFlow<List<Device>>(emptyList())
     val devices: StateFlow<List<Device>> = _devices
 
-    private val _messages = MutableStateFlow<List<String>>(emptyList())
-    val messages: StateFlow<List<String>> = _messages
+    private val _messages = MutableStateFlow<List<dev.phonelink.app.ui.Note>>(emptyList())
+    val messages: StateFlow<List<dev.phonelink.app.ui.Note>> = _messages
 
     /** Bumped when a phone-side switch changes, so the status notification updates. */
     private val _settingsVersion = MutableStateFlow(0)
@@ -309,8 +309,8 @@ object LinkManager {
             refresh()
             when (event) {
                 is LinkEvent.Text -> {
-                    _messages.value = (listOf("${event.name}: ${event.text}") + _messages.value).take(50)
-                    Notifications.message(app, event.name, event.text)
+                    _messages.value = (listOf(dev.phonelink.app.ui.Note(event.name, event.text)) + _messages.value).take(50)
+                    Notifications.message(app, event.name, event.text, copy = true)
                 }
                 is LinkEvent.Disconnected -> {
                     BluetoothBackup.onDisconnected()

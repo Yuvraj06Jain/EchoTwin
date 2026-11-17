@@ -134,8 +134,9 @@ pub const LOCK_MAX_AGE_MS: u64 = 2 * 60 * 1000;
 /// Clipboard text older than this is not applied (it would overwrite something newer).
 pub const CLIPBOARD_MAX_AGE_MS: u64 = 2 * 60 * 1000;
 
-/// Longest notification text sent over the wire; anything longer is cut on the phone.
-pub const MAX_NOTIFICATION_TEXT: usize = 2000;
+/// Longest notification text sent over the wire (bytes); anything longer is cut on the phone
+/// (it keeps the newest lines of a chat). A full snapshot of these still fits in one frame.
+pub const MAX_NOTIFICATION_TEXT: usize = 4000;
 /// Most notifications in one snapshot.
 pub const MAX_SNAPSHOT_ITEMS: usize = 100;
 

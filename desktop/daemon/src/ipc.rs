@@ -182,6 +182,11 @@ pub enum Request {
     DeclineCall {
         device: Option<String>,
     },
+    /// The same as pressing button `key` on our popup `id` (e.g. "note-copy").
+    PopupAction {
+        id: String,
+        key: String,
+    },
     /// Ring the connected phone loudly (even on silent), or stop it.
     Ring {
         device: Option<String>,

@@ -2,6 +2,7 @@ package dev.phonelink.app
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Intent
@@ -220,6 +221,11 @@ class MainActivity : ComponentActivity() {
         override fun openPresenter() { presenting = true }
         override fun computerMedia(command: dev.phonelink.core.MediaCommand) = LinkManager.computerMedia(command)
         override fun runCommand(id: String) = LinkManager.runCommand(id)
+        override fun copyNote(text: String) {
+            getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("note", text))
+            // Android 13+ shows its own "Copied" confirmation.
+            if (Build.VERSION.SDK_INT < 33) notice = "Copied"
+        }
         override fun presentKey(key: dev.phonelink.core.PresentKeyFfi) = LinkManager.presentKey(key)
         override fun sendClipboard() = this@MainActivity.sendClipboard()
         override fun sendFiles() = pickFiles.launch(arrayOf("*/*"))

@@ -3,6 +3,9 @@ package dev.phonelink.app.ui
 import dev.phonelink.core.Device
 import dev.phonelink.core.FileTransfer
 
+/** A note typed on the computer and sent to this phone. */
+data class Note(val from: String, val text: String)
+
 /** What Android lets EchoTwin do; each missing item is a step in the setup checklist. */
 data class Access(
     val notifications: Boolean,
@@ -18,7 +21,7 @@ data class UiState(
     val myId: String,
     val devices: List<Device>,
     val transfers: List<FileTransfer>,
-    val notes: List<String>,
+    val notes: List<Note>,
     val access: Access,
     val clipboardOn: Boolean,
     val queueOn: Boolean,
@@ -51,6 +54,7 @@ interface Actions {
     fun sendClipboard()
     fun sendFiles()
     fun sendNote(text: String)
+    fun copyNote(text: String)
     fun cancelTransfer(id: String)
     fun clearTransfers()
     fun setClipboard(on: Boolean)

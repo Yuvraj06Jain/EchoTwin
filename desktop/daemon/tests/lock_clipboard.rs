@@ -19,7 +19,7 @@ use phonelink_desktop::{
     daemon::{run, DaemonOptions},
     ipc::{Reply, Request, WatchEvent},
     lock::{lock_screen, Buses},
-    notifications::Popups,
+    notifications::{PopupCmd, Popups},
 };
 use tokio::{sync::mpsc::UnboundedReceiver, time::timeout};
 
@@ -116,6 +116,7 @@ struct Rig {
     phone_rx: UnboundedReceiver<Event>,
     laptop: Fingerprint,
     watch: Client,
+    popups: std::sync::mpsc::Receiver<PopupCmd>,
     _stop: tokio::sync::oneshot::Sender<()>,
 }
 
@@ -141,6 +142,7 @@ async fn setup() -> Option<Rig> {
 
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("pl.sock");
+    let (popups, popup_rx) = Popups::recording();
     let opts = DaemonOptions {
         data_dir: dir.path().join("data"),
         socket: socket.clone(),
@@ -150,7 +152,7 @@ async fn setup() -> Option<Rig> {
             ..Config::default()
         },
         config_path: Some(dir.path().join("config.toml")),
-        popups: Some(Popups::recording().0),
+        popups: Some(popups),
         buses: Buses {
             session: Some(bus.address.clone()),
             system: Buses::unreachable().system,
@@ -203,6 +205,7 @@ async fn setup() -> Option<Rig> {
         phone_rx,
         laptop: offer.fingerprint,
         watch,
+        popups: popup_rx,
         _stop: stop,
     })
 }
@@ -296,6 +299,37 @@ fn is_clip(m: &AppMessage) -> bool {
 }
 
 // ------------------------------------------------------------------ tests
+
+#[tokio::test]
+async fn a_note_popup_has_copy_which_fills_the_clipboard_without_an_echo() {
+    let Some(mut rig) = setup().await else {
+        eprintln!("dbus-daemon not installed; skipping");
+        return;
+    };
+    rig.phone_sends(AppMessage::Text { text: "Gate 4, 5 pm".into() });
+    let id = timeout(WAIT, async {
+        loop {
+            match rig.popups.try_recv() {
+                Ok(PopupCmd::Show { id, actions, .. }) if id.starts_with("note/") => {
+                    assert_eq!(actions, vec![("note-copy".to_string(), "Copy".to_string())]);
+                    return id;
+                }
+                Ok(_) => {}
+                Err(_) => tokio::time::sleep(Duration::from_millis(20)).await,
+            }
+        }
+    })
+    .await
+    .expect("a note popup");
+    rig.phone_gets(Duration::from_millis(300)).await;
+    let r = rig.request(Request::PopupAction { id: "note/unknown".into(), key: "note-copy".into() }).await;
+    assert_eq!(r, Reply::Done);
+    assert_ne!(rig.laptop_clipboard(), "Gate 4, 5 pm", "an unknown popup copies nothing");
+    assert_eq!(rig.request(Request::PopupAction { id, key: "note-copy".into() }).await, Reply::Done);
+    eventually("the note on the clipboard", || rig.laptop_clipboard() == "Gate 4, 5 pm").await;
+    let got = rig.phone_gets(Duration::from_millis(800)).await;
+    assert!(!got.iter().any(is_clip), "the copied note isn't sent back to the phone: {got:?}");
+}
 
 #[tokio::test]
 async fn clipboard_goes_both_ways_without_echoes() {

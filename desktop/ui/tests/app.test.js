@@ -206,6 +206,7 @@ function fakeTauri() {
 (async () => {
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1180, height: 760 }, deviceScaleFactor: 1 });
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   const problems = [];
   page.on('console', (m) => ['error', 'warning'].includes(m.type()) && problems.push(`${m.type()}: ${m.text()}`));
   page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
@@ -315,10 +316,23 @@ function fakeTauri() {
   check((await txt('.notif-text')) === 'Leaving the lab now <b>bold?</b>', 'note text shown as plain text');
   check((await txt('#tab-notifications .badge')) === '1', 'badge counts it');
   check((await page.$$eval('.notif [data-action="reply-open"]', (b) => b.length)) === 0, 'no Reply on notes (not possible yet)');
+  await page.click('.notif [data-action="copy-note"]');
+  await page.waitForTimeout(150);
+  check((await page.evaluate(() => navigator.clipboard.readText())) === 'Leaving the lab now <b>bold?</b>', 'Copy puts the note on the clipboard');
+  check((await txt('#toast')).includes('Note copied'), 'Copy says so');
   await page.screenshot({ path: `${OUT}/app-4-note.png` });
   await page.click('.notif [data-action="dismiss"]');
   await page.waitForTimeout(300);
   check((await page.$$eval('.notif', (n) => n.length)) === 0, 'dismissing a note works');
+
+  await page.evaluate(() => window.__emit('phonelink://event', { kind: 'text', id: '9C21-7E04-B3A8-51DF', name: 'Galaxy S24 FE', text: 'line one\nline two\nline three' }));
+  await page.waitForTimeout(200);
+  {
+    const t = await page.$eval('.notif-text', (e) => ({ ws: getComputedStyle(e).whiteSpace, h: e.getBoundingClientRect().height, lh: parseFloat(getComputedStyle(e).lineHeight) || 18 }));
+    check(t.ws === 'pre-line' && t.h > t.lh * 2.5, `a three-line note shows three lines (${t.ws}, ${t.h}px)`);
+  }
+  await page.click('.notif [data-action="dismiss"]');
+  await page.waitForTimeout(300);
 
   console.log('Mirrored notifications');
   const ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -335,6 +349,7 @@ function fakeTauri() {
   }, ICON);
   await page.waitForTimeout(400);
   check((await page.$$eval('.notif', (n) => n.length)) === 2, 'mirrored notifications listed');
+  check((await page.$$eval('.notif [data-action="copy-note"]', (b) => b.length)) === 0, 'no note Copy on mirrored notifications');
   check((await page.$$eval('img.app-icon', (i) => i.length)) === 1, "the app's real icon replaces the letter badge");
   check((await txt('.notif[data-id="P/k2"] .notif-actions')).includes('Cleared on phone'), 'cleared-on-phone marker shown');
   check((await page.$$eval('.notif[data-id="P/k2"] [data-action="reply-open"]', (b) => b.length)) === 0, 'no Reply once cleared on the phone');

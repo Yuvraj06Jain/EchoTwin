@@ -120,7 +120,7 @@ widget) talks to it over a private Unix socket with line-delimited JSON.
 | `tests/daemon.rs` | Real daemon over its socket with a simulated phone: pairing, messages, CLI errors. | |
 | `tests/notifications.rs` | Notification flow end to end (post, update, remove, snapshot, reply/action/dismiss, mute). | |
 | `tests/popups.rs` | Popups against a stand-in notification server on a private D-Bus (replace, close, click). | |
-| `tests/lock_clipboard.rs` | Lock and clipboard against stand-in ScreenSaver/logind/Klipper services. | |
+| `tests/lock_clipboard.rs` | Lock and clipboard against stand-in ScreenSaver/logind/Klipper services; Copy on a note popup. | |
 | `tests/media.rs` | Now playing + controls with a simulated phone. | |
 | `tests/files.rs` | File transfers through the service, refusal reasons, cancel from the app. | |
 | `tests/sms.rs` | Conversations, sending, older messages. | |
@@ -187,7 +187,8 @@ Package `dev.phonelink.app` in `android/app/src/main/java/dev/phonelink/app/`.
 | `ClipboardActivity.kt` | Invisible activity that reads the phone clipboard while focused and sends it. |
 | `Tiles.kt` | Quick Settings tiles: Lock computer, Send clipboard. |
 | `LockReceiver.kt` | "Lock computer" button on the status notification. |
-| `BluetoothBackup.kt` | After 15 s without Wi-Fi link: RFCOMM socket to the bonded laptop, piped into the core (`open_stream`). |
+| `BluetoothBackup.kt` | After 15 s (paired) or 2 min (not paired) without Wi-Fi: RFCOMM socket to the laptop, piped into the core (`open_stream`). Never scans; failures name their cause and Settings → Test lists each attempt. |
+| `CopyReceiver.kt` | "Copy" on a note's notification: puts the note on the phone's clipboard (not exported). |
 | `StatusWatcher.kt` | Battery (sticky broadcast), Wi-Fi/mobile (ConnectivityManager), 5G/4G + signal (TelephonyCallback) → `send_phone_status`. |
 | `Notifications.kt` | The phone's own notifications: channels, persistent status, transfers, received notes. |
 | `Prefs.kt` | Phone-side switches (clipboard sharing, queue notifications while disconnected). |
@@ -229,4 +230,5 @@ Package `dev.phonelink.app` in `android/app/src/main/java/dev/phonelink/app/`.
 | `scripts/gen-kotlin-bindings.sh` | Regenerates `phonelink_ffi.kt` from `core-ffi`. Run after every FFI change. |
 | `scripts/test-kotlin-bindings.sh` | Runs `core-ffi/kotlin-test` (JVM) against the host library. |
 | `scripts/audit-apk-permissions.sh` | Fails if the built APK requests any permission outside the allow-list. |
+| `scripts/check-android-source.sh` | Fails if the Android app calls Bluetooth APIs that need BLUETOOTH_SCAN (which EchoTwin doesn't have). Run first in CI. |
 | `.github/workflows/android.yml` | CI: builds the APK on pushes touching `android/`, `core/`, `core-ffi/`, `Cargo.*` (or manual run), audits permissions, publishes release `latest-apk` (`EchoTwin-<sha>.apk`), writes `status.txt`/`build.log` to the `ci-logs` branch. Stable signing from repo secrets. |

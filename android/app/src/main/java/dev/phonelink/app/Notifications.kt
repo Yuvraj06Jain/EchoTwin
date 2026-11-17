@@ -153,16 +153,26 @@ object Notifications {
         NotificationManagerCompat.from(context).notify(1000 + (id.hashCode() and 0x3fffffff) % 100000, n)
     }
 
-    fun message(context: Context, from: String, text: String) {
+    /** A message on the phone; `copy` adds a Copy button (notes from the computer). */
+    fun message(context: Context, from: String, text: String, copy: Boolean = false) {
         if (!allowed(context)) return
-        val n = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
+        val id = nextMessageId++
+        val b = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
             .setSmallIcon(R.drawable.ic_link)
             .setContentTitle(from)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)
             .setContentIntent(openApp(context))
-            .build()
-        NotificationManagerCompat.from(context).notify(nextMessageId++, n)
+        if (copy) {
+            val intent = Intent(context, CopyReceiver::class.java)
+                .putExtra(CopyReceiver.EXTRA_TEXT, text)
+                .putExtra(CopyReceiver.EXTRA_NOTIFICATION, id)
+            val pending = PendingIntent.getBroadcast(
+                context, id, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            b.addAction(0, "Copy", pending)
+        }
+        NotificationManagerCompat.from(context).notify(id, b.build())
     }
 }

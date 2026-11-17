@@ -444,8 +444,6 @@ PlasmaExtras.Representation {
                                 PlasmaComponents.Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.Wrap
-                                    maximumLineCount: 3
-                                    elide: Text.ElideRight
                                     text: modelData.text
                                 }
                             }

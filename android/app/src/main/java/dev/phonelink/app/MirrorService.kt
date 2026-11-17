@@ -30,6 +30,27 @@ class MirrorService : NotificationListenerService() {
 
         private const val MAX_BUTTONS = 3
         private const val ICON_PX = 48
+        /** Must match MAX_NOTIFICATION_TEXT in core/src/message.rs (bytes, UTF-8). */
+        private const val MAX_TEXT_BYTES = 4000
+
+        /**
+         * Lines joined with "\n"; when too long for the computer, the oldest lines go first
+         * (the newest message matters most) and "…" marks the cut.
+         */
+        fun joinNewest(lines: List<String>): String {
+            val kept = ArrayDeque<String>()
+            var bytes = 0
+            for (line in lines.asReversed()) {
+                val size = line.toByteArray().size + 1
+                if (bytes + size > MAX_TEXT_BYTES - 4 && kept.isNotEmpty()) {
+                    kept.addFirst("…")
+                    break
+                }
+                kept.addFirst(line)
+                bytes += size
+            }
+            return kept.joinToString("\n")
+        }
     }
 
     /** Apps whose icon was already sent this session. */
@@ -130,15 +151,22 @@ class MirrorService : NotificationListenerService() {
     private fun buttons(n: Notification): List<Notification.Action> =
         n.actions?.filter { it.remoteInputs.isNullOrEmpty() }?.take(MAX_BUTTONS) ?: emptyList()
 
-    /** Latest lines of a chat (WhatsApp, Telegram, Messages…), "Sender: text". */
+    /** Every line of a chat (WhatsApp, Telegram, Messages…), "Sender: text". */
     private fun messagingText(n: Notification): String? {
         val style = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n) ?: return null
         val messages = style.messages
         if (messages.isEmpty()) return null
-        return messages.takeLast(3).joinToString("\n") { m ->
+        return joinNewest(messages.map { m ->
             val who = m.person?.name
             if (who.isNullOrBlank()) m.text.toString() else "$who: ${m.text}"
-        }
+        })
+    }
+
+    /** InboxStyle lines (Gmail's "3 new messages", grouped SMS…), one per line. */
+    private fun inboxText(extras: Bundle): String? {
+        val lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+            ?.map { it.toString().trim() }?.filter { it.isNotEmpty() }
+        return if (lines.isNullOrEmpty()) null else joinNewest(lines)
     }
 
     private fun toMirrored(sbn: StatusBarNotification): MirroredNotification? {
@@ -147,7 +175,10 @@ class MirrorService : NotificationListenerService() {
         val extras = n.extras
         val title = (extras.getCharSequence(Notification.EXTRA_TITLE)
             ?: extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE))?.toString()?.trim().orEmpty()
+        // Everything the app put in the notification: what the phone shows when it is pulled
+        // down, not only the collapsed first line.
         val text = (messagingText(n)
+            ?: inboxText(extras)
             ?: extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
             ?: extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
             ?: extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString())?.trim().orEmpty()

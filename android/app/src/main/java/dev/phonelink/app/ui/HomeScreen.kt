@@ -36,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -140,7 +141,7 @@ fun HomeScreen(state: UiState, actions: Actions, onOpenSetup: () -> Unit, modifi
 
         if (state.notes.isNotEmpty()) {
             item { SectionTitle("From your computer") }
-            items(state.notes.take(5)) { Panel { Text(it) } }
+            items(state.notes.take(5)) { note -> NoteCard(note, onCopy = { actions.copyNote(note.text) }) }
         }
         item { Spacer(Modifier.height(16.dp)) }
     }
@@ -353,4 +354,25 @@ private fun NoteDialog(onSend: (String) -> Unit, onDismiss: () -> Unit) {
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = Pl.Muted) } },
         shape = RoundedCornerShape(16.dp),
     )
+}
+
+/** A note from the computer: who sent it, the text, and a Copy button. */
+@Composable
+private fun NoteCard(note: Note, onCopy: () -> Unit) {
+    Panel {
+        Row(verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f)) {
+                Text(note.from, color = Pl.AccentText, style = MaterialTheme.typography.labelMedium)
+                Text(note.text)
+            }
+            Spacer(Modifier.width(10.dp))
+            Box(
+                Modifier
+                    .size(30.dp)
+                    .background(Pl.AccentSoft, RoundedCornerShape(8.dp))
+                    .clickable(onClickLabel = "Copy note", onClick = onCopy),
+                contentAlignment = Alignment.Center,
+            ) { Text("⎘", color = Pl.AccentText) }
+        }
+    }
 }

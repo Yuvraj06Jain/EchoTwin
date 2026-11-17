@@ -1790,6 +1790,26 @@ mod tests {
         );
         assert_eq!(n.actions.len(), 3, "at most three buttons");
 
+        // A snapshot of the most notifications, each as long as allowed, still fits one frame.
+        let biggest: Vec<_> = (0..MAX_SNAPSHOT_ITEMS + 5)
+            .map(|i| {
+                MirroredNotification {
+                    key: format!("0|com.whatsapp|{i}|null|10{}", "k".repeat(150)),
+                    package: "com.whatsapp".repeat(10),
+                    app: "é".repeat(200),
+                    title: "é".repeat(400),
+                    text: "é".repeat(MAX_NOTIFICATION_TEXT),
+                    posted_ms: u64::MAX,
+                    can_reply: true,
+                    actions: vec!["é".repeat(100); 5],
+                }
+                .into_wire()
+            })
+            .take(MAX_SNAPSHOT_ITEMS)
+            .collect();
+        let size = AppMessage::NotificationSnapshot { items: biggest }.encode().unwrap().len();
+        assert!(size < phonelink_core::wire::MAX_BODY_LEN, "snapshot of {size} bytes doesn't fit a frame");
+
         phone.send_snapshot(vec![]).unwrap();
         assert_eq!(
             next_msg(&mut lrx),

@@ -613,6 +613,7 @@
             const buttons = caps.notificationButtons && !n.removedOnPhone ? n.actions || [] : [];
             const parts = [
               n.code && api.copyCode ? `<button type="button" class="btn btn-sm" data-action="copy-code">${icon('clipboard')}Copy ${esc(n.code)}</button>` : '',
+              String(n.id).startsWith('note-') ? `<button type="button" class="btn btn-sm" data-action="copy-note">${icon('clipboard')}Copy</button>` : '',
               n.canReply && !replying && !n.removedOnPhone ? `<button type="button" class="btn btn-sm" data-action="reply-open">${icon('reply')}Reply</button>` : '',
               ...buttons.map((label, i) => `<button type="button" class="btn btn-ghost btn-sm" data-action="notif-button" data-index="${i}">${esc(label)}</button>`),
               state.replied.has(n.id) ? `<span class="notif-note">${icon('check')}Replied</span>` : '',
@@ -1678,6 +1679,16 @@
       case 'copy-code': {
         await api.copyCode(id);
         return toast('Code copied');
+      }
+      case 'copy-note': {
+        const n = state.notifications.find((x) => x.id === id);
+        if (!n) return undefined;
+        try {
+          await navigator.clipboard.writeText(n.text);
+          return toast('Note copied');
+        } catch {
+          return toast('Copy failed');
+        }
       }
       case 'notif-button': {
         const n = state.notifications.find((x) => x.id === id);

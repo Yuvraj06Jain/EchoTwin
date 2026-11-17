@@ -195,5 +195,10 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- "Copy" on a note's notification. Only our own notification can send to it. -->
+        <receiver
+            android:name=".CopyReceiver"
+            android:exported="false" />
     </application>
 </manifest>

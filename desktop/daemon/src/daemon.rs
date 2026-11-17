@@ -136,6 +136,8 @@ struct State {
     effects: Arc<dyn crate::effects::Effects>,
     /// Phones with a call going on: (phase, caller, call notification key).
     calls: Mutex<HashMap<Fingerprint, (phonelink_core::CallPhase, String, String)>>,
+    /// The latest notes from the phone that got a popup: (popup id, text), for its Copy button.
+    notes: Mutex<std::collections::VecDeque<(String, String)>>,
     /// Presses the presentation remote's keys (portal session on its own thread).
     presenter: crate::present::Presenter,
     /// What plays on this computer (for phones with `remote/1`).
@@ -246,6 +248,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         status_sent: Mutex::new(HashMap::new()),
         battery_alerts: Mutex::new(HashMap::new()),
         calls: Mutex::new(HashMap::new()),
+        notes: Mutex::new(std::collections::VecDeque::new()),
         computer_media: Mutex::new(None),
         presenter: crate::present::Presenter::start(opts.buses.session.clone(), opts.data_dir.join("remote-control.token")),
         contact_waits: Mutex::new(HashMap::new()),
@@ -744,9 +747,36 @@ impl State {
         });
     }
 
+    /// A note from the phone, with a Copy button (the text is kept for it: last 20 notes).
+    fn note_popup(&self, popup_id: String, name: &str, text: &str) {
+        {
+            let mut notes = lock(&self.notes);
+            notes.push_back((popup_id.clone(), text.to_string()));
+            while notes.len() > 20 {
+                notes.pop_front();
+            }
+        }
+        self.popup_with(
+            popup_id,
+            format!("Message from {name}"),
+            text.to_string(),
+            crate::popups::Tab::Notifications,
+            vec![("note-copy".into(), "Copy".into())],
+            -1,
+        );
+    }
+
     /// A button on one of our popups.
     fn popup_action(&self, popup_id: &str, key: &str) {
         debug!(popup_id, key, "popup action");
+        if key == "note-copy" {
+            let text = lock(&self.notes).iter().find(|(id, _)| id == popup_id).map(|(_, t)| t.clone());
+            // Marked as ours, so it isn't sent back to the phone.
+            if let Some(text) = text {
+                self.clipboard.set(text);
+            }
+            return;
+        }
         if key == "call-decline" {
             let peer = popup_id
                 .strip_prefix("call/")
@@ -1368,12 +1398,9 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                 AppMessage::SmsLoadOlder { .. } | AppMessage::SmsSend { .. } => continue,
                 AppMessage::Text { text } => {
                     let name = state.name_of(&peer);
-                    state.status_popup(
-                        notify,
-                        format!("note/{}", hex_id(&id)),
-                        format!("Message from {name}"),
-                        text.clone(),
-                    );
+                    if notify {
+                        state.note_popup(format!("note/{}", hex_id(&id)), &name, &text);
+                    }
                     WatchEvent::Text {
                         id: peer.short(),
                         name,
@@ -2286,6 +2313,10 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                     Err(message) => Reply::Error { message },
                 };
                 write_reply(&mut w, &reply).await?;
+            }
+            Request::PopupAction { id, key } => {
+                state.popup_action(&id, &key);
+                write_reply(&mut w, &Reply::Done).await?;
             }
             Request::Ring { device, on } => {
                 let reply = match state.resolve(device.as_deref()) {

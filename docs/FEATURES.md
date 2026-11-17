@@ -177,9 +177,18 @@ phone-side "Queue notifications while disconnected" (default off).
 On every connect the phone sends a snapshot of what's currently shown, so the laptop list
 matches the phone after restarts.
 
+**The whole message:** the laptop gets everything the app put into the notification, i.e.
+what the phone shows when the notification is pulled down: every message of a chat
+(MessagingStyle), every line of an inbox-style notification (`EXTRA_TEXT_LINES`), else the big
+text. Up to 4000 bytes (`MAX_NOTIFICATION_TEXT`); a longer chat keeps its newest lines and
+starts with "…" (`MirrorService.joinNewest`). Line breaks are kept in the window (`white-space:
+pre-line`) and the widget's list (no line limit). Limit: if the phone's own pulled-down
+notification ends with "…" (Gmail and Outlook do this for long mails), the app never gave
+Android more, so there is nothing more to mirror.
+
 | Layer | File | Functions |
 |---|---|---|
-| Phone | `android/…/MirrorService.kt` | `onNotificationPosted`, `onNotificationRemoved`, `isMirrorable` (noise filter), `toMirrored`, `snapshot`, `reply`, `press`, `dismiss` |
+| Phone | `android/…/MirrorService.kt` | `onNotificationPosted`, `onNotificationRemoved`, `isMirrorable` (noise filter), `toMirrored` (`messagingText`, `inboxText`, `joinNewest`), `snapshot`, `reply`, `press`, `dismiss` |
 | Phone | `android/…/LinkManager.kt` | `mirrorPosted`, `mirrorRemoved`, `mirrorIcon`, `onMirrorReady`/`sendSnapshot`, `handleRequest`, `setQueueNotifications` |
 | FFI | `core-ffi/src/lib.rs` | `post_notification`, `remove_notification`, `send_snapshot`, `send_app_icon`, `send_action_result`, `set_queue_notifications`, `send_notification` (queue switch) |
 | Laptop | `desktop/daemon/src/notifications.rs` | `Store::{post, removed_on_phone, snapshot, dismiss, clear, apps}`, `save_icon`, `escape_markup` |
@@ -191,21 +200,26 @@ matches the phone after restarts.
 **Settings:** laptop `notifications` (popups), `sync_dismissals`, `muted_apps`; phone
 `Prefs.queueNotifications`.
 **Tests:** `desktop/daemon/tests/notifications.rs`, `popups.rs`; FFI
-`notification_mirroring_call_sequence` (includes the queue switch).
+`notification_mirroring_call_sequence` (includes the queue switch and that a snapshot of 100
+maximum-length notifications fits one frame); UI suite ("a three-line note shows three lines").
 **To change** which notifications are skipped: `MirrorService.isMirrorable`; the popup age
 limit: `POPUP_MAX_AGE_MS`.
 
 ## 5. Notes (send a text)
 
 **What:** short notes either way (phone "Note" button; laptop "Send a note", `phonelink
-send-text`). Queued if the other side is offline.
+send-text`). Queued if the other side is offline. Every note has a **Copy** button on both
+devices: in the laptop's popup and window, on the phone's Home list and its notification.
 
 | Layer | File | Functions |
 |---|---|---|
 | Core | `AppMessage::Text` | |
-| Phone | `core-ffi` `send_text`; `MainActivity.sendText`; `HomeScreen` `NoteDialog`; incoming → `Notifications.message` | |
-| Laptop | `daemon.rs` `Request::SendText`, event_pump `Text` → popup + `WatchEvent::Text` | |
-| Window | `main.rs` `send_note`; `app.js` `openNoteDialog`, `submitNote` | |
+| Phone | `core-ffi` `send_text`; `MainActivity.sendText`; `HomeScreen` `NoteDialog`; incoming → `LinkManager.messages` (`Note(from, text)`) and `Notifications.message(copy = true)` | Copy: `HomeScreen` `NoteCard` → `MainActivity.copyNote`; notification button → `CopyReceiver` (not exported) |
+| Laptop | `daemon.rs` `Request::SendText`, event_pump `Text` → `note_popup` (button `note-copy`, last 20 texts kept in `State.notes`) + `WatchEvent::Text` | Copy: `popup_action` → Klipper, marked as ours so it isn't sent back; `Request::PopupAction` presses a popup button from a client (tests) |
+| Window | `main.rs` `send_note`; `app.js` `openNoteDialog`, `submitNote`; `copy-note` action | |
+
+**Tests:** `tests/lock_clipboard.rs` `a_note_popup_has_copy_which_fills_the_clipboard_without_an_echo`;
+UI suite ("Copy puts the note on the clipboard").
 
 ## 6. Lock the laptop from the phone
 

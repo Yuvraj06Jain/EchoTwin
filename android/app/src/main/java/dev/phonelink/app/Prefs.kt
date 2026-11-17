@@ -10,6 +10,17 @@ object Prefs {
     private const val CONNECTION = "connection"
     private const val BATTERY_ALERTS = "battery_alerts"
     private const val PRESENT_APP = "present_app"
+    private const val POINTER_SHAPE = "pointer_shape"
+    private const val POINTER_COLOR = "pointer_color"
+    private const val POINTER_SIZE = "pointer_size"
+
+    /** The presentation pointer's look: shape (dot | ring | spotlight), 0xRRGGBB, size 0..2. */
+    fun pointerStyle(context: Context): Triple<String, Int, Int> = prefs(context).let {
+        Triple(it.getString(POINTER_SHAPE, "dot") ?: "dot", it.getInt(POINTER_COLOR, 0xFF3B30), it.getInt(POINTER_SIZE, 1))
+    }
+
+    fun setPointerStyle(context: Context, shape: String, color: Int, size: Int) =
+        prefs(context).edit().putString(POINTER_SHAPE, shape).putInt(POINTER_COLOR, color).putInt(POINTER_SIZE, size).apply()
 
     /** Presentation app for the Start key: office | slides | canva | fullscreen. */
     fun presentApp(context: Context): String = prefs(context).getString(PRESENT_APP, "office") ?: "office"

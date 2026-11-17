@@ -138,6 +138,10 @@ struct State {
     media_keys: crate::mpris::Controls,
     /// Phones with a call going on: (phase, caller, call notification key).
     calls: Mutex<HashMap<Fingerprint, CallNow>>,
+    /// Phones told that the pointer can't be shown here (once per connection).
+    pointer_warned: Mutex<HashSet<Fingerprint>>,
+    /// A pointer is on screen (so a phone leaving hides it).
+    pointer_shown: std::sync::atomic::AtomicBool,
     /// When the app was last started in the background (for the call card).
     app_started: Mutex<Option<std::time::Instant>>,
     /// The latest notes from the phone that got a popup: (popup id, text), for its Copy button.
@@ -295,6 +299,8 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         battery_alerts: Mutex::new(HashMap::new()),
         calls: Mutex::new(HashMap::new()),
         app_started: Mutex::new(None),
+        pointer_warned: Mutex::new(HashSet::new()),
+        pointer_shown: std::sync::atomic::AtomicBool::new(false),
         notes: Mutex::new(std::collections::VecDeque::new()),
         computer_media: Mutex::new(None),
         computer_art: Mutex::new(None),
@@ -372,7 +378,7 @@ async fn start_node(
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
         cfg.timings = timings(opts.config.battery_saver);
         cfg.capabilities.extend(
-            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS, phonelink_core::CAP_REMOTE, phonelink_core::CAP_CONTACTS, phonelink_core::CAP_PRESENT, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_MUTE, phonelink_core::CAP_REMOTE_ART, phonelink_core::CAP_CALLS2]
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS, phonelink_core::CAP_REMOTE, phonelink_core::CAP_CONTACTS, phonelink_core::CAP_PRESENT, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_MUTE, phonelink_core::CAP_REMOTE_ART, phonelink_core::CAP_CALLS2, phonelink_core::CAP_POINTER]
                 .map(String::from),
         );
         match Node::start(cfg).await {
@@ -1494,6 +1500,10 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     state.call_changed(peer, CallPhase::Idle, "", "", vec![]);
                 }
                 lock(&state.caps).remove(&peer);
+                lock(&state.pointer_warned).remove(&peer);
+                if state.pointer_shown.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                    state.broadcast(WatchEvent::Pointer { x: 0, y: 0, visible: false, shape: "dot".into(), color: 0, size: 0 });
+                }
                 lock(&state.phone_status).remove(&peer);
                 lock(&state.status_sent).remove(&peer);
                 if lock(&state.media).forget(&peer) {
@@ -1755,6 +1765,24 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     // An older phone (calls/1): only Decline, while ringing.
                     let actions = if phase == CallPhase::Ringing { vec![CallActionKind::Decline] } else { vec![] };
                     state.call_changed(peer, phase, &caller, &key, actions);
+                    continue;
+                }
+                AppMessage::Pointer { x, y, visible, shape, color, size } => {
+                    if state.has_cap(&peer, phonelink_core::CAP_POINTER) && state.switch_on("presentation_remote") {
+                        let max = phonelink_core::message::POINTER_MAX;
+                        if visible {
+                            state.start_app(); // the overlay lives in the app
+                        }
+                        state.pointer_shown.store(visible, std::sync::atomic::Ordering::Relaxed);
+                        state.broadcast(WatchEvent::Pointer {
+                            x: x.min(max),
+                            y: y.min(max),
+                            visible,
+                            shape: shape.as_str().into(),
+                            color: color & 0xFF_FFFF,
+                            size: size.min(2),
+                        });
+                    }
                     continue;
                 }
                 AppMessage::CallInfo { key, caller, phase, actions } => {
@@ -2487,6 +2515,15 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                     },
                 };
                 write_reply(&mut w, &reply).await?;
+            }
+            Request::PointerUnavailable { reason } => {
+                for peer in state.connected_with(phonelink_core::CAP_POINTER) {
+                    if lock(&state.pointer_warned).insert(peer) {
+                        let message = format!("The pointer can't be shown on {}: {reason}", state.config.device_name());
+                        let _ = state.to_phone(&peer, AppMessage::ActionResult { key: "present".into(), ok: false, message });
+                    }
+                }
+                write_reply(&mut w, &Reply::Done).await?;
             }
             Request::CallPopupShown { id } => {
                 state.call_card_shown(&id);

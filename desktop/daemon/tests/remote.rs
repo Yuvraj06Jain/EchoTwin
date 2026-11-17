@@ -10,13 +10,13 @@ use std::{
     time::Duration,
 };
 
-use phonelink_core::{AppMessage, Event, Fingerprint, MediaAction, Node, NodeConfig, PairingOffer, CAP_MUTE, CAP_REMOTE, CAP_REMOTE_ART};
+use phonelink_core::{AppMessage, Event, Fingerprint, MediaAction, Node, NodeConfig, PairingOffer, PointerShape, CAP_MUTE, CAP_POINTER, CAP_REMOTE, CAP_REMOTE_ART};
 use phonelink_desktop::{
     client::Client,
     config::{CommandEntry, Config},
     daemon::{run, DaemonOptions},
     effects::Recorded,
-    ipc::{Reply, Request},
+    ipc::{Reply, Request, WatchEvent},
     lock::Buses,
     notifications::Popups,
 };
@@ -427,4 +427,92 @@ async fn the_laptops_album_art_reaches_the_phone_before_the_track_and_mute_works
     // The Mute tile.
     rig.send(AppMessage::ComputerMediaControl { action: MediaAction::ToggleMute });
     eventually("muted", || rig.effects.log.lock().unwrap().iter().any(|l| l == "mute")).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_pointer_moves_reach_the_app_clamped_and_never_wake_the_widget() {
+    let Some(bus) = private_bus() else {
+        eprintln!("dbus-daemon not installed; skipping");
+        return;
+    };
+    let rig = setup_caps(&bus.address, &[CAP_REMOTE, CAP_POINTER]).await;
+    let mut watch = Client::connect(&rig.socket).await.unwrap();
+    watch.send(&Request::Watch).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let point = |x: u16, visible: bool| AppMessage::Pointer { x, y: 300, visible, shape: PointerShape::Ring, color: 0xAA_3DBB82, size: 7 };
+    // A fleeting message from the phone becomes a Pointer event, values clamped; the app is
+    // started for its overlay.
+    rig.phone.send_fleeting(&rig.laptop, point(60_000, true).encode().unwrap()).unwrap();
+    let e = next_pointer(&mut watch).await;
+    assert_eq!(
+        e,
+        WatchEvent::Pointer { x: 10_000, y: 300, visible: true, shape: "ring".into(), color: 0x3DBB82, size: 2 }
+    );
+    assert!(rig.effects.take().contains(&"app".to_string()));
+
+    // `phonelink widget --wait` doesn't wake up for pointer moves.
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_phonelink"))
+        .arg("widget")
+        .env("PHONELINK_SOCKET", &rig.socket)
+        .output()
+        .unwrap();
+    let hash = serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap()["hash"].as_str().unwrap().to_string();
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_phonelink"))
+        .args(["widget", "--wait", &hash, "--timeout", "20"])
+        .env("PHONELINK_SOCKET", &rig.socket)
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    for i in 0..20 {
+        rig.phone.send_fleeting(&rig.laptop, point(i * 100, true).encode().unwrap()).unwrap();
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert!(child.try_wait().unwrap().is_none(), "the widget still waits");
+    let _ = child.kill();
+    let _ = child.wait();
+
+    // Presentation remote switched off: no pointer.
+    let off = Request::SetSwitch { name: "presentation_remote".into(), on: false };
+    assert_eq!(rig.request(off).await, Reply::Done);
+    while timeout(Duration::from_millis(300), watch.next()).await.is_ok() {}
+    rig.phone.send_fleeting(&rig.laptop, point(5, true).encode().unwrap()).unwrap();
+    let got = timeout(Duration::from_millis(800), async {
+        loop {
+            if let Some(Reply::Event { event: WatchEvent::Pointer { .. } }) = watch.next().await.unwrap() {
+                return;
+            }
+        }
+    })
+    .await;
+    assert!(got.is_err(), "refused while the presentation remote is off");
+
+    // The app can't show it: the phone hears so, once per connection.
+    let r = rig.request(Request::PointerUnavailable { reason: "no overlay".into() }).await;
+    assert_eq!(r, Reply::Done);
+    let mut rig = rig;
+    let (ok, msg) = rig
+        .phone_waits_for("pointer warning", |m| match m {
+            AppMessage::ActionResult { key, ok, message } if key == "present" => Some((ok, message)),
+            _ => None,
+        })
+        .await;
+    assert!(!ok && msg.contains("no overlay"), "{msg}");
+    assert_eq!(rig.request(Request::PointerUnavailable { reason: "no overlay".into() }).await, Reply::Done);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let again = timeout(Duration::from_millis(500), rig.phone_rx.recv()).await;
+    assert!(!matches!(again, Ok(Some(Event::Message { .. }))), "only once");
+}
+
+async fn next_pointer(watch: &mut Client) -> WatchEvent {
+    timeout(WAIT, async {
+        loop {
+            if let Some(Reply::Event { event: e @ WatchEvent::Pointer { .. } }) = watch.next().await.unwrap() {
+                return e;
+            }
+        }
+    })
+    .await
+    .expect("a pointer event")
 }

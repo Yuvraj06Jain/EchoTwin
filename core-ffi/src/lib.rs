@@ -67,6 +67,8 @@ pub struct Device {
     pub can_present_apps: bool,
     /// Connected, and can be muted from here.
     pub can_mute: bool,
+    /// Connected, and shows the presentation pointer.
+    pub can_point: bool,
     /// "wifi" or "bluetooth" while connected; empty when offline.
     pub via: String,
     /// The computer's Bluetooth address for the backup link (it tells us), if it has one.
@@ -241,6 +243,14 @@ pub enum CallPhaseFfi {
     Idle,
     Ringing,
     Active,
+}
+
+/// How the presentation pointer looks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum PointerShapeFfi {
+    Dot,
+    Ring,
+    Spotlight,
 }
 
 /// A button of the phone's call notification.
@@ -648,6 +658,7 @@ fn device(node: &Node, caps: &Caps, power: &Power, p: &PeerRecord) -> Device {
         can_present: connected && has_cap(caps, &p.fingerprint, CAP_PRESENT),
         can_present_apps: connected && has_cap(caps, &p.fingerprint, phonelink_core::CAP_PRESENT2),
         can_mute: connected && has_cap(caps, &p.fingerprint, phonelink_core::CAP_MUTE),
+        can_point: connected && has_cap(caps, &p.fingerprint, phonelink_core::CAP_POINTER),
         via: via(node.transport(&p.fingerprint)),
         bluetooth: p.bluetooth.clone(),
         battery,
@@ -764,6 +775,7 @@ impl PhoneLink {
                             phonelink_core::CAP_PRESENT2,
                             phonelink_core::CAP_REMOTE_ART,
                             phonelink_core::CAP_CALLS2,
+                            phonelink_core::CAP_POINTER,
                         ]
                         .map(String::from),
                     );
@@ -1260,6 +1272,31 @@ impl PhoneLink {
         };
         let caller = phonelink_core::message::truncate_text(&caller, phonelink_core::message::MAX_CALLER);
         self.send_connected(CAP_CALLS, AppMessage::CallState { state, caller, key })
+    }
+
+    /// The presentation pointer: `x`, `y` in 0..=10000 across the screen, `visible` false
+    /// when the finger lifts. Sent only if the computer is connected right now (never
+    /// queued: a late pointer is worse than none). Returns whether it went out.
+    #[allow(clippy::too_many_arguments)]
+    pub fn pointer(
+        &self,
+        device_id: Option<String>,
+        x: u16,
+        y: u16,
+        visible: bool,
+        shape: PointerShapeFfi,
+        color: u32,
+        size: u8,
+    ) -> Result<bool, LinkError> {
+        let fp = self.connected_one(device_id, phonelink_core::CAP_POINTER, "the pointer")?;
+        let shape = match shape {
+            PointerShapeFfi::Dot => phonelink_core::PointerShape::Dot,
+            PointerShapeFfi::Ring => phonelink_core::PointerShape::Ring,
+            PointerShapeFfi::Spotlight => phonelink_core::PointerShape::Spotlight,
+        };
+        let max = phonelink_core::message::POINTER_MAX;
+        let msg = AppMessage::Pointer { x: x.min(max), y: y.min(max), visible, shape, color: color & 0xFF_FFFF, size: size.min(2) };
+        Ok(self.node.send_fleeting(&fp, msg.encode()?)?)
     }
 
     /// Tell connected computers about a call and the buttons its notification offers:
@@ -2105,7 +2142,7 @@ mod tests {
             cfg.capabilities.extend(caps.iter().map(|c| c.to_string()));
             rt.block_on(Node::start(cfg)).unwrap()
         };
-        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS, CAP_RING, CAP_CALLS, CAP_REMOTE, CAP_PRESENT, phonelink_core::CAP_MUTE, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_REMOTE_ART, phonelink_core::CAP_CALLS2]);
+        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS, CAP_RING, CAP_CALLS, CAP_REMOTE, CAP_PRESENT, phonelink_core::CAP_MUTE, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_REMOTE_ART, phonelink_core::CAP_CALLS2, phonelink_core::CAP_POINTER]);
         let uri = laptop
             .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
             .to_uri();
@@ -2188,7 +2225,14 @@ mod tests {
         assert!(matches!(next_from_phone(&mut lrx), AppMessage::PresentKey { key: PresentKeyKind::Blank, .. }));
         assert!(phone.devices()[0].can_remote && phone.devices()[0].can_present);
         let d = &phone.devices()[0];
-        assert!(d.can_mute && d.can_present_apps);
+        assert!(d.can_mute && d.can_present_apps && d.can_point);
+        // The pointer: clamped, masked, not queued.
+        assert!(phone.pointer(None, 20_000, 5_000, true, PointerShapeFfi::Ring, 0xAAFF3B30, 9).unwrap());
+        assert!(matches!(
+            next_from_phone(&mut lrx),
+            AppMessage::Pointer { x: 10_000, y: 5_000, visible: true, shape: phonelink_core::PointerShape::Ring, color: 0xFF3B30, size: 2 }
+        ));
+        assert_eq!(phone.node.pending_count(&laptop.fingerprint()).unwrap(), 0, "never queued");
         phone.computer_media_control(None, MediaCommand::ToggleMute).unwrap();
         assert!(matches!(next_from_phone(&mut lrx), AppMessage::ComputerMediaControl { action: MediaAction::ToggleMute }));
         for (ffi, wire) in [

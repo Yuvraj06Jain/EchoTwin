@@ -323,3 +323,27 @@ async fn switching_the_connection_off_and_on() {
     .await;
     assert!(!phone.peer_paused(&lfp));
 }
+
+#[tokio::test]
+async fn fleeting_messages_go_only_while_connected_and_are_never_queued() {
+    let (laptop, mut lrx, phone, mut prx) = paired_pair().await;
+    let (lfp, pfp) = (laptop.fingerprint(), phone.fingerprint());
+
+    // Connected: delivered, and nothing waits in the outbox.
+    assert!(phone.send_fleeting(&lfp, b"dot 1".to_vec()).unwrap());
+    wait_for(&mut lrx, "fleeting arrives", is_msg(b"dot 1")).await;
+    assert_eq!(phone.pending_count(&lfp).unwrap(), 0);
+    // Too big: dropped, not sent.
+    assert!(!phone.send_fleeting(&lfp, vec![1; 257]).unwrap());
+
+    // Disconnected: not sent, and not delivered later either.
+    assert!(phone.disconnect(&lfp));
+    wait_for(&mut prx, "phone sees the drop", |e| matches!(e, Event::PeerDisconnected { .. })).await;
+    assert!(!phone.send_fleeting(&lfp, b"dot 2".to_vec()).unwrap());
+    assert_eq!(phone.pending_count(&lfp).unwrap(), 0);
+    phone.send(&lfp, b"after".to_vec()).unwrap();
+    phone.connect(lfp, laptop.local_addr().unwrap()).await.unwrap();
+    let got = drain_messages(&mut lrx, Duration::from_secs(2)).await;
+    assert_eq!(got, vec![b"after".to_vec()], "only the queued message, never the fleeting one");
+    let _ = pfp;
+}

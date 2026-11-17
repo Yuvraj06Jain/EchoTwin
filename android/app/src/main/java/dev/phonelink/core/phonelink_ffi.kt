@@ -777,6 +777,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_pair(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_pointer(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_post_notification(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_present_key(
@@ -914,6 +916,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_phonelink_pair(`ptr`: Long,`uri`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_pointer(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`x`: Short,`y`: Short,`visible`: Byte,`shape`: RustBuffer.ByValue,`color`: Int,`size`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     external fun uniffi_phonelink_ffi_fn_method_phonelink_post_notification(`ptr`: Long,`notification`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_present_key(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1150,6 +1154,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_pair() and 0xFFFF) != 53184) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_pointer() and 0xFFFF) != 27928) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_post_notification() and 0xFFFF) != 35757) {
@@ -2465,6 +2472,13 @@ public interface PhoneLinkInterface {
     fun `pair`(`uri`: kotlin.String): Device
     
     /**
+     * The presentation pointer: `x`, `y` in 0..=10000 across the screen, `visible` false
+     * when the finger lifts. Sent only if the computer is connected right now (never
+     * queued: a late pointer is worse than none). Returns whether it went out.
+     */
+    fun `pointer`(`deviceId`: kotlin.String?, `x`: kotlin.UShort, `y`: kotlin.UShort, `visible`: kotlin.Boolean, `shape`: PointerShapeFfi, `color`: kotlin.UInt, `size`: kotlin.UByte): kotlin.Boolean
+    
+    /**
      * Mirror a new or updated notification to every paired computer.
      */
     fun `postNotification`(`notification`: MirroredNotification)
@@ -2934,6 +2948,32 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
         it,
         
         FfiConverterString.lower(`uri`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The presentation pointer: `x`, `y` in 0..=10000 across the screen, `visible` false
+     * when the finger lifts. Sent only if the computer is connected right now (never
+     * queued: a late pointer is worse than none). Returns whether it went out.
+     */
+    @Throws(LinkException::class)override fun `pointer`(`deviceId`: kotlin.String?, `x`: kotlin.UShort, `y`: kotlin.UShort, `visible`: kotlin.Boolean, `shape`: PointerShapeFfi, `color`: kotlin.UInt, `size`: kotlin.UByte): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_pointer(
+        it,
+        
+        FfiConverterOptionalString.lower(`deviceId`),
+        FfiConverterUShort.lower(`x`),
+        FfiConverterUShort.lower(`y`),
+        FfiConverterBoolean.lower(`visible`),
+        FfiConverterTypePointerShapeFfi.lower(`shape`),
+        FfiConverterUInt.lower(`color`),
+        FfiConverterUByte.lower(`size`),_status)
 }
     }
     )
@@ -4252,6 +4292,11 @@ data class Device (
     var `canMute`: kotlin.Boolean
     , 
     /**
+     * Connected, and shows the presentation pointer.
+     */
+    var `canPoint`: kotlin.Boolean
+    , 
+    /**
      * "wifi" or "bluetooth" while connected; empty when offline.
      */
     var `via`: kotlin.String
@@ -4299,6 +4344,7 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalUByte.read(buf),
@@ -4319,6 +4365,7 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.allocationSize(value.`canPresent`) +
             FfiConverterBoolean.allocationSize(value.`canPresentApps`) +
             FfiConverterBoolean.allocationSize(value.`canMute`) +
+            FfiConverterBoolean.allocationSize(value.`canPoint`) +
             FfiConverterString.allocationSize(value.`via`) +
             FfiConverterOptionalString.allocationSize(value.`bluetooth`) +
             FfiConverterOptionalUByte.allocationSize(value.`battery`) +
@@ -4338,6 +4385,7 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.write(value.`canPresent`, buf)
             FfiConverterBoolean.write(value.`canPresentApps`, buf)
             FfiConverterBoolean.write(value.`canMute`, buf)
+            FfiConverterBoolean.write(value.`canPoint`, buf)
             FfiConverterString.write(value.`via`, buf)
             FfiConverterOptionalString.write(value.`bluetooth`, buf)
             FfiConverterOptionalUByte.write(value.`battery`, buf)
@@ -5985,6 +6033,44 @@ public object FfiConverterTypeMediaCommand : FfiConverterRustBuffer<MediaCommand
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+/**
+ * How the presentation pointer looks.
+ */
+
+enum class PointerShapeFfi {
+    
+    DOT,
+    RING,
+    SPOTLIGHT;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePointerShapeFfi: FfiConverterRustBuffer<PointerShapeFfi> {
+    override fun read(buf: ByteBuffer) = try {
+        PointerShapeFfi.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: PointerShapeFfi) = 4UL
+
+    override fun write(value: PointerShapeFfi, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
     }
 }
 

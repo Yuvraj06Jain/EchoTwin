@@ -241,9 +241,16 @@ async fn widget_wait(c: &mut Client, seen: &str, limit: std::time::Duration) -> 
         if hash != seen {
             return Ok(state);
         }
-        let event = match timeout_at(deadline, watch.next()).await {
-            Err(_) => return Ok(state),
-            Ok(r) => r?.ok_or_else(|| anyhow::anyhow!("phonelinkd stopped"))?,
+        // Pointer moves (up to 30 a second) change nothing the widget shows: skip them
+        // without reading the state again.
+        let event = loop {
+            let e = match timeout_at(deadline, watch.next()).await {
+                Err(_) => return Ok(state),
+                Ok(r) => r?.ok_or_else(|| anyhow::anyhow!("phonelinkd stopped"))?,
+            };
+            if !matches!(&e, Reply::Event { event: WatchEvent::Pointer { .. } }) {
+                break e;
+            }
         };
         // Let a burst of events settle (transfer progress: at most one update a second).
         let progress = matches!(&event, Reply::Event { event: WatchEvent::TransferChanged { item } }
@@ -340,6 +347,7 @@ fn print_devices(devices: &[DeviceInfo]) {
 
 fn print_event(e: &WatchEvent) {
     match e {
+        WatchEvent::Pointer { .. } => {} // 30 a second: not for a terminal
         WatchEvent::Paired { id, name } => println!("paired        {id}  {name}"),
         WatchEvent::CallChanged { id, name, phase, caller, actions, .. } => {
             println!("call          {id}  {name}: {phase} {caller} [{}]", actions.join(" "))

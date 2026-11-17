@@ -234,6 +234,8 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 94 | Press **Answer** on the card | the call is answered on the phone (talk on the phone); the card goes; the widget popup and the window's sidebar show "On call · 00:0x" with End (and Mute / Speaker / Hold if your dialer shows them) |
 | 95 | Press **Mute**, then **End** in the window (or `phonelink call end`) | the phone mutes, then hangs up; the strip goes; music resumes |
 | 96 | Call again and press **Decline** on the card; then switch Settings → "Show calls at the top of the screen" off and call again | declined on the phone; with the switch off a normal KDE notification with Answer / Decline shows instead of the card |
+| 97 | Open a presentation full screen on the laptop; phone Home → **Presentation**, drag a finger on the pad | a red dot follows on the laptop screen above the slides; lifting the finger hides it; clicks on the laptop still reach the slides |
+| 98 | Press the colour square next to Black → **Spotlight**, **L**; drag again | the screen darkens with a clear circle that follows your finger |
 
 When something fails, include:
 - the step number

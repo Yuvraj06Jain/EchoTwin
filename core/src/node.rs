@@ -1194,6 +1194,11 @@ impl Node {
                             warn!("could not clear acked message: {e}");
                         }
                     }
+                    Ok(Some(Frame::Known(Control::Fleeting { body }))) => {
+                        if body.len() <= wire::MAX_FLEETING_LEN {
+                            node.emit(Event::Message { peer, id: MsgId::random(), body });
+                        }
+                    }
                     Ok(Some(Frame::Known(Control::Ping))) => {}
                     Ok(Some(Frame::Known(Control::Reject { reason }))) => {
                         if reason == PAUSED_REASON {
@@ -1425,6 +1430,22 @@ impl Node {
             let _ = s.tx.send(Control::Deliver { id, body });
         }
         Ok(id)
+    }
+
+    /// Send `body` now if `peer` is connected, else drop it: not queued, not acknowledged,
+    /// not repeated. Returns whether it went out. For a stream of small, short-lived
+    /// messages (the presentation pointer); at most [`wire::MAX_FLEETING_LEN`] bytes.
+    pub fn send_fleeting(&self, peer: &Fingerprint, body: Vec<u8>) -> Result<bool> {
+        if !self.inner.gate.is_trusted(peer) {
+            return Err(Error::NotPaired);
+        }
+        if body.len() > wire::MAX_FLEETING_LEN {
+            return Ok(false);
+        }
+        Ok(match self.sessions().get(peer) {
+            Some(s) => s.tx.send(Control::Fleeting { body }).is_ok(),
+            None => false,
+        })
     }
 
     /// Tell reconnect loops to retry right now instead of waiting out their backoff.

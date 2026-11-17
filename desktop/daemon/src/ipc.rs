@@ -188,6 +188,10 @@ pub enum Request {
         device: Option<String>,
         action: String,
     },
+    /// The app can't show the pointer (no overlay on this desktop): tell the phone once.
+    PointerUnavailable {
+        reason: String,
+    },
     /// The app shows the call card for phone `id`: no KDE notification needed.
     CallPopupShown {
         id: String,
@@ -236,6 +240,17 @@ pub struct DeviceInfo {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WatchEvent {
     /// A call on the phone: `phase` is "ringing", "active" or "idle" (ended).
+    /// Where the phone's presentation pointer is (up to 30 a second; the app's overlay draws
+    /// it). `x`, `y`: 0..=10000 across the screen; `shape`: "dot", "ring", "spotlight";
+    /// `color`: 0xRRGGBB; `size`: 0..=2.
+    Pointer {
+        x: u16,
+        y: u16,
+        visible: bool,
+        shape: String,
+        color: u32,
+        size: u8,
+    },
     CallChanged {
         id: String,
         name: String,

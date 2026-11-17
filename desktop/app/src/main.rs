@@ -552,12 +552,64 @@ async fn watch_daemon(app: AppHandle) {
                     if let WatchEvent::CallChanged { id, card, .. } = &event {
                         tauri::async_runtime::spawn(call_card(app.clone(), id.clone(), *card));
                     }
+                    if let WatchEvent::Pointer { visible, .. } = &event {
+                        pointer_moved(&app, *visible);
+                    }
                     let _ = app.emit("phonelink://event", event);
                 }
             }
         }
         report(&mut last, false); // the stream ended or never started
         tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+}
+
+/// The pointer overlay: shown on the first visible pointer, hidden when the phone lifts the
+/// finger or nothing came for 3 s (`pointer_watchdog`).
+static POINTER: Mutex<PointerOverlay> = Mutex::new(PointerOverlay { shown: false, failed: false, last: None });
+
+struct PointerOverlay {
+    shown: bool,
+    /// Couldn't be made on this desktop: don't try again (30 times a second).
+    failed: bool,
+    last: Option<std::time::Instant>,
+}
+
+fn pointer_moved(app: &AppHandle, visible: bool) {
+    let mut p = POINTER.lock().unwrap_or_else(|e| e.into_inner());
+    p.last = Some(std::time::Instant::now());
+    if visible && !p.shown && !p.failed {
+        p.shown = true;
+        tauri::async_runtime::spawn(show_pointer(app.clone()));
+    } else if !visible && p.shown {
+        p.shown = false;
+        let a = app.clone();
+        let _ = app.run_on_main_thread(move || overlay::hide(&a, "pointer"));
+    }
+}
+
+async fn show_pointer(app: AppHandle) {
+    if let Err(e) = overlay::show(&app, "pointer", "pointer.html", overlay::Kind::FullClickThrough).await {
+        eprintln!("phonelink-app: no pointer overlay: {e}");
+        {
+            let mut p = POINTER.lock().unwrap_or_else(|e| e.into_inner());
+            p.failed = true;
+            p.shown = false;
+        }
+        let _ = expect_done(Request::PointerUnavailable { reason: e }).await;
+    }
+}
+
+async fn pointer_watchdog(app: AppHandle) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let quiet = {
+            let p = POINTER.lock().unwrap_or_else(|e| e.into_inner());
+            p.shown && p.last.is_some_and(|t| t.elapsed() > Duration::from_secs(3))
+        };
+        if quiet {
+            pointer_moved(&app, false);
+        }
     }
 }
 
@@ -581,12 +633,17 @@ async fn call_card(app: AppHandle, id: String, show: bool) {
 async fn overlay_check(app: AppHandle) {
     let r = overlay::show(&app, "call", "call.html", overlay::Kind::TopCard { width: 440, height: 96 }).await;
     eprintln!("phonelink-app: overlay check: {}", match &r { Ok(()) => "call card shown".to_string(), Err(e) => e.clone() });
+    let p = overlay::show(&app, "pointer", "pointer.html", overlay::Kind::FullClickThrough).await;
+    eprintln!("phonelink-app: overlay check: {}", match &p { Ok(()) => "pointer shown".to_string(), Err(e) => e.clone() });
+    let r = r.and(p);
     let sample = serde_json::json!({ "kind": "call_changed", "id": "check", "name": "this computer", "phase": "ringing",
         "caller": "Overlay check", "actions": ["answer", "decline"], "card": true });
     // Again every second: the page may still be loading the first time.
     for _ in 0..20 {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let _ = app.emit_to("call", "phonelink://event", sample.clone());
+        let pointer = serde_json::json!({ "kind": "pointer", "x": 7000, "y": 6000, "visible": true, "shape": "dot", "color": 0xFF3B30, "size": 2 });
+        let _ = app.emit_to("pointer", "phonelink://event", pointer);
     }
     app.exit(if r.is_ok() { 0 } else { 1 });
 }
@@ -844,7 +901,7 @@ fn main() {
         ])
         .setup(move |app| {
             if std::env::args().any(|a| a == "--overlay-check") {
-                // Hidden: shows a sample call card for 20 s to check the overlay on this
+                // Hidden: shows a sample call card and pointer for 20 s to check the overlay on this
                 // desktop (packaging/install.sh hints at it; tests use it under sway).
                 tauri::async_runtime::spawn(overlay_check(app.handle().clone()));
             } else if first.background {
@@ -859,6 +916,7 @@ fn main() {
             }
             if !demo {
                 tauri::async_runtime::spawn(watch_daemon(app.handle().clone()));
+                tauri::async_runtime::spawn(pointer_watchdog(app.handle().clone()));
             }
             Ok(())
         })

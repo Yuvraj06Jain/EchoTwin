@@ -158,6 +158,16 @@ object LinkManager {
 
     fun computerMedia(command: dev.phonelink.core.MediaCommand) = remote { it.computerMediaControl(null, command) }
     fun runCommand(id: String) = remote { it.runCommand(null, id) }
+
+    /** The presentation pointer (sent only while connected; never queued). */
+    fun pointer(x: Int, y: Int, visible: Boolean, shape: String, color: Int, size: Int) = io.execute {
+        val s = when (shape) {
+            "ring" -> dev.phonelink.core.PointerShapeFfi.RING
+            "spotlight" -> dev.phonelink.core.PointerShapeFfi.SPOTLIGHT
+            else -> dev.phonelink.core.PointerShapeFfi.DOT
+        }
+        runCatching { link().pointer(null, x.toUShort(), y.toUShort(), visible, s, color.toUInt(), size.toUByte()) }
+    }
     fun presentKey(key: dev.phonelink.core.PresentKeyFfi) = remote { it.presentKey(null, key) }
 
     private val _transfers = MutableStateFlow<List<dev.phonelink.core.FileTransfer>>(emptyList())

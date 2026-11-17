@@ -32,7 +32,7 @@ your messages in memory only.
 - **Notes** both ways, with a Copy button
 - **Open links** on the other device, **ring** a lost phone or laptop, **battery alerts**
 - **Laptop music on the phone's Home** with the album cover, a **Mute** tile and **My buttons** (your own commands)
-- **Presentation clicker** for PowerPoint, Impress, Google Slides and Canva: one Start/End button, volume keys too
+- **Presentation clicker** for PowerPoint, Impress, Google Slides and Canva: one Start/End button, volume keys too, and a **pointer** you drag on the phone (dot, ring or spotlight)
 - **New SMS** from the laptop with contact search; battery saver that turns on by itself when the laptop runs low
 - **Notes** between the devices
 - **Stays connected** after reboots, new IPs and sleep, with Bluetooth backup when Wi-Fi is gone

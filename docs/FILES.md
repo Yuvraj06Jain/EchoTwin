@@ -155,6 +155,7 @@ Plain files, no framework. The same files run as a clickable browser preview (wi
 | `index.html` | Window skeleton: title bar, left sidebar (twin tile, connection, actions, music), tabs (Notifications, Messages, Files), dialogs, toasts. Loads the API script then `app.js`. |
 | `app.js` | All UI logic, in sections (search for `// ---`): helpers, state, loading, rendering (device panel, battery/signal), music card, tabs & SMS threads, notifications, files, dialogs (send note, settings incl. **Appearance**), pairing screen, service-not-running screen, events (`api.onEvent` → refresh), timers, start. |
 | `tauri-api.js` | The real backend: maps `window.PhoneLinkAPI` calls to Tauri `invoke(...)` commands and service events to UI events; converts service JSON to UI shapes (`toDevice`, `toTransfer`, …). |
+| `pointer.html`, `pointer.js` | The presentation pointer (overlay window `pointer`, full screen, click-through): dot, ring or spotlight at the phone's position; hides after 3 s without a move. |
 | `call.html`, `call.js` | The call card (overlay window `call`): caller, Decline, Answer; hides when the call is answered or ends. |
 | `mock-api.js` | Sample data and a fake API for the browser preview (`xdg-open desktop/ui/index.html`). |
 | `qr-sample.js` | A pre-rendered QR used by the preview's pairing screen. |
@@ -162,7 +163,7 @@ Plain files, no framework. The same files run as a clickable browser preview (wi
 | `README.md` | How to open the preview. |
 | `tests/preview.test.js` | Playwright checks of the browser preview (mock API): every tab, dialogs, keyboard, overflow, pairing QR decodes. |
 | `tests/app.test.js` | Playwright checks of the real UI code against a fake Tauri `invoke`: every command, events, settings, appearance, status display. |
-| `tests/overlay.test.js` | The overlay pages (call card) against a fake Tauri. |
+| `tests/overlay.test.js` | The overlay pages (call card, pointer) against a fake Tauri. |
 | `tests/package.json`, `tests/.gitignore` | `npm test` runs both; screenshots go to `tests/shots/`. |
 
 ## android/ (phone app)

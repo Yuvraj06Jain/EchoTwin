@@ -92,6 +92,9 @@ async fn bluetooth_carries_the_session_while_wifi_is_down_then_wifi_takes_over()
     for b in bodies(6..=10) {
         phone.send(&lfp, b).unwrap();
     }
+    // Fleeting messages (the pointer) work over Bluetooth too.
+    assert!(laptop.send_fleeting(&pfp, b"dot over bt".to_vec()).unwrap());
+    wait_for(&mut prx, "fleeting over Bluetooth", is_msg(b"dot over bt")).await;
     let big = vec![7u8; 200_000]; // a large notification icon, say
     laptop.send(&pfp, big.clone()).unwrap();
     wait_for(&mut prx, "large message over Bluetooth", move |e| {

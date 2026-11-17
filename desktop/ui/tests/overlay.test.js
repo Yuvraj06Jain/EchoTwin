@@ -58,6 +58,35 @@ const FAKE = (status) => `
   await page.waitForTimeout(50);
   check(!(await visible('#card')), 'hides once the call is answered');
 
+  console.log('Pointer');
+  const pp = await browser.newPage({ viewport: { width: 1000, height: 500 }, deviceScaleFactor: 1 });
+  await pp.addInitScript(FAKE({}));
+  await pp.goto('file://' + path.join(__dirname, '..', 'pointer.html'));
+  await pp.waitForTimeout(150);
+  const send = (p) => pp.evaluate((p) => window.__emit('phonelink://event', { kind: 'pointer', ...p }), p);
+  const centre = () => pp.$eval('#p', (e) => { const r = e.getBoundingClientRect(); return e.hidden ? null : [r.x + r.width / 2, r.y + r.height / 2, r.width]; });
+  check((await centre()) === null, 'nothing before the first move');
+  await send({ x: 2500, y: 5000, visible: true, shape: 'dot', color: 0xff3b30, size: 1 });
+  await pp.waitForTimeout(80);
+  let c = await centre();
+  check(c && Math.abs(c[0] - 250) < 2 && Math.abs(c[1] - 250) < 2 && c[2] === 22, `dot centred on x/y, medium size (${c})`);
+  await send({ x: 10000, y: 0, visible: true, shape: 'ring', color: 0x3dbb82, size: 2 });
+  await pp.waitForTimeout(80);
+  c = await centre();
+  check(c && Math.abs(c[0] - 1000) < 2 && Math.abs(c[1]) < 2 && c[2] === Math.round(34 * 1.6) + 6, `ring at the corner, large (${c})`);
+  await send({ x: 5000, y: 5000, visible: true, shape: 'spotlight', color: 0, size: 0 });
+  await pp.waitForTimeout(80);
+  check((await centre()) === null && (await pp.$eval('#shade', (e) => !e.hidden && e.style.background.includes('radial-gradient'))), 'spotlight darkens around the pointer');
+  await pp.screenshot({ path: `${OUT}/overlay-pointer-spotlight.png` });
+  await send({ x: 5000, y: 5000, visible: false, shape: 'dot', color: 0, size: 0 });
+  await pp.waitForTimeout(80);
+  check((await centre()) === null && (await pp.$eval('#shade', (e) => e.hidden)), 'hidden when the finger lifts');
+  await send({ x: 100, y: 100, visible: true, shape: 'dot', color: 0xffffff, size: 0 });
+  await pp.waitForTimeout(80);
+  check((await centre()) !== null, 'back on the next touch');
+  await pp.waitForTimeout(3600);
+  check((await centre()) === null, 'hidden after 3 s without a move');
+
   await browser.close();
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

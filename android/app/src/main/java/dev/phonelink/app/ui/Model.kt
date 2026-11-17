@@ -39,6 +39,10 @@ data class UiState(
     val computerPlayedMs: Long = 0L,
     /** Presentation app for Start: office | slides | canva | fullscreen. */
     val presentApp: String = "office",
+    /** The pointer's look: dot | ring | spotlight, 0xRRGGBB, size 0..2. */
+    val pointerShape: String = "dot",
+    val pointerColor: Int = 0xFF3B30,
+    val pointerSize: Int = 1,
     /** The connection switch (off: disconnected, nothing searching). */
     val connectionOn: Boolean,
     val busy: Boolean,
@@ -54,6 +58,9 @@ interface Actions {
     fun ring(on: Boolean)
     fun openButtons()
     fun setPresentApp(app: String)
+    /** Pointer at x, y (0..10000) or, `visible` false, gone. */
+    fun pointer(x: Int, y: Int, visible: Boolean)
+    fun setPointerStyle(shape: String, color: Int, size: Int)
     fun openPresenter()
     fun computerMedia(command: dev.phonelink.core.MediaCommand)
     fun runCommand(id: String)

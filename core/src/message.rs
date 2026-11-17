@@ -35,6 +35,10 @@ pub const CAP_STATUS: &str = "status/1";
 pub const CAP_CALLS: &str = "calls/1";
 /// `CallInfo` (with the call screen's buttons) and `CallAction` (press one of them).
 pub const CAP_CALLS2: &str = "calls/2";
+/// The presentation pointer (`Pointer`, sent as fleeting messages).
+pub const CAP_POINTER: &str = "pointer/1";
+/// Pointer positions are 0..=10000 across the screen (left/top to right/bottom).
+pub const POINTER_MAX: u16 = 10_000;
 /// Open a web link on the other device.
 pub const CAP_LINKS: &str = "links/1";
 /// Ring the other device loudly (to find it).
@@ -138,6 +142,24 @@ impl CallActionKind {
 
     pub fn parse(s: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|a| a.as_str() == s)
+    }
+}
+
+/// How the presentation pointer looks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PointerShape {
+    Dot,
+    Ring,
+    Spotlight,
+}
+
+impl PointerShape {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Dot => "dot",
+            Self::Ring => "ring",
+            Self::Spotlight => "spotlight",
+        }
     }
 }
 
@@ -440,6 +462,10 @@ pub enum AppMessage {
     CallInfo { key: String, caller: String, phase: CallPhase, actions: Vec<CallActionKind> },
     /// Computer → phone: press that button of call `key` (`CAP_CALLS2`).
     CallAction { key: String, action: CallActionKind },
+    /// Phone → computer: where the presentation pointer is (`CAP_POINTER`; sent with
+    /// `Node::send_fleeting`, never queued). `x`, `y`: 0..=[`POINTER_MAX`]; `color`: 0xRRGGBB;
+    /// `size`: 0 small, 1 medium, 2 large.
+    Pointer { x: u16, y: u16, visible: bool, shape: PointerShape, color: u32, size: u8 },
 }
 
 /// Album art must be a small JPEG or PNG.
@@ -526,6 +552,7 @@ mod tests {
                 actions: CallActionKind::ALL.to_vec(),
             },
             AppMessage::CallAction { key: "0|incallui|1".into(), action: CallActionKind::Hold },
+            AppMessage::Pointer { x: 10_000, y: 0, visible: true, shape: PointerShape::Spotlight, color: 0xFF3B30, size: 2 },
             AppMessage::OpenUrl {
                 url: "https://example.org/a?b=1".into(),
                 sent_ms: 9,
@@ -659,6 +686,10 @@ mod tests {
         assert_eq!(pos(&call), 39, "after the three retired approval variants");
         assert_eq!(pos(&AppMessage::CallAction { key: String::new(), action: CallActionKind::Answer }), 40);
         assert_eq!(CallActionKind::ALL.map(|a| pos(&a)), [0, 1, 2, 3, 4, 5]);
+        let p = AppMessage::Pointer { x: 0, y: 0, visible: false, shape: PointerShape::Dot, color: 0, size: 0 };
+        assert_eq!(pos(&p), 41);
+        assert!(p.encode().unwrap().len() < 32, "small enough to send 30 times a second");
+        assert_eq!([PointerShape::Dot, PointerShape::Ring, PointerShape::Spotlight].map(|s| pos(&s)), [0, 1, 2]);
         assert_eq!(CallActionKind::ALL.map(|a| CallActionKind::parse(a.as_str())), CallActionKind::ALL.map(Some));
         assert_eq!(pos(&PresentKeyKind::Blank), 4);
         assert_eq!(pos(&PresentKeyKind::StartSlides), 5);

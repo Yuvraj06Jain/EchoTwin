@@ -43,6 +43,7 @@ Unknown variants decode as `Frame::Unknown` and are skipped.
 | 8 | `FileStart` | `id, name, size, mime` | First frame on a file data stream |
 | 9 | `FileResume` | `offset` | Receiver: "I already have `offset` bytes" |
 | 10 | `FileResult` | `ok, message` | Receiver, after the hash: stored, or failed |
+| 11 | `Fleeting` | `body` | An `AppMessage` sent only if the session is open now: no outbox, no `Ack`, dropped if over 256 bytes (`MAX_FLEETING_LEN`). `Node::send_fleeting`. Used for `Pointer`. Older peers skip it as unknown |
 
 `PROTOCOL_VERSION` is 1.
 
@@ -94,13 +95,14 @@ Carried inside `Deliver.body`, postcard-encoded. Anything this build doesn't kno
 | 38 | `ApproveEnroll { public_key }` | — | — | retired in v3, never sent; ignored | — |
 | 39 | `CallInfo { key, caller, phase: CallPhase, actions: Vec<CallActionKind> }` | P→C | `calls/2` | `State::call_changed` (card or notification, pause media, call strip) | `send_call_info` (`CallWatcher`) |
 | 40 | `CallAction { key, action: CallActionKind }` | C→P | `calls/2` | `State::call_action` (`Request::CallAction`, the card, popup buttons) | `LinkEvent::CallActionRequested` → `CallWatcher.act` |
+| 41 | `Pointer { x, y, visible, shape: PointerShape, color, size }` | P→C | `pointer/1` | fleeting only; clamped (x, y ≤ 10000, size ≤ 2, color & 0xFFFFFF), needs `presentation_remote`; → `WatchEvent::Pointer` for the app's overlay | `pointer` (the Presentation screen's touchpad) |
 
 Payload types (`message.rs`): `PhoneNotification { key, package, app, title, text,
 posted_ms, can_reply, actions }`, `NowPlaying { app, package, title, artist, album,
 duration_ms, position_ms, playing, can_previous, can_next, volume, max_volume, art_key }`,
 `SmsThread { id, address, name, messages, has_older }`, `SmsMessage { id, from_me, body,
 date_ms, state, read }`, `SmsState { Received, Sent, Sending, Failed }`,
-`CallActionKind { Answer, Decline, End, Mute, Speaker, Hold }` (at most `MAX_CALL_ACTIONS` = 6 in a `CallInfo`), `MediaAction { PlayPause, Next, Previous, VolumeUp, VolumeDown, SetVolume(u32), ToggleMute }`, `PresentKeyKind { Next, Previous, Start, End, Blank, StartSlides, StartCanva, StartFullscreen }`,
+`PointerShape { Dot, Ring, Spotlight }`, `CallActionKind { Answer, Decline, End, Mute, Speaker, Hold }` (at most `MAX_CALL_ACTIONS` = 6 in a `CallInfo`), `MediaAction { PlayPause, Next, Previous, VolumeUp, VolumeDown, SetVolume(u32), ToggleMute }`, `PresentKeyKind { Next, Previous, Start, End, Blank, StartSlides, StartCanva, StartFullscreen }`,
 `PhoneStatus { battery: Option<u8>, charging, network, signal }`,
 `CallPhase { Idle, Ringing, Active }`.
 
@@ -122,6 +124,7 @@ hide what's missing. That is how an older phone app keeps working with a newer l
 | `status/1` | `CAP_STATUS` | Battery and network both ways |
 | `clipimage/1` | `CAP_CLIPBOARD_IMAGE` | Images copied on the laptop go to the phone's clipboard |
 | `calls/1` | `CAP_CALLS` | Call popups with Decline |
+| `pointer/1` | `CAP_POINTER` | The presentation pointer (`Pointer` as fleeting messages) |
 | `calls/2` | `CAP_CALLS2` | `CallInfo` with the call notification's buttons, and `CallAction` |
 | `links/1` | `CAP_LINKS` | Open a web link on the other device |
 | `ring/1` | `CAP_RING` | Ring the other device |

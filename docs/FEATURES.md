@@ -708,9 +708,35 @@ on X11 → `xdotool key …` (`ctrl+F5`, `ctrl+alt+p`, `F11`) if installed. Refu
 `presentation_remote` is off or the key is over 10 s old. **The phone can only send these
 keys.**
 
+**Pointer:** the space between the keys and the bottom row is a **touchpad**: drag on it and
+a pointer moves on the laptop's screen, above the presentation (absolute: where the finger is
+on the pad's 16:9 area is where the pointer is). Lifting the finger hides it. The square
+button next to Black picks the look: **Dot**, **Ring** or **Spotlight** (the screen darkens
+around a clear circle), five colours, three sizes (saved on the phone). The phone sends at
+most one position every 33 ms as a *fleeting* message (`Control::Fleeting`: sent only while
+connected, never queued: a late pointer is worse than none); the laptop clamps the values,
+checks `presentation_remote`, starts the app if needed and broadcasts `WatchEvent::Pointer`.
+The app draws it in a full-screen, click-through overlay (`pointer.html`; layer-shell, see
+§22) and hides the window when the finger lifts or nothing came for 3 s. `phonelink widget
+--wait` skips pointer events without reading the state again, and the window ignores them.
+If the overlay can't be made, the phone hears so once per connection
+(`Request::PointerUnavailable`). Verified here under sway (headless): drawn at the right spot
+above a full-screen window; click-through and smoothness need a real desktop.
+
+| Layer | File | Functions |
+|---|---|---|
+| Core | `wire.rs` `Control::Fleeting`, `MAX_FLEETING_LEN`; `node.rs` `send_fleeting` | |
+| Phone | `ui/RemoteScreen.kt` `PointerPad`, `area`, `PointerStyleDialog`; `LinkManager.pointer`; `Prefs.pointerStyle` | |
+| FFI | `pointer`, `PointerShapeFfi`, `Device.can_point` | |
+| Laptop | `daemon.rs` `AppMessage::Pointer` arm, `Request::PointerUnavailable`; `bin/phonelink.rs` `widget_wait` (skips pointer events) | |
+| App | `main.rs` `pointer_moved`, `show_pointer`, `pointer_watchdog`; `pointer.html` + `pointer.js` | |
+
 **Tests:** `desktop/daemon/tests/present.rs` (stand-in portal: sequence, chords, keyboard
 only, remembered permission, session reuse, refusal), `present.rs` unit test (key table),
-`remote.rs` `presentation_keys_are_refused_when_late_or_switched_off`, FFI test.
+`remote.rs` `presentation_keys_are_refused_when_late_or_switched_off` and
+`the_pointer_moves_reach_the_app_clamped_and_never_wake_the_widget`, `core/tests/sessions.rs`
+`fleeting_messages_go_only_while_connected_and_are_never_queued` (and over Bluetooth in
+`stream.rs`), FFI test, `overlay.test.js` (pointer position, shapes, hiding).
 
 ## 25. New SMS from the laptop
 

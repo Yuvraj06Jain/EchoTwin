@@ -56,7 +56,7 @@ Local build (needs Android SDK + NDK): `./scripts/build-android.sh`.
 | One test file | `cargo test -p phonelink-desktop --test sms` | |
 | Lint | `cargo clippy --workspace --all-targets` | keep it warning-free |
 | Kotlin bindings on the JVM | `./scripts/test-kotlin-bindings.sh` | |
-| <a id="ui-tests"></a>Window UI (preview + fake Tauri) | `cd desktop/ui/tests && npm install && npx playwright install chromium && npm test` | ~115 + ~234 checks plus `overlay.test.js` (the call card), screenshots in `desktop/ui/tests/shots/` |
+| <a id="ui-tests"></a>Window UI (preview + fake Tauri) | `cd desktop/ui/tests && npm install && npx playwright install chromium && npm test` | ~115 + ~234 checks plus `overlay.test.js` (call card, pointer), screenshots in `desktop/ui/tests/shots/` |
 | Overlays on a real compositor (manual) | `sway` headless + `phonelink-app --overlay-check` + `grim` | see FEATURES §22 |
 | Widget look with a call | `ECHOTWIN_PREVIEW_CALL=1 packaging/plasmoid/tests/preview/render.sh /tmp/w.png` | |
 | Widget shell quoting | `node packaging/plasmoid/tests/shell.test.js` | hostile file names must stay names |

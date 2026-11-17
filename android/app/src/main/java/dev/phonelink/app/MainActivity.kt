@@ -74,6 +74,7 @@ class MainActivity : ComponentActivity() {
     /** The Remote screen and the full-screen presenter (volume keys = clicker there). */
     private var buttonsOpen by mutableStateOf(false)
     private var presentApp by mutableStateOf("office")
+    private var pointerStyle by mutableStateOf(Triple("dot", 0xFF3B30, 1))
     private var presenting by mutableStateOf(false)
     private var pairedOnDisk by mutableStateOf(false)
 
@@ -160,6 +161,9 @@ class MainActivity : ComponentActivity() {
                     computerArt = computerArt?.takeIf { it.first == computerMedia?.artKey }?.second,
                     computerPlayedMs = computerPlayedMs,
                     presentApp = presentApp,
+                    pointerShape = pointerStyle.first,
+                    pointerColor = pointerStyle.second,
+                    pointerSize = pointerStyle.third,
                     connectionOn = connectionOn,
                     busy = busy,
                     bluetoothProblem = BluetoothBackup.problem,
@@ -223,6 +227,12 @@ class MainActivity : ComponentActivity() {
         override fun lock() = LinkManager.lockComputer()
         override fun ring(on: Boolean) = LinkManager.ringComputer(on)
         override fun openButtons() { buttonsOpen = true }
+        override fun pointer(x: Int, y: Int, visible: Boolean) =
+            LinkManager.pointer(x, y, visible, pointerStyle.first, pointerStyle.second, pointerStyle.third)
+        override fun setPointerStyle(shape: String, color: Int, size: Int) {
+            pointerStyle = Triple(shape, color, size)
+            Prefs.setPointerStyle(this@MainActivity, shape, color, size)
+        }
         override fun setPresentApp(app: String) {
             presentApp = app
             Prefs.setPresentApp(this@MainActivity, app)
@@ -294,6 +304,7 @@ class MainActivity : ComponentActivity() {
         queueOn = Prefs.queueNotifications(this)
         batteryAlertsOn = Prefs.batteryAlerts(this)
         presentApp = Prefs.presentApp(this)
+        pointerStyle = Prefs.pointerStyle(this)
         pairedOnDisk = LinkManager.hasPairedDevice(this)
         smsOn = SmsSync.canRead()
         bluetoothOn = BluetoothBackup.allowed()

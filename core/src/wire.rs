@@ -20,6 +20,8 @@ pub const MIN_PROTOCOL_VERSION: u16 = 1;
 pub const MAX_FRAME_LEN: usize = 1024 * 1024;
 /// Largest application body that fits in a `Deliver` frame.
 pub const MAX_BODY_LEN: usize = MAX_FRAME_LEN - 128;
+/// Largest `Control::Fleeting` body; bigger ones are dropped.
+pub const MAX_FLEETING_LEN: usize = 256;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct MsgId(pub [u8; 16]);
@@ -87,6 +89,12 @@ pub enum Control {
     FileResult {
         ok: bool,
         message: String,
+    },
+    /// An application message sent only if the session is open right now: never written
+    /// to the outbox, never acknowledged, gone if the link drops (the pointer: 30 a second,
+    /// and a late one is worse than none). At most [`MAX_FLEETING_LEN`] bytes.
+    Fleeting {
+        body: Vec<u8>,
     },
 }
 

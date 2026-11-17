@@ -1,0 +1,88 @@
+<!doctype html><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0}
+body{background:#0d0f12;color:#eef1f3;font:13px/1.4 Inter,"DejaVu Sans",system-ui,sans-serif;padding:40px 46px;width:1240px}
+h1{font-size:24px;margin-bottom:4px}h2{font-size:17px;margin:36px 0 4px}h2 b{color:#3dbb82}.sub{color:#aab2ba;margin-bottom:14px;font-size:14px;max-width:1100px}
+.row{display:flex;gap:10px;align-items:center}.cols{display:flex;gap:22px;align-items:flex-start}.grow{flex:1;min-width:0}
+.cap{font-size:12.5px;color:#aab2ba;margin-top:8px;max-width:360px}.cap b{color:#eef1f3}
+.muted{color:#aab2ba}.faint{color:#7b848d}.sm{font-size:12px}.b{font-weight:700}.g{color:#3dbb82}
+.desk{width:366px;height:206px;border-radius:10px;position:relative;overflow:hidden;background:radial-gradient(400px 260px at 20% 10%,#1f5a4c,transparent 60%),radial-gradient(360px 260px at 90% 80%,#4a2a66,transparent 60%),#15181c;border:1px solid rgba(255,255,255,.08)}
+.panel{position:absolute;left:0;right:0;bottom:0;height:20px;background:rgba(17,20,23,.9);display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:0 10px;font-size:9px;color:#aab2ba}
+.pico{width:8px;height:12px;border:1.5px solid #3dbb82;border-radius:3px;position:relative}.pico i{position:absolute;left:1px;right:1px;bottom:1px;height:55%;background:#3dbb82;border-radius:1px}
+.callpop{position:absolute;left:50%;top:10px;transform:translateX(-50%);width:270px;background:rgba(26,30,34,.96);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:10px 12px;display:flex;align-items:center;gap:10px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.av{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#fff;flex:none}
+.ring{box-shadow:0 0 0 4px rgba(61,187,130,.25),0 0 0 9px rgba(61,187,130,.1)}
+.rb{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;color:#fff;font-size:14px;flex:none}.ok{background:#23905f}.no{background:#d9534f}.nt{background:#2b3036;color:#eef1f3}
+.t{background:#1a1e22;border:1px solid rgba(255,255,255,.07);border-radius:18px;padding:12px}
+.ph{width:300px;height:640px;background:#111417;border:2px solid #2a2f35;border-radius:34px;padding:18px 14px;display:flex;flex-direction:column;gap:9px;overflow:hidden}
+.ph h3{font-size:20px;margin:2px 4px 2px}
+.twin{background:linear-gradient(180deg,rgba(61,187,130,.10),transparent),#1a1e22;border-color:rgba(61,187,130,.25);display:flex;align-items:center;justify-content:space-around;padding:10px}
+.dev{text-align:center;font-size:11px}.dev b{display:block;margin-top:4px}
+.pill{background:rgba(61,187,130,.16);color:#3dbb82;font-weight:700;font-size:10px;padding:2px 8px;border-radius:99px}
+.sw{width:36px;height:21px;border-radius:11px;background:#23905f;position:relative;flex:none}.sw:after{content:"";position:absolute;right:3px;top:3px;width:15px;height:15px;border-radius:50%;background:#fff}
+.ic{width:34px;height:34px;border-radius:10px;background:rgba(61,187,130,.16);color:#3dbb82;display:grid;place-items:center;font-size:15px;flex:none}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.at{background:#1a1e22;border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:10px 4px;text-align:center;font-size:11.5px}.at .ic{margin:0 auto 5px}
+.wide{grid-column:1/-1;display:flex;align-items:center;gap:12px;text-align:left;padding:12px 14px}
+.np{position:relative;overflow:hidden;border-radius:18px;border:1px solid rgba(255,255,255,.07);padding:12px}
+.np .bg{position:absolute;inset:-20px;background:linear-gradient(135deg,#e8743b,#b33a6b 55%,#3b2a7a);filter:blur(18px);opacity:.75}.np .sh{position:absolute;inset:0;background:linear-gradient(90deg,rgba(10,12,14,.7),rgba(10,12,14,.3))}.np>*:not(.bg):not(.sh){position:relative}
+.art{width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,#f0a35a,#c2476f);flex:none}
+.play{width:34px;height:34px;border-radius:50%;background:#3dbb82;color:#fff;display:grid;place-items:center;font-size:11px;flex:none}
+.new{outline:2px dashed #d9a441;outline-offset:3px}
+.tag{display:inline-block;background:#d9a441;color:#111;font-size:10px;font-weight:700;border-radius:4px;padding:0 5px;margin-left:6px;vertical-align:middle}
+.big{border-radius:22px;display:grid;place-items:center;font-size:19px;font-weight:600}
+.pad{border:1.5px dashed rgba(61,187,130,.6);background:rgba(61,187,130,.06);border-radius:22px;display:grid;place-items:center;color:#3dbb82;text-align:center;position:relative}
+.slide{width:366px;height:206px;border-radius:10px;background:#f4f1ea;color:#222;position:relative;padding:22px;border:1px solid #444}
+.slide h4{font-size:20px;margin-bottom:8px}.slide li{margin:4px 0 0 18px;font-size:12px}
+.dot{position:absolute;border-radius:50%}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;background:#1a1e22;border:1px solid rgba(255,255,255,.1);font-size:12px}
+.btn{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:99px;border:1px solid rgba(255,255,255,.16);font-size:12px}
+.card{background:#1a1e22;border:1px solid rgba(255,255,255,.07);border-radius:18px;padding:12px 14px;width:366px}
+.kde{background:#22262b;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:10px 12px;width:300px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+</style><body>
+<h1>EchoTwin: previews for the next changes</h1>
+<div class="sub">Yellow dashed outlines mark what is new or changed. Colours and shapes follow the current phone and window look.</div>
+
+<h2><b>1</b> · Calls: popup at the top of the laptop screen</h2>
+<div class="cols">
+<div><div class="desk"><div class="panel">14:09 <span class="pico"><i></i></span></div></div><div class="cap"><b>Normally:</b> nothing on screen.</div></div>
+<div><div class="desk"><div class="callpop new"><div class="av ring" style="background:#b65ad8">M</div><div class="grow"><div class="b">Mom</div><div class="sm muted">Incoming call · Galaxy S24 FE</div></div><div class="rb no">✕</div><div class="rb ok">✆</div></div><div class="panel">14:09 <span class="pico"><i></i></span></div></div><div class="cap"><b>Phone rings:</b> a card slides down at the top centre. Red declines, green answers (the call is then on your phone).</div></div>
+<div><div class="t new" style="width:366px"><div class="row"><div class="av" style="background:#b65ad8">M</div><div class="grow"><div class="b">Mom</div><div class="sm g">On call · 01:23</div></div><div class="rb nt">🔇</div><div class="rb nt">🔊</div><div class="rb no">✕</div></div></div><div class="cap"><b>After answering:</b> the popup goes away. This call strip shows at the top of the widget popup and of the window's sidebar: timer, End, plus Mute / Speaker / Hold only if your phone's call screen offers them.</div></div>
+</div>
+
+<h2><b>2</b> · Phone: Home screen and presentation screen</h2>
+<div class="cols">
+<div><div class="ph"><h3>EchoTwin</h3>
+<div class="t twin"><div class="dev"><svg width="22" height="38"><rect x="1" y="1" width="20" height="36" rx="6" fill="none" stroke="#3dbb82" stroke-width="2"/><rect x="4" y="16" width="14" height="18" rx="3" fill="#3dbb82" opacity=".75"/></svg><b>This phone</b><span class="muted">55% · 5G</span></div><span class="pill">● Wi-Fi</span><div class="dev"><svg width="50" height="36"><rect x="5" y="1" width="40" height="27" rx="4" fill="none" stroke="#3dbb82" stroke-width="2"/><rect x="8" y="9" width="34" height="16" rx="2" fill="#3dbb82" opacity=".75"/><rect x="0" y="31" width="50" height="4" rx="2" fill="#3dbb82"/></svg><b>MARK-I</b><span class="muted">75% · charging</span></div></div>
+<div class="t row" style="padding:10px 12px"><div class="ic">⏻</div><div class="grow"><div class="b">Connection</div><div class="sm muted">On · reconnects by itself</div></div><div class="sw"></div></div>
+<div class="np new"><div class="bg"></div><div class="sh"></div><div class="row"><div class="art"></div><div class="grow"><div class="b">Mannat</div><div class="sm muted">Playing on MARK-I · YT Music</div></div></div><div class="row" style="justify-content:center;gap:16px;margin-top:8px"><span class="muted">−</span><span class="muted">⏮</span><div class="play">❚❚</div><span class="muted">⏭</span><span class="muted">+</span></div></div>
+<div class="g3"><div class="at"><div class="ic">🔒</div>Lock</div><div class="at"><div class="ic">⎘</div>Clipboard</div><div class="at"><div class="ic">⇪</div>Send files</div>
+<div class="at"><div class="ic">✎</div>Note</div><div class="at"><div class="ic">🔔</div>Ring</div><div class="at new"><div class="ic">🔇</div>Mute</div>
+<div class="at wide new"><div class="ic">▶</div><div><div class="b">Presentation</div><div class="sm muted">Clicker and pointer</div></div></div></div>
+<div class="sm faint" style="margin:2px 4px">SHOWS ON YOUR COMPUTER</div></div>
+<div class="cap"><b>Home.</b> The laptop's music card sits under Connection, with the album cover blurred behind it; it shows only while something plays on the laptop. <b>Mute</b> is its own tile. <b>Presentation</b> is a full-width tile, always the last row. Suspend and the separate Remote screen are gone.</div></div>
+<div><div class="ph"><div class="row"><span class="g">‹ Done</span><span class="grow"></span><span class="chip new">Canva · Ctrl+Alt+P ▾</span></div>
+<div class="row new" style="gap:9px;height:170px;align-items:stretch"><div class="big grow" style="background:#1a1e22;border:1px solid rgba(255,255,255,.07)">‹ Previous</div><div class="big grow" style="background:#23905f">Next ›</div></div>
+<div class="pad new grow"><div><div class="b">Pointer</div><div class="sm">drag here to move it on the slide<br>lift your finger and it disappears</div></div><div class="dot" style="left:62%;top:30%;width:14px;height:14px;background:#ff3b30;box-shadow:0 0 0 6px rgba(255,59,48,.25)"></div></div>
+<div class="row" style="gap:9px;height:56px;align-items:stretch"><div class="big grow new" style="background:#1a1e22;border:1px solid rgba(61,187,130,.4);color:#3dbb82;font-size:15px">▶ Start</div><div class="big grow" style="background:#1a1e22;border:1px solid rgba(255,255,255,.07);font-size:15px">Black</div><div class="big new" style="width:56px;background:#1a1e22;border:1px solid rgba(255,255,255,.07);font-size:15px"><span style="width:16px;height:16px;border-radius:50%;background:#ff3b30;display:block"></span></div></div>
+<div class="sm faint" style="text-align:center">Volume down = next · up = previous</div></div>
+<div class="cap"><b>Presentation.</b> Previous and Next are the same size. One <b>Start / End</b> button (it reads "■ End" while presenting). The chip at the top picks the app, because each one starts with a different key (PowerPoint/Impress F5, Google Slides Ctrl+F5, Canva Ctrl+Alt+P, full screen F11). The red button opens pointer colour, size and shape.</div></div>
+<div><div class="slide"><h4>Results</h4><ul><li>Accuracy up from 81% to 93%</li><li>Latency under 40 ms</li><li>Works offline</li></ul>
+<div class="dot new" style="left:150px;top:74px;width:16px;height:16px;background:#ff3b30;box-shadow:0 0 0 7px rgba(255,59,48,.28),0 0 18px rgba(255,59,48,.8)"></div></div>
+<div class="cap"><b>On the laptop:</b> a glowing dot drawn over the slide follows your finger. It exists only while your finger is on the pad during a presentation, and clicks pass through it.</div>
+<div class="row" style="margin-top:14px;gap:18px"><div style="text-align:center"><div style="width:16px;height:16px;border-radius:50%;background:#ff3b30;box-shadow:0 0 0 7px rgba(255,59,48,.28);margin:8px auto"></div><div class="sm muted">Dot</div></div><div style="text-align:center"><div style="width:26px;height:26px;border-radius:50%;border:3px solid #3dbb82;margin:3px auto"></div><div class="sm muted">Ring</div></div><div style="text-align:center"><div style="width:54px;height:32px;border-radius:6px;background:radial-gradient(circle at 50% 50%,transparent 11px,rgba(0,0,0,.75) 12px)"></div><div class="sm muted">Spotlight</div></div><div class="sm muted">Colours: <span style="color:#ff3b30">●</span> <span style="color:#3dbb82">●</span> <span style="color:#4f7cff">●</span> <span style="color:#d9a441">●</span> <span style="color:#fff">●</span><br>Size: S · M · L</div></div></div>
+</div>
+
+<h2><b>3</b> · Notes get a Copy button, on both devices</h2>
+<div class="cols">
+<div><div class="card"><div class="row"><div class="grow"><span class="b">Note from Galaxy S24 FE</span> <span class="faint sm">· now</span></div><span class="faint">×</span></div><div class="muted" style="margin:4px 0 8px">Room 214, lab complex. Bring the charger.</div><span class="btn new">⎘ Copy</span></div><div class="cap"><b>Laptop window</b> (Notifications tab).</div></div>
+<div><div class="kde"><div class="row"><div class="grow b">Note from Galaxy S24 FE</div><span class="faint">×</span></div><div class="muted sm" style="margin:3px 0 8px">Room 214, lab complex. Bring the charger.</div><span class="btn new">Copy</span></div><div class="cap"><b>Laptop popup.</b></div></div>
+<div><div class="t" style="width:300px"><div class="row"><div class="grow"><div class="b sm g">MARK-I</div>ssh me@lab-pc -p 2222</div><span class="ic new" style="width:30px;height:30px">⎘</span></div></div><div class="cap"><b>Phone</b> ("From your computer" on Home). The phone's notification for a note also gets a <b>Copy</b> action.</div></div>
+</div>
+
+<h2><b>4</b> · Notifications show the whole message</h2>
+<div class="cols">
+<div><div class="card"><div class="b">CSE 3rd year</div><div class="muted">Ananya: Notes for unit 4 are in the drive<br>Rahul: Thanks!<br>Sir: Viva moved to 3 pm</div></div><div class="cap"><b>Today:</b> only the last 3 chat lines, or a mail summary without its list of lines.</div></div>
+<div><div class="card new"><div class="b">CSE 3rd year</div><div class="muted">Ananya: Has anyone got the unit 4 notes?<br>Ananya: Notes for unit 4 are in the drive<br>Rahul: Which folder?<br>Ananya: OS → Unit 4 → final.pdf<br>Rahul: Thanks!<br>Sir: Viva moved to 3 pm, room 214. Bring your lab record and the signed index page.</div></div><div class="cap"><b>After:</b> everything the phone shows when you pull the notification down: every chat line, every mail line, the full expanded text. The widget's full list shows it all too.</div></div>
+<div><div class="cap" style="margin-top:0;max-width:330px"><b>Limit you should know:</b> Android only hands over what the app put in its notification. If the pulled-down notification on the phone itself ends in "…" (Outlook and Gmail do this for long mails), there is nothing more to mirror.</div></div>
+</div>
+</body>

@@ -171,16 +171,6 @@ pub enum Request {
         device: Option<String>,
         url: String,
     },
-    /// Relay a `sudo` approval to the phone (used by the root-owned PAM helper through
-    /// `phonelink approve-relay`). Replies `ApproveSignature` or `Error`. The daemon is only
-    /// a messenger: the helper checks the signature against a root-owned key.
-    ApproveRelay {
-        what: String,
-        host: String,
-        nonce_hex: String,
-        #[serde(default)]
-        timeout_secs: Option<u64>,
-    },
     /// Your own buttons for the phone's Remote screen (names and commands).
     Commands,
     /// Replace them (validated, saved); connected phones get the new names.
@@ -378,10 +368,6 @@ pub enum Reply {
     },
     Contacts {
         items: Vec<phonelink_core::Contact>,
-    },
-    /// The phone's signature (DER, hex) over `approve_message`.
-    ApproveSignature {
-        hex: String,
     },
     AppIcons {
         icons: BTreeMap<String, String>,

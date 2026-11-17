@@ -50,8 +50,6 @@ Local build (needs Android SDK + NDK): `./scripts/build-android.sh`.
 
 ## Tests
 
-The sudo approval checker has its own shell test (about 40 s, because one case waits out the timeout): `packaging/sudo-approval/test.sh`.
-
 | What | Command | Notes |
 |---|---|---|
 | All Rust tests | `cargo test --workspace` | core (sessions, attacker, discovery, stream, files), FFI call sequences, daemon end-to-end with simulated phones and stand-in D-Bus services |
@@ -113,7 +111,6 @@ blur). Use the numbered checklist in [SETUP.md](../SETUP.md).
 | `allow_ring` | true | the phone may ring this computer |
 | `allow_commands` | true | the phone may press your own buttons |
 | `commands` | Suspend, Mute / unmute | `[[commands]]` tables with `name` and `run` (a shell command run here); only names go to the phone |
-| `phone_approval` | true | relay sudo approvals to the phone (the root-owned checker decides; off only disables) |
 | `presentation_remote` | true | the phone may press the five presentation keys |
 | `pause_media_on_call` | true | pause music/videos here during phone calls |
 | `power_supply_dir` | `/sys/class/power_supply` | tests only |

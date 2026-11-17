@@ -34,7 +34,6 @@
     ['pauseMediaOnCall', 'Pause music during calls', 'Music and videos playing here pause when your phone rings or you make a call, and continue when the call ends.'],
     ['openLinks', 'Let your phone open links here', 'Share a link on your phone and choose "Open on computer": it opens in your browser here. Only web links.'],
     ['presentationRemote', 'Presentation remote', "Your phone can press next / previous slide, start, end and black screen here (nothing else). The first time, KDE asks once to allow remote control."],
-    ['phoneApproval', 'Approve sudo with your phone', "When sudo is set up for it (sudo ./packaging/sudo-approval.sh install), sudo asks your phone first; your password always still works. Off: sudo only asks for the password."],
     ['allowRing', 'Let your phone ring this computer', 'Plays a loud sound for up to a minute, to find this computer. Stop it from the popup.'],
   ];
 

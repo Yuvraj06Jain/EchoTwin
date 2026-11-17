@@ -17,12 +17,6 @@ devices check each other's keys on every connection, so a stranger on the networ
 read anything or even tell who you are. Everything is encrypted end to end, and the laptop keeps
 your messages in memory only.
 
-### Approving sudo with your phone (optional)
-
-`sudo` can ask your phone for a fingerprint instead of your password. The check is done by a
-root-owned script against a root-owned copy of the phone's key, over a fresh random code each
-time; your password always still works. Set-up: [FEATURES.md](docs/FEATURES.md) §26.
-
 ### Features
 
 - **Notifications** from the phone as desktop popups: reply, tap their buttons, dismiss

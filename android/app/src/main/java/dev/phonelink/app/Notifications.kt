@@ -119,43 +119,6 @@ object Notifications {
         nm.notify(TRANSFERS_ID, n)
     }
 
-    /** A file arrived (tap opens it) or could not be sent. */
-    private const val CHANNEL_APPROVE = "approve"
-    private const val APPROVE_ID = 9
-
-    /** "MARK-I asks for admin access · code A3F9": tapping opens the Approve screen. */
-    fun approve(context: Context, device: String, name: String, requestId: String, what: String, host: String, nonce: String, code: String) {
-        if (!allowed(context)) return
-        context.getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL_APPROVE, "Admin access requests", NotificationManager.IMPORTANCE_HIGH)
-        )
-        val open = Intent(context, ApproveActivity::class.java)
-            .putExtra(ApproveActivity.EXTRA_DEVICE, device)
-            .putExtra(ApproveActivity.EXTRA_NAME, name)
-            .putExtra(ApproveActivity.EXTRA_REQUEST, requestId)
-            .putExtra(ApproveActivity.EXTRA_WHAT, what)
-            .putExtra(ApproveActivity.EXTRA_HOST, host)
-            .putExtra(ApproveActivity.EXTRA_NONCE, nonce)
-            .putExtra(ApproveActivity.EXTRA_CODE, code)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        val tap = PendingIntent.getActivity(
-            context, requestId.hashCode(), open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val n = NotificationCompat.Builder(context, CHANNEL_APPROVE)
-            .setSmallIcon(R.drawable.ic_link)
-            .setContentTitle("$name asks for admin access")
-            .setContentText("$what · code $code · tap to approve with your fingerprint")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setTimeoutAfter(60_000)
-            .setAutoCancel(true)
-            .setContentIntent(tap)
-            .build()
-        NotificationManagerCompat.from(context).notify(APPROVE_ID, n)
-    }
-
-    fun cancelApprove(context: Context) = NotificationManagerCompat.from(context).cancel(APPROVE_ID)
-
     /** A link sent from the computer; tapping opens it (the browser asks nothing more). */
     fun link(context: Context, from: String, url: String) {
         if (!allowed(context)) return
@@ -174,6 +137,7 @@ object Notifications {
         NotificationManagerCompat.from(context).notify(nextMessageId++, n)
     }
 
+    /** A file arrived (tap opens it) or could not be sent. */
     fun fileResult(context: Context, id: String, title: String, text: String, open: Intent?) {
         if (!allowed(context)) return
         val tap = open?.let {

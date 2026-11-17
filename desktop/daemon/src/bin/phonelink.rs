@@ -58,19 +58,6 @@ enum Cmd {
         #[arg(value_parser = ["start", "stop"], default_value = "start")]
         action: String,
     },
-    /// For the root-owned sudo helper: ask the phone to approve and print its signature
-    /// (hex) on success. Exits 1 otherwise. Not meant to be run by hand.
-    #[command(hide = true)]
-    ApproveRelay {
-        #[arg(long)]
-        what: String,
-        #[arg(long)]
-        host: String,
-        #[arg(long)]
-        nonce: String,
-        #[arg(long, default_value_t = 30)]
-        timeout: u64,
-    },
     /// Print events (connections, messages) as they happen.
     Watch,
     /// List notifications mirrored from the phone.
@@ -490,14 +477,6 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             show(&r);
             if !cli.json {
                 println!("Unpaired {device}. It can no longer connect.");
-            }
-        }
-        Cmd::ApproveRelay { what, host, nonce, timeout } => {
-            let r = c.request(&Request::ApproveRelay { what, host, nonce_hex: nonce, timeout_secs: Some(timeout) }).await?;
-            match r {
-                Reply::ApproveSignature { hex } => println!("{hex}"),
-                Reply::Error { message } => bail!("{message}"),
-                other => bail!("unexpected reply: {other:?}"),
             }
         }
         Cmd::Ring { action } => {

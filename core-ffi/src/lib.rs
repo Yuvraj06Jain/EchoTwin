@@ -63,8 +63,6 @@ pub struct Device {
     pub can_remote: bool,
     /// Connected, and takes presentation keys.
     pub can_present: bool,
-    /// Connected, and can ask this phone to approve `sudo`.
-    pub can_approve: bool,
     /// "wifi" or "bluetooth" while connected; empty when offline.
     pub via: String,
     /// The computer's Bluetooth address for the backup link (it tells us), if it has one.
@@ -148,18 +146,6 @@ pub enum LinkEvent {
         id: String,
         name: String,
         url: String,
-    },
-    /// The computer asks to approve `what` (e.g. "sudo") on `host`. Show `code` and ask for a
-    /// fingerprint; sign `approve_message(what, host, nonce_hex)`; answer with
-    /// `approve_response(id, request_id, …)`. Already checked to be recent and well formed.
-    ApproveRequested {
-        id: String,
-        name: String,
-        request_id: String,
-        what: String,
-        host: String,
-        nonce_hex: String,
-        code: String,
     },
     /// The computer searches this phone's contacts (New message). Answer with
     /// `contacts_result(id, req, …)` (at most 20).
@@ -267,12 +253,6 @@ impl From<MediaCommand> for MediaAction {
             MediaCommand::SetVolume { level } => Self::SetVolume(level),
         }
     }
-}
-
-/// The exact bytes to sign when approving (identical to the computer's checker).
-#[uniffi::export]
-pub fn approve_message(what: String, host: String, nonce_hex: String) -> Vec<u8> {
-    phonelink_core::message::approve_message(&what, &host, &nonce_hex)
 }
 
 /// One of the computer's own buttons for the Remote screen.
@@ -600,7 +580,6 @@ fn device(node: &Node, caps: &Caps, power: &Power, p: &PeerRecord) -> Device {
         can_ring: connected && has_cap(caps, &p.fingerprint, CAP_RING),
         can_remote: connected && has_cap(caps, &p.fingerprint, CAP_REMOTE),
         can_present: connected && has_cap(caps, &p.fingerprint, CAP_PRESENT),
-        can_approve: connected && has_cap(caps, &p.fingerprint, phonelink_core::CAP_APPROVE),
         via: via(node.transport(&p.fingerprint)),
         bluetooth: p.bluetooth.clone(),
         battery,
@@ -713,7 +692,6 @@ impl PhoneLink {
                             CAP_REMOTE,
                             CAP_PRESENT,
                             CAP_CONTACTS,
-                            phonelink_core::CAP_APPROVE,
                         ]
                         .map(String::from),
                     );
@@ -870,26 +848,6 @@ impl PhoneLink {
                             }
                         }
                         AppMessage::CallDecline { key } => LinkEvent::CallDeclineRequested { id: peer.short(), key },
-                        AppMessage::ApproveRequest { id, what, host, nonce_hex, sent_ms } => {
-                            use phonelink_core::message::{approve_code, valid_approve_text, valid_nonce, APPROVE_MAX_AGE_MS};
-                            let ok = id.len() <= 32
-                                && valid_nonce(&nonce_hex)
-                                && valid_approve_text(&what)
-                                && valid_approve_text(&host)
-                                && is_fresh(sent_ms, now_ms(), APPROVE_MAX_AGE_MS);
-                            if !ok {
-                                continue;
-                            }
-                            LinkEvent::ApproveRequested {
-                                id: peer.short(),
-                                name: name_of(&pump_node, &peer),
-                                request_id: id,
-                                code: approve_code(&nonce_hex),
-                                what,
-                                host,
-                                nonce_hex,
-                            }
-                        }
                         AppMessage::ContactsQuery { req, query } => LinkEvent::ContactsRequested {
                             id: peer.short(),
                             req,
@@ -1217,28 +1175,6 @@ impl PhoneLink {
         };
         let caller = phonelink_core::message::truncate_text(&caller, phonelink_core::message::MAX_CALLER);
         self.send_connected(CAP_CALLS, AppMessage::CallState { state, caller, key })
-    }
-
-    /// Send this phone's approval public key (X.509 SubjectPublicKeyInfo, DER) to the
-    /// computer, to be installed there by the root-owned setup script.
-    pub fn approve_enroll(&self, device_id: Option<String>, public_key: Vec<u8>) -> Result<String, LinkError> {
-        if public_key.is_empty() || public_key.len() > phonelink_core::message::MAX_APPROVE_KEY {
-            return Err(LinkError::Failed("that key is not usable".into()));
-        }
-        let fp = self.connected_one(device_id, phonelink_core::CAP_APPROVE, "approving sudo")?;
-        self.node.send(&fp, AppMessage::ApproveEnroll { public_key }.encode()?)?;
-        Ok(name_of(&self.node, &fp))
-    }
-
-    /// The answer to `ApproveRequested`: the signature (DER) when approved, empty when denied.
-    pub fn approve_response(&self, device_id: String, request_id: String, approved: bool, signature: Vec<u8>) -> Result<(), LinkError> {
-        if signature.len() > phonelink_core::message::MAX_APPROVE_SIGNATURE {
-            return Err(LinkError::Failed("signature too long".into()));
-        }
-        let fp = self.resolve(Some(device_id))?;
-        let signature = if approved { signature } else { Vec::new() };
-        self.node.send(&fp, AppMessage::ApproveResponse { id: request_id, approved, signature }.encode()?)?;
-        Ok(())
     }
 
     /// The answer to `ContactsRequested` `req` (cut to 20 contacts).
@@ -2016,7 +1952,7 @@ mod tests {
             cfg.capabilities.extend(caps.iter().map(|c| c.to_string()));
             rt.block_on(Node::start(cfg)).unwrap()
         };
-        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS, CAP_RING, CAP_CALLS, CAP_REMOTE, CAP_PRESENT, phonelink_core::CAP_APPROVE]);
+        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS, CAP_RING, CAP_CALLS, CAP_REMOTE, CAP_PRESENT]);
         let uri = laptop
             .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
             .to_uri();
@@ -2112,23 +2048,6 @@ mod tests {
         assert!(matches!(ev, LinkEvent::ComputerMedia { media: Some(m), .. } if m.title == "Lo-fi" && m.playing));
         to_phone(AppMessage::ComputerNowPlaying(None));
         assert!(matches!(wait(&rx, |e| matches!(e, LinkEvent::ComputerMedia { .. })), LinkEvent::ComputerMedia { media: None, .. }));
-
-        // Approval: a fresh, well-formed request becomes an event with its code; the answer and
-        // the enrolment reach the laptop. Old or malformed requests are dropped.
-        to_phone(AppMessage::ApproveRequest { id: "old".into(), what: "sudo".into(), host: "K".into(), nonce_hex: "ab".repeat(32), sent_ms: now_ms() - 3_600_000 });
-        to_phone(AppMessage::ApproveRequest { id: "bad".into(), what: "sudo".into(), host: "K".into(), nonce_hex: "xyz".into(), sent_ms: now_ms() });
-        let nonce = "0123456789abcdef".repeat(4);
-        to_phone(AppMessage::ApproveRequest { id: "r1".into(), what: "sudo".into(), host: "MARK-I".into(), nonce_hex: nonce.clone(), sent_ms: now_ms() });
-        let ev = wait(&rx, |e| matches!(e, LinkEvent::ApproveRequested { .. }));
-        let LinkEvent::ApproveRequested { id, request_id, code, what, host, nonce_hex, .. } = ev else { unreachable!() };
-        assert_eq!((request_id.as_str(), code.as_str()), ("r1", "0123"));
-        assert_eq!(approve_message(what, host, nonce_hex), format!("echotwin-approve-v1\nsudo\nMARK-I\n{nonce}\n").into_bytes());
-        phone.approve_response(id.clone(), "r1".into(), true, vec![0x30, 0x44]).unwrap();
-        assert!(matches!(next_from_phone(&mut lrx), AppMessage::ApproveResponse { id, approved: true, signature } if id == "r1" && signature == vec![0x30, 0x44]));
-        phone.approve_response(id, "r2".into(), false, vec![1, 2, 3]).unwrap();
-        assert!(matches!(next_from_phone(&mut lrx), AppMessage::ApproveResponse { approved: false, signature, .. } if signature.is_empty()), "a denial carries no signature");
-        assert_eq!(phone.approve_enroll(None, vec![0x30, 0x59]).unwrap(), "Kubuntu");
-        assert!(matches!(next_from_phone(&mut lrx), AppMessage::ApproveEnroll { public_key } if public_key == vec![0x30, 0x59]));
 
         // Contacts: a search from the laptop becomes an event; the answer goes back, cut to 20.
         to_phone(AppMessage::ContactsQuery { req: 3, query: "mo".into() });

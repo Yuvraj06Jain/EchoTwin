@@ -17,8 +17,10 @@ else
   echo "Removed EchoTwin. Data kept in $DATA/phonelink (use --purge to delete)."
 fi
 
-# The sudo approval is root-level and separate: say so if it is still set up.
+# Sudo approval with the phone was removed in v3. If an older version set it up, say how
+# to take it out (not done here: it needs root).
 if grep -qF echotwin-sudo-approve /etc/pam.d/sudo 2>/dev/null; then
-    echo "Note: sudo approval with the phone is still set up. Remove it with:"
-    echo "  sudo ./packaging/sudo-approval.sh uninstall"
+    echo "Note: the old sudo approval with the phone is still set up (it was removed from EchoTwin)."
+    echo "sudo still works with your password. To remove it, run:"
+    echo "  sudo sed -i '/echotwin-sudo-approve/d' /etc/pam.d/sudo; sudo rm -f /usr/local/libexec/echotwin-sudo-approve; sudo rm -rf /etc/echotwin"
 fi

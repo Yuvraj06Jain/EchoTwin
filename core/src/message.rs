@@ -43,37 +43,6 @@ pub const CAP_REMOTE: &str = "remote/1";
 pub const CAP_PRESENT: &str = "present/1";
 /// Contact search on the phone, for starting a new SMS on the computer.
 pub const CAP_CONTACTS: &str = "contacts/1";
-/// Approve `sudo` on the computer with the phone's fingerprint.
-pub const CAP_APPROVE: &str = "approve/1";
-
-/// Limits for approval messages.
-pub const MAX_APPROVE_TEXT: usize = 64;
-pub const APPROVE_NONCE_HEX: usize = 64;
-pub const MAX_APPROVE_SIGNATURE: usize = 160;
-pub const MAX_APPROVE_KEY: usize = 200;
-pub const APPROVE_MAX_AGE_MS: u64 = 60 * 1000;
-
-/// The exact bytes the phone signs to approve: both sides (and the root-owned checker on the
-/// computer) build them the same way. `what` is e.g. "sudo", `host` the computer's name.
-pub fn approve_message(what: &str, host: &str, nonce_hex: &str) -> Vec<u8> {
-    format!("echotwin-approve-v1\n{what}\n{host}\n{nonce_hex}\n").into_bytes()
-}
-
-/// 64 lower-case hex digits (32 random bytes made by the root-owned checker).
-pub fn valid_nonce(nonce_hex: &str) -> bool {
-    nonce_hex.len() == APPROVE_NONCE_HEX && nonce_hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
-
-/// What goes into an approval message besides the nonce: short, printable, no newlines.
-pub fn valid_approve_text(s: &str) -> bool {
-    !s.is_empty() && s.len() <= MAX_APPROVE_TEXT && s.chars().all(|c| !c.is_control())
-}
-
-/// The code shown on both screens: the first 4 characters of the nonce, upper case.
-pub fn approve_code(nonce_hex: &str) -> String {
-    nonce_hex.chars().take(4).collect::<String>().to_uppercase()
-}
-
 /// Longest command name shown on the phone (bytes), and most commands.
 pub const MAX_COMMAND_NAME: usize = 40;
 pub const MAX_COMMANDS: usize = 20;
@@ -406,12 +375,14 @@ pub enum AppMessage {
     ContactsQuery { req: u32, query: String },
     /// Phone → computer: the answer to `ContactsQuery` `req`.
     ContactsResult { req: u32, items: Vec<Contact> },
-    /// Computer → phone: approve `what` (e.g. "sudo") on `host`? The phone signs
-    /// [`approve_message`] after a fingerprint (`CAP_APPROVE`, fresh within 60 s).
+    /// RETIRED in v3 (sudo approval removed). Never sent; kept only so later variants keep
+    /// their positions.
     ApproveRequest { id: String, what: String, host: String, nonce_hex: String, sent_ms: u64 },
-    /// Phone → computer: the answer; `signature` is ECDSA P-256 / SHA-256 (DER), empty when denied.
+    /// RETIRED in v3 (sudo approval removed). Never sent; kept only so later variants keep
+    /// their positions.
     ApproveResponse { id: String, approved: bool, signature: Vec<u8> },
-    /// Phone → computer: the phone's approval public key (X.509 SubjectPublicKeyInfo, DER).
+    /// RETIRED in v3 (sudo approval removed). Never sent; kept only so later variants keep
+    /// their positions.
     ApproveEnroll { public_key: Vec<u8> },
 }
 
@@ -521,22 +492,6 @@ mod tests {
         ] {
             assert_eq!(AppMessage::decode(&m.encode().unwrap()), m);
         }
-    }
-
-    /// The same vector is used by packaging/sudo-approval/test.sh: change both or neither.
-    #[test]
-    fn the_signed_approval_message_is_fixed() {
-        let nonce = "0123456789abcdef".repeat(4);
-        assert_eq!(
-            approve_message("sudo", "MARK-I", &nonce),
-            format!("echotwin-approve-v1\nsudo\nMARK-I\n{nonce}\n").into_bytes()
-        );
-        assert_eq!(approve_code(&nonce), "0123");
-        assert!(valid_nonce(&nonce));
-        for bad in ["", "abc", &"g".repeat(64), &"A".repeat(64), &"a".repeat(65)] {
-            assert!(!valid_nonce(bad), "{bad}");
-        }
-        assert!(valid_approve_text("sudo") && !valid_approve_text("a\nb") && !valid_approve_text(""));
     }
 
     #[test]

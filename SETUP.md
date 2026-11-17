@@ -222,11 +222,6 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 77 | Remote → press **Mute / unmute** | the laptop mutes; a popup "… ran: Mute / unmute"; Settings → Phone buttons can add, remove and switch them off |
 | 78 | Open a presentation (LibreOffice Impress, or a PDF full screen); Remote → **Start presenting** → Next | the first time KDE asks to allow remote control: allow it; the slide moves; volume down/up also move; after restarting EchoTwin it works without asking again |
 | 79 | Window → Messages → **New**, type part of a contact's name | contacts from the phone are suggested; pick one, type, Ctrl+Enter: the SMS is sent and the conversation appears |
-| 80 | Phone: Settings → Approve sudo with fingerprint → **Set up** (with the laptop connected) | the phone shows a key like `1A2B-…`; the laptop pops up "approval key received" |
-| 81 | Laptop: open a root terminal first (`sudo -i`) and keep it open. Then in the EchoTwin folder: `sudo ./packaging/sudo-approval.sh install` | it shows the same `1A2B-…` (answer y), then asks you to try it |
-| 82 | In a **new** terminal: `sudo -k; sudo true` | the terminal shows a code; the phone notification shows the same code; tap, fingerprint → sudo succeeds without the password. Answer y to "Did it work?" |
-| 83 | `sudo -k; sudo true` again, but press **Deny** on the phone (or switch the phone's connection off) | sudo asks for the password as usual |
-| 84 | `sudo ./packaging/sudo-approval.sh status`, then `… uninstall` | status lists the PAM line and key; uninstall removes them and sudo is password-only again |
 
 When something fails, include:
 - the step number

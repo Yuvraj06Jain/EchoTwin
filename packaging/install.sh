@@ -117,6 +117,13 @@ if ! systemctl --user is-active --quiet phonelinkd; then
   exit 1
 fi
 echo
+# Sudo approval with the phone was removed in v3. If an older version set it up, say how
+# to take it out (not done here: it needs root).
+if grep -qF echotwin-sudo-approve /etc/pam.d/sudo 2>/dev/null; then
+    echo "Note: the old sudo approval with the phone is still set up (it was removed from EchoTwin)."
+    echo "sudo still works with your password. To remove it, run:"
+    echo "  sudo sed -i '/echotwin-sudo-approve/d' /etc/pam.d/sudo; sudo rm -f /usr/local/libexec/echotwin-sudo-approve; sudo rm -rf /etc/echotwin"
+fi
 echo "EchoTwin is running."
 if [ "$APP_OK" = 1 ]; then
   echo "Open \"EchoTwin\" from your application menu to pair your phone."

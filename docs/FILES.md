@@ -42,7 +42,7 @@ phonelink/
 | `README.md` | Repo front page: what EchoTwin is, security in brief, features, screenshots. |
 | `LICENSE` | GPL-3.0 license text. |
 | `SETUP.md` | Install guide for the laptop and phone, the numbered device test checklist (rows 1–60), troubleshooting. |
-| `docs/` | File map (this file), features, protocol, developer guide; `docs/img/` screenshots. |
+| `docs/` | File map (this file), features, protocol, developer guide; `docs/img/` the README pictures (laptop side rendered from `desktop/ui` and the widget preview with sample data; the phone pictures are real screenshots). |
 
 ## core/ (shared Rust library)
 

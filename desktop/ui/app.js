@@ -31,6 +31,7 @@
   // Simple on/off settings: shown when the service reports them.
   const SWITCH_ROWS = [
     ['batteryAlerts', 'Battery alerts', "A popup when your phone's battery is low (15%) or fully charged."],
+    ['allowUnlock', 'Let your phone unlock this computer', 'Your phone asks for its fingerprint or screen lock first, and a popup here says each time it happened. Anyone who can unlock your phone could then unlock this computer.'],
     ['callPopup', 'Show calls at the top of the screen', 'When your phone rings, a card with Answer and Decline appears at the top of this screen, even over a full-screen presentation. Off: a normal notification.'],
     ['pauseMediaOnCall', 'Pause music during calls', 'Music and videos playing here pause when your phone rings or you make a call, and continue when the call ends.'],
     ['openLinks', 'Let your phone open links here', 'Share a link on your phone and choose "Open on computer": it opens in your browser here. Only web links.'],
@@ -1556,6 +1557,7 @@
       return undefined;
     }
     if (ev.kind === 'locked_by_phone') return undefined;
+    if (ev.kind === 'unlocked_by_phone') return toast(`Unlocked by ${ev.name}`);
     if (ev.kind === 'call_changed') {
       state.call = ev.phase === 'idle' ? null
         : { id: ev.id, name: ev.name, phase: ev.phase, caller: ev.caller, actions: ev.actions || (ev.phase === 'ringing' ? ['decline'] : []), activeMs: ev.active_ms || null };

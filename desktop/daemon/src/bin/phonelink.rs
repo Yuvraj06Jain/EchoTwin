@@ -390,6 +390,7 @@ fn print_event(e: &WatchEvent) {
             println!("clipboard     {id}  copied from {name}")
         }
         WatchEvent::LockedByPhone { id, name } => println!("lock          {id}  {name} asked to lock"),
+        WatchEvent::UnlockedByPhone { id, name } => println!("unlock        {id}  {name} unlocked this computer"),
         WatchEvent::MediaChanged { id } => println!("media         {id}  playing state changed"),
         WatchEvent::PhoneStatusChanged { id } => println!("status        {id}  battery/network changed"),
         WatchEvent::ComputerBatteryChanged => println!("battery       this computer's battery changed"),

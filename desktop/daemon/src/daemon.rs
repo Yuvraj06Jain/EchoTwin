@@ -382,7 +382,7 @@ async fn start_node(
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
         cfg.timings = timings(opts.config.battery_saver);
         cfg.capabilities.extend(
-            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS, phonelink_core::CAP_REMOTE, phonelink_core::CAP_CONTACTS, phonelink_core::CAP_PRESENT, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_MUTE, phonelink_core::CAP_REMOTE_ART, phonelink_core::CAP_CALLS2, phonelink_core::CAP_POINTER]
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS, phonelink_core::CAP_REMOTE, phonelink_core::CAP_CONTACTS, phonelink_core::CAP_PRESENT, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_MUTE, phonelink_core::CAP_REMOTE_ART, phonelink_core::CAP_CALLS2, phonelink_core::CAP_POINTER, phonelink_core::CAP_UNLOCK]
                 .map(String::from),
         );
         match Node::start(cfg).await {
@@ -1147,6 +1147,41 @@ impl State {
     }
 
     /// The phone asked to lock this computer.
+    /// The phone asks to unlock this computer (its owner confirmed with fingerprint or PIN).
+    /// Only with `allow_unlock` on and a fresh request; always announced with a popup.
+    async fn unlock_requested(self: &Arc<Self>, peer: Fingerprint, sent_ms: u64) {
+        use phonelink_core::message::{UNLOCK_MAX_AGE_MS, UNLOCK_RESULT_KEY};
+        let name = self.name_of(&peer);
+        let (ok, message) = if !self.switch_on("allow_unlock") {
+            (false, "Unlocking from the phone is switched off on this computer: turn it on in EchoTwin Settings".to_string())
+        } else if !is_fresh(sent_ms, now_ms(), UNLOCK_MAX_AGE_MS) {
+            (false, "The request arrived too late, so the computer was not unlocked".to_string())
+        } else {
+            let buses = self.buses.clone();
+            match tokio::task::spawn_blocking(move || crate::lock::unlock_screen(&buses)).await {
+                Ok(Ok(_)) => (true, "Computer unlocked".to_string()),
+                Ok(Err(e)) => {
+                    warn!("could not unlock the screen: {e}");
+                    (false, "This computer could not unlock its screen".to_string())
+                }
+                Err(e) => (false, format!("Could not unlock: {e}")),
+            }
+        };
+        if ok {
+            warn!(device = %name, "screen unlocked by the phone");
+            // Always shown (even with notifications off): you should know it happened.
+            self.popup_to(
+                true,
+                format!("status/unlock/{}", peer.short()),
+                format!("Unlocked by {name}"),
+                "Confirmed on the phone with its fingerprint or screen lock.".into(),
+                crate::popups::Tab::Notifications,
+            );
+            self.broadcast(WatchEvent::UnlockedByPhone { id: peer.short(), name });
+        }
+        let _ = self.to_phone(&peer, AppMessage::ActionResult { key: UNLOCK_RESULT_KEY.into(), ok, message });
+    }
+
     async fn lock_requested(self: &Arc<Self>, peer: Fingerprint, sent_ms: u64) -> WatchEvent {
         let name = self.name_of(&peer);
         let (ok, message) = if !lock(&self.settings).allow_lock {
@@ -1645,6 +1680,13 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                 AppMessage::DismissNotification { .. }
                 | AppMessage::ReplyNotification { .. }
                 | AppMessage::NotificationAction { .. } => continue,
+                AppMessage::UnlockComputer { sent_ms } => {
+                    if state.has_cap(&peer, phonelink_core::CAP_UNLOCK) {
+                        let state = state.clone();
+                        tokio::spawn(async move { state.unlock_requested(peer, sent_ms).await });
+                    }
+                    continue;
+                }
                 AppMessage::LockComputer { sent_ms } => {
                     // Locking can take a moment (D-Bus); don't hold up other messages.
                     let state = state.clone();

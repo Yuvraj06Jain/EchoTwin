@@ -128,6 +128,11 @@ fn now_ms() -> u64 {
 }
 
 async fn setup() -> Option<Rig> {
+    setup_with(Buses::unreachable().system).await
+}
+
+/// `system`: the system bus (a stand-in logind) or an unreachable one.
+async fn setup_with(system: Option<String>) -> Option<Rig> {
     let bus = private_bus()?;
     let clip = Shared::default();
     clip.0.lock().unwrap().0 = "copied before the service started".into();
@@ -155,7 +160,7 @@ async fn setup() -> Option<Rig> {
         popups: Some(popups),
         buses: Buses {
             session: Some(bus.address.clone()),
-            system: Buses::unreachable().system,
+            system,
         },
         download_dir: dir.path().join("downloads"),
         effects: None,
@@ -182,7 +187,7 @@ async fn setup() -> Option<Rig> {
     offer.addrs = vec![SocketAddr::from(([127, 0, 0, 1], offer.addrs[0].port()))];
     let mut cfg = NodeConfig::new("Galaxy S24 FE", None, "127.0.0.1:0".parse().unwrap());
     cfg.capabilities
-        .extend([CAP_LOCK, CAP_CLIPBOARD, CAP_CLIPBOARD_IMAGE, CAP_FILES].map(String::from));
+        .extend([CAP_LOCK, phonelink_core::CAP_UNLOCK, CAP_CLIPBOARD, CAP_CLIPBOARD_IMAGE, CAP_FILES].map(String::from));
     let (phone, mut phone_rx) = Node::start(cfg).await.unwrap();
     phone.pair_with(&offer).await.unwrap();
     timeout(WAIT, async {
@@ -481,7 +486,7 @@ impl FakeLogind {
 
 struct FakeSession {
     kind: &'static str,
-    locked: Arc<Mutex<Vec<&'static str>>>,
+    locked: Arc<Mutex<Vec<String>>>,
     id: &'static str,
 }
 
@@ -493,7 +498,11 @@ impl FakeSession {
     }
 
     fn lock(&self) {
-        self.locked.lock().unwrap().push(self.id);
+        self.locked.lock().unwrap().push(self.id.into());
+    }
+
+    fn unlock(&self) {
+        self.locked.lock().unwrap().push(format!("unlock {}", self.id));
     }
 }
 
@@ -560,4 +569,73 @@ async fn copying_a_code_puts_it_on_the_clipboard_without_sending_it_back() {
         r.phone_gets(Duration::from_millis(800)).await.iter().all(|m| !is_clip(m)),
         "the code isn't sent to the phone"
     );
+}
+
+/// A stand-in logind (sessions as in the test above) on its own private system bus.
+fn fake_logind(system: &Bus, locked: Arc<Mutex<Vec<String>>>) -> zbus::blocking::Connection {
+    use std::os::unix::fs::MetadataExt;
+    let uid = std::fs::metadata("/proc/self").unwrap().uid();
+    let s = |id, kind| FakeSession { kind, locked: locked.clone(), id };
+    zbus::blocking::connection::Builder::address(system.address.as_str())
+        .unwrap()
+        .name("org.freedesktop.login1")
+        .unwrap()
+        .serve_at("/org/freedesktop/login1", FakeLogind { uid })
+        .unwrap()
+        .serve_at("/org/freedesktop/login1/session/_32", s("mine-wayland", "wayland"))
+        .unwrap()
+        .serve_at("/org/freedesktop/login1/session/_35", s("mine-ssh", "tty"))
+        .unwrap()
+        .serve_at("/org/freedesktop/login1/session/_37", s("theirs", "x11"))
+        .unwrap()
+        .build()
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_phone_unlocks_only_when_allowed_fresh_and_it_is_announced() {
+    let Some(system) = private_bus() else {
+        eprintln!("dbus-daemon not installed; skipping");
+        return;
+    };
+    let locked = Arc::new(Mutex::new(vec![]));
+    let _logind = fake_logind(&system, locked.clone());
+    let Some(mut r) = setup_with(Some(system.address.clone())).await else { return };
+    let unlock_result = |m: &AppMessage| matches!(m, AppMessage::ActionResult { key, .. } if key == "unlock");
+    let answer = |m: AppMessage| match m {
+        AppMessage::ActionResult { ok, message, .. } => (ok, message),
+        _ => unreachable!(),
+    };
+
+    // Off by default: refused, nothing unlocked.
+    r.phone_sends(AppMessage::UnlockComputer { sent_ms: now_ms() });
+    let (ok, msg) = answer(r.phone_waits_for("refusal", unlock_result).await);
+    assert!(!ok && msg.contains("switched off"), "{msg}");
+    assert!(locked.lock().unwrap().is_empty());
+
+    // Allowed: only this user's graphical session is unlocked; a popup says so.
+    let on = Request::SetSwitch { name: "allow_unlock".into(), on: true };
+    assert_eq!(r.request(on).await, Reply::Done);
+    r.popups.try_iter().for_each(drop);
+    r.phone_sends(AppMessage::UnlockComputer { sent_ms: now_ms() });
+    let (ok, msg) = answer(r.phone_waits_for("unlocked", unlock_result).await);
+    assert!(ok, "{msg}");
+    assert_eq!(*locked.lock().unwrap(), vec!["unlock mine-wayland".to_string()]);
+    r.event("unlocked event", |e| matches!(e, WatchEvent::UnlockedByPhone { .. })).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let titles: Vec<String> = r
+        .popups
+        .try_iter()
+        .filter_map(|p| match p {
+            PopupCmd::Show { title, .. } => Some(title),
+            _ => None,
+        })
+        .collect();
+    assert!(titles.iter().any(|t| t == "Unlocked by Galaxy S24 FE"), "{titles:?}");
+
+    // An old request (it waited somewhere): refused.
+    r.phone_sends(AppMessage::UnlockComputer { sent_ms: now_ms() - 5 * 60_000 });
+    let (ok, msg) = answer(r.phone_waits_for("late", unlock_result).await);
+    assert!(!ok && msg.contains("too late"), "{msg}");
+    assert_eq!(locked.lock().unwrap().len(), 1);
 }

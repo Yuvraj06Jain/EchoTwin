@@ -51,6 +51,9 @@ pub struct Config {
     pub presentation_remote: bool,
     /// Show a ringing call as a card at the top of the screen (else a KDE notification).
     pub call_popup: bool,
+    /// Let the phone unlock this computer's screen (after its fingerprint or PIN). Off by
+    /// default.
+    pub allow_unlock: bool,
     /// Ignored, from an older version (sudo approval was removed in v3). Still accepted so an
     /// old `config.toml` keeps loading.
     #[serde(skip_serializing)]
@@ -86,6 +89,7 @@ impl Default for Config {
             allow_commands: true,
             presentation_remote: true,
             call_popup: true,
+            allow_unlock: false,
             phone_approval: None,
             commands: vec![],
             power_supply_dir: None,
@@ -132,7 +136,7 @@ pub fn check_commands(items: &[CommandEntry]) -> Result<(), String> {
 }
 
 /// Simple on/off settings, set with `Request::SetSwitch` and listed in `Reply::Status`.
-pub const SWITCHES: &[&str] = &["battery_alerts", "open_links", "allow_ring", "pause_media_on_call", "allow_commands", "presentation_remote", "call_popup"];
+pub const SWITCHES: &[&str] = &["battery_alerts", "open_links", "allow_ring", "pause_media_on_call", "allow_commands", "presentation_remote", "call_popup", "allow_unlock"];
 
 impl Config {
     pub fn switch(&self, name: &str) -> Option<bool> {
@@ -144,6 +148,7 @@ impl Config {
             "allow_commands" => self.allow_commands,
             "presentation_remote" => self.presentation_remote,
             "call_popup" => self.call_popup,
+            "allow_unlock" => self.allow_unlock,
             _ => return None,
         })
     }
@@ -158,6 +163,7 @@ impl Config {
             "allow_commands" => &mut self.allow_commands,
             "presentation_remote" => &mut self.presentation_remote,
             "call_popup" => &mut self.call_popup,
+            "allow_unlock" => &mut self.allow_unlock,
             _ => return false,
         };
         *slot = on;

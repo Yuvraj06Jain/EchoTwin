@@ -241,6 +241,12 @@ object LinkManager {
         "Locking $name…"
     }
 
+    /** Unlock the computer (after the fingerprint prompt). Its answer arrives as a result. */
+    fun unlockComputer() = whenConnected { link ->
+        val name = link.unlockComputer(null)
+        "Unlocking $name…"
+    }
+
     /** Ring the computer (to find it), or stop it. */
     fun ringComputer(on: Boolean) = whenConnected { link ->
         val name = link.ringComputer(null, on)

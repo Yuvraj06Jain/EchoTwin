@@ -69,6 +69,8 @@ pub struct Device {
     pub can_mute: bool,
     /// Connected, and shows the presentation pointer.
     pub can_point: bool,
+    /// Connected, and can be unlocked from here (if its owner allows it there).
+    pub can_unlock: bool,
     /// "wifi" or "bluetooth" while connected; empty when offline.
     pub via: String,
     /// The computer's Bluetooth address for the backup link (it tells us), if it has one.
@@ -659,6 +661,7 @@ fn device(node: &Node, caps: &Caps, power: &Power, p: &PeerRecord) -> Device {
         can_present_apps: connected && has_cap(caps, &p.fingerprint, phonelink_core::CAP_PRESENT2),
         can_mute: connected && has_cap(caps, &p.fingerprint, phonelink_core::CAP_MUTE),
         can_point: connected && has_cap(caps, &p.fingerprint, phonelink_core::CAP_POINTER),
+        can_unlock: connected && has_cap(caps, &p.fingerprint, phonelink_core::CAP_UNLOCK),
         via: via(node.transport(&p.fingerprint)),
         bluetooth: p.bluetooth.clone(),
         battery,
@@ -776,6 +779,7 @@ impl PhoneLink {
                             phonelink_core::CAP_REMOTE_ART,
                             phonelink_core::CAP_CALLS2,
                             phonelink_core::CAP_POINTER,
+                            phonelink_core::CAP_UNLOCK,
                         ]
                         .map(String::from),
                     );
@@ -1259,6 +1263,19 @@ impl PhoneLink {
         let fp = self.connected_one(device_id, CAP_LOCK, "locking from the phone")?;
         let body = AppMessage::LockComputer { sent_ms: now_ms() }.encode()?;
         self.node.send(&fp, body)?;
+        Ok(name_of(&self.node, &fp))
+    }
+
+    /// Unlock the computer's screen. Call only after the phone's fingerprint or screen lock
+    /// confirmed it is the owner. Sent only while connected (never queued); the computer
+    /// answers with `RequestResult` key `unlock` (it refuses unless allowed there). Returns
+    /// its name.
+    pub fn unlock_computer(&self, device_id: Option<String>) -> Result<String, LinkError> {
+        let fp = self.connected_one(device_id, phonelink_core::CAP_UNLOCK, "unlocking from the phone")?;
+        let body = AppMessage::UnlockComputer { sent_ms: now_ms() }.encode()?;
+        if !self.node.send_fleeting(&fp, body)? {
+            return Err(LinkError::Failed(format!("{} is not connected", name_of(&self.node, &fp))));
+        }
         Ok(name_of(&self.node, &fp))
     }
 
@@ -2142,7 +2159,7 @@ mod tests {
             cfg.capabilities.extend(caps.iter().map(|c| c.to_string()));
             rt.block_on(Node::start(cfg)).unwrap()
         };
-        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS, CAP_RING, CAP_CALLS, CAP_REMOTE, CAP_PRESENT, phonelink_core::CAP_MUTE, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_REMOTE_ART, phonelink_core::CAP_CALLS2, phonelink_core::CAP_POINTER]);
+        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS, CAP_RING, CAP_CALLS, CAP_REMOTE, CAP_PRESENT, phonelink_core::CAP_MUTE, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_REMOTE_ART, phonelink_core::CAP_CALLS2, phonelink_core::CAP_POINTER, phonelink_core::CAP_UNLOCK]);
         let uri = laptop
             .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
             .to_uri();
@@ -2225,7 +2242,9 @@ mod tests {
         assert!(matches!(next_from_phone(&mut lrx), AppMessage::PresentKey { key: PresentKeyKind::Blank, .. }));
         assert!(phone.devices()[0].can_remote && phone.devices()[0].can_present);
         let d = &phone.devices()[0];
-        assert!(d.can_mute && d.can_present_apps && d.can_point);
+        assert!(d.can_mute && d.can_present_apps && d.can_point && d.can_unlock);
+        assert_eq!(phone.unlock_computer(None).unwrap(), "Kubuntu");
+        assert!(matches!(next_from_phone(&mut lrx), AppMessage::UnlockComputer { sent_ms } if sent_ms.abs_diff(now_ms()) < 10_000));
         // The pointer: clamped, masked, not queued.
         let queued_before = phone.node.pending_count(&laptop.fingerprint()).unwrap();
         assert!(phone.pointer(None, 20_000, 5_000, true, PointerShapeFfi::Ring, 0xAAFF3B30, 9).unwrap());
@@ -2360,6 +2379,7 @@ mod tests {
         let err = phone2.lock_computer(None).unwrap_err().to_string();
         assert!(err.contains("update EchoTwin"), "{err}");
         assert!(phone2.send_clipboard("x".into()).is_err());
+        assert!(!d.can_unlock && phone2.unlock_computer(None).is_err(), "no unlock without unlock/1");
         phone2.shutdown();
         rt.block_on(old_laptop.shutdown());
     }

@@ -104,6 +104,7 @@ blur). Use the numbered checklist in [SETUP.md](../SETUP.md).
 | `muted_apps` | [] | phone apps whose notifications don't pop up |
 | `clipboard_sync` | true | share the clipboard |
 | `allow_lock` | true | phone may lock this computer |
+| `allow_unlock` | false | phone may unlock this computer (after its fingerprint or screen lock) |
 | `download_dir` | `~/Downloads/EchoTwin` | where received files go (Settings → Received files, or `phonelink download-dir`) |
 | `bluetooth_backup` | true | accept the Bluetooth backup link |
 | `connection` | true | the connection switch (`phonelink on/off`) |

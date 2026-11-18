@@ -246,6 +246,10 @@ class MainActivity : ComponentActivity() {
             notice = "Looking for your computer on this network…"
         }
         override fun lock() = LinkManager.lockComputer()
+        override fun unlock() {
+            val name = LinkManager.devices.value.firstOrNull { it.connected }?.name ?: "your computer"
+            UnlockPrompt.confirm(this@MainActivity, name, onOk = { LinkManager.unlockComputer() }, onProblem = { notice = it })
+        }
         override fun ring(on: Boolean) = LinkManager.ringComputer(on)
         override fun openButtons() { buttonsOpen = true }
         override fun pointer(x: Int, y: Int, visible: Boolean) =

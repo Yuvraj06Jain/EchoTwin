@@ -96,6 +96,7 @@ Carried inside `Deliver.body`, postcard-encoded. Anything this build doesn't kno
 | 39 | `CallInfo { key, caller, phase: CallPhase, actions: Vec<CallActionKind> }` | P→C | `calls/2` | `State::call_changed` (card or notification, pause media, call strip) | `send_call_info` (`CallWatcher`) |
 | 40 | `CallAction { key, action: CallActionKind }` | C→P | `calls/2` | `State::call_action` (`Request::CallAction`, the card, popup buttons) | `LinkEvent::CallActionRequested` → `CallWatcher.act` |
 | 41 | `Pointer { x, y, visible, shape: PointerShape, color, size }` | P→C | `pointer/1` | fleeting only; clamped (x, y ≤ 10000, size ≤ 2, color & 0xFFFFFF), needs `presentation_remote`; → `WatchEvent::Pointer` for the app's overlay | `pointer` (the Presentation screen's touchpad) |
+| 42 | `UnlockComputer { sent_ms }` | P→C | `unlock/1` | `State::unlock_requested`: needs `allow_unlock` (default off) and < 30 s; logind `Session.Unlock`; popup; `ActionResult` `unlock` | `unlock_computer` (fleeting, after the fingerprint prompt) |
 
 Payload types (`message.rs`): `PhoneNotification { key, package, app, title, text,
 posted_ms, can_reply, actions }`, `NowPlaying { app, package, title, artist, album,
@@ -117,6 +118,7 @@ hide what's missing. That is how an older phone app keeps working with a newer l
 | `messages/1` | `node::CAP_MESSAGES` | Notes (Text), always present |
 | `notifications/1` | `CAP_NOTIFICATIONS` | Notification mirroring + reply/action/dismiss |
 | `lock/1` | `CAP_LOCK` | Lock the computer from the phone |
+| `unlock/1` | `CAP_UNLOCK` | Unlock the computer from the phone (after the phone's fingerprint or screen lock) |
 | `clipboard/1` | `CAP_CLIPBOARD` | Clipboard both ways |
 | `media/1` | `CAP_MEDIA` | Now playing + controls |
 | `files/1` | `transfer::CAP_FILES` | File transfers |
@@ -163,6 +165,7 @@ All in `message.rs` unless noted.
 | `MAX_CLIPBOARD_TEXT` | 64 KiB | clipboard text |
 | `MAX_ART_BYTES` | 64 KiB | album art (JPEG/PNG only, `is_art_image`) |
 | `SMS_MAX_THREADS` / `SMS_MAX_MESSAGES` / `SMS_MAX_BODY` | 30 / 30 / 4000 | SMS sync sizes |
+| `UNLOCK_MAX_AGE_MS` | 30 s | an older unlock request is refused |
 | `LOCK_MAX_AGE_MS`, `CLIPBOARD_MAX_AGE_MS`, `LINK_MAX_AGE_MS`, `RING_MAX_AGE_MS` | 2 min | `is_fresh` window (either clock direction) |
 | `MAX_CALLER` | 100 bytes | caller name |
 | `MAX_COMMAND_NAME`, `MAX_COMMANDS` | 40 bytes, 20 | Remote buttons |

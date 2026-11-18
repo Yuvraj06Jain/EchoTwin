@@ -317,6 +317,11 @@ pub enum WatchEvent {
         name: String,
     },
     /// The phone locked this computer.
+    /// The phone unlocked this computer (allowed, confirmed on the phone).
+    UnlockedByPhone {
+        id: String,
+        name: String,
+    },
     LockedByPhone {
         id: String,
         name: String,

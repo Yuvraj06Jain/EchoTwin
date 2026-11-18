@@ -225,6 +225,9 @@ private fun ActionGrid(d: Device, state: UiState, actions: Actions, onNote: () -
     var ringing by remember { mutableStateOf(false) }
     val tiles = buildList<@Composable (Modifier) -> Unit> {
         add { m -> ActionTile("Lock", Icons.Filled.Lock, d.canLock, m, actions::lock) }
+        if (d.canUnlock) {
+            add { m -> ActionTile("Unlock", null, true, m, onClick = actions::unlock, glyph = "🔓") }
+        }
         add { m -> ActionTile("Clipboard", Icons.Filled.Share, d.canClipboard && state.clipboardOn, m, actions::sendClipboard) }
         add { m -> ActionTile("Send files", Icons.AutoMirrored.Filled.Send, !bluetooth, m, actions::sendFiles) }
         add { m -> ActionTile("Note", Icons.Filled.Edit, true, m, onNote) }

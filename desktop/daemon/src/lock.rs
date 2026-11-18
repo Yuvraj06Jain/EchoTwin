@@ -1,9 +1,11 @@
-//! Locking this computer's screen when the paired phone asks.
+//! Locking and unlocking this computer's screen when the paired phone asks.
 //!
-//! Tries the desktop's screen saver first (KDE Plasma, GNOME and most others implement
-//! `org.freedesktop.ScreenSaver.Lock`), then systemd-logind, which asks the desktop to lock
-//! every graphical session of this user. Unlocking from the phone is deliberately not
-//! possible.
+//! Locking tries the desktop's screen saver first (KDE Plasma, GNOME and most others
+//! implement `org.freedesktop.ScreenSaver.Lock`), then systemd-logind, which asks the desktop
+//! to lock every graphical session of this user. Unlocking goes through logind only
+//! (`Session.Unlock`, what `loginctl unlock-session` does; KDE's lock screen obeys it, and a
+//! user may unlock their own session without root). The daemon allows it only when the
+//! `allow_unlock` switch is on, and the phone asks for its fingerprint or screen lock first.
 
 use zbus::blocking::{connection, Connection};
 
@@ -72,8 +74,22 @@ fn my_uid() -> u32 {
     std::fs::metadata("/proc/self").map(|m| m.uid()).unwrap_or(u32::MAX)
 }
 
+/// Unlock this user's graphical sessions (through logind). Returns how many. Blocking.
+pub fn unlock_screen(buses: &Buses) -> Result<usize, String> {
+    match session_call(buses, "Unlock") {
+        Ok(0) => Err("no graphical session of this user".into()),
+        Ok(n) => Ok(n),
+        Err(e) => Err(format!("logind: {e}")),
+    }
+}
+
 /// Lock this user's graphical sessions through logind. Returns how many were locked.
 fn lock_with_logind(buses: &Buses) -> zbus::Result<usize> {
+    session_call(buses, "Lock")
+}
+
+/// Call `method` ("Lock" or "Unlock") on each graphical logind session of this user.
+fn session_call(buses: &Buses, method: &str) -> zbus::Result<usize> {
     let c = open(&buses.system, true)?;
     let dest = "org.freedesktop.login1";
     let sessions: Vec<(String, u32, String, String, zbus::zvariant::OwnedObjectPath)> = c
@@ -104,13 +120,13 @@ fn lock_with_logind(buses: &Buses) -> zbus::Result<usize> {
             .deserialize()?;
         let kind: String = kind.try_into().unwrap_or_default();
         if !["x11", "wayland", "mir"].contains(&kind.as_str()) {
-            continue; // ssh/tty sessions have no screen to lock
+            continue; // ssh/tty sessions have no screen to lock or unlock
         }
         c.call_method(
             Some(dest),
             path.as_str(),
             Some("org.freedesktop.login1.Session"),
-            "Lock",
+            method,
             &(),
         )?;
         locked += 1;

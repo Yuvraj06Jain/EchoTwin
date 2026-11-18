@@ -16,7 +16,7 @@ Contents
 3. [Bluetooth backup](#3-bluetooth-backup)
 4. [Notification mirroring (reply, buttons, dismiss, mute, queue switch)](#4-notification-mirroring)
 5. [Notes (send a text)](#5-notes-send-a-text)
-6. [Lock the laptop from the phone](#6-lock-the-laptop-from-the-phone)
+6. [Lock and unlock the laptop from the phone](#6-lock-and-unlock-the-laptop-from-the-phone)
 7. [Clipboard](#7-clipboard)
 8. [Music controls](#8-music-controls)
 9. [File sharing](#9-file-sharing)
@@ -221,23 +221,40 @@ devices: in the laptop's popup and window, on the phone's Home list and its noti
 **Tests:** `tests/lock_clipboard.rs` `a_note_popup_has_copy_which_fills_the_clipboard_without_an_echo`;
 UI suite ("Copy puts the note on the clipboard").
 
-## 6. Lock the laptop from the phone
+## 6. Lock and unlock the laptop from the phone
 
-**What:** Lock button (phone Home, Quick Settings tile, status notification). Unlocking is
-deliberately impossible.
+**What:** Lock button (phone Home, Quick Settings tile, status notification). **Unlock**
+tile on phone Home: Android's own prompt asks for the phone's fingerprint or screen lock,
+then the laptop unlocks. Unlocking is off until you turn on laptop Settings → "Let your
+phone unlock this computer", and the laptop shows a popup "Unlocked by <phone>" every time
+(even with notifications off). Honest risk: anyone who can unlock your phone could then
+unlock the laptop while that switch is on.
 
 **How:** phone sends `LockComputer { sent_ms }` only if a computer is connected; the laptop
 refuses stale requests (> 2 min) or when the setting is off, locks via the ScreenSaver
 D-Bus API (logind fallback), and answers with `ActionResult { key: "lock" }`.
 
+Unlock: after the prompt (platform `BiometricPrompt`, BIOMETRIC_STRONG or the screen lock;
+refused if the phone has no screen lock) the phone sends `UnlockComputer { sent_ms }` as a
+fleeting message (only while connected, never queued). The laptop needs `unlock/1`, the
+`allow_unlock` switch (default off) and a request under 30 s old, then calls logind
+`Session.Unlock` on this user's graphical sessions (what `loginctl unlock-session` does; no
+root, polkit lets you unlock your own active session; KDE's lock screen obeys it, as KDE
+Connect users rely on). KDE bug 506343 reports it can take ~5 s on Plasma 6.4. It can't work
+where logind is missing (non-systemd) or polkit forbids it. Answer: `ActionResult { key:
+"unlock" }`; `WatchEvent::UnlockedByPhone`.
+
 | Layer | File | Functions |
 |---|---|---|
-| Phone | `android/…/LinkManager.kt` `lockComputer`; `Tiles.kt` `LockTileService`; `LockReceiver.kt`; `HomeScreen` Lock tile | |
-| FFI | `core-ffi/src/lib.rs` | `lock_computer` (uses `connected_one`) |
-| Laptop | `desktop/daemon/src/daemon.rs` | `State::lock_requested`, `Request::SetAllowLock` |
-| Laptop | `desktop/daemon/src/lock.rs` | `lock_screen`, `lock_with_logind` |
+| Phone | `android/…/LinkManager.kt` `lockComputer`, `unlockComputer`; `UnlockPrompt.kt`; `Tiles.kt` `LockTileService`; `LockReceiver.kt`; `HomeScreen` Lock and Unlock tiles | |
+| FFI | `core-ffi/src/lib.rs` | `lock_computer` (uses `connected_one`), `unlock_computer` (fleeting), `Device.can_unlock` |
+| Laptop | `desktop/daemon/src/daemon.rs` | `State::lock_requested`, `State::unlock_requested`, `Request::SetAllowLock` |
+| Laptop | `desktop/daemon/src/lock.rs` | `lock_screen`, `lock_with_logind`, `unlock_screen`, `session_call` |
 
-**Settings:** laptop `allow_lock`. **Tests:** `desktop/daemon/tests/lock_clipboard.rs`.
+**Settings:** laptop `allow_lock`, `allow_unlock` (off). **Permission:** `USE_BIOMETRIC` (no
+prompt). **Tests:** `desktop/daemon/tests/lock_clipboard.rs` (incl.
+`the_phone_unlocks_only_when_allowed_fresh_and_it_is_announced`, stand-in logind), FFI test,
+UI suite (the switch, off by default).
 
 ## 7. Clipboard
 

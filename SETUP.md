@@ -238,6 +238,9 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 98 | Press the colour square next to Black → **Spotlight**, **L**; drag again | the screen darkens with a clear circle that follows your finger |
 | 99 | Laptop window → Settings → Received files → **Change…**, pick a folder; send a photo from the phone | it lands in that folder; the popup names it; `phonelink download-dir` prints it; **Default** goes back to ~/Downloads/EchoTwin |
 | 100 | Phone: Settings → Received files → **Change**, pick or make a folder (e.g. Documents/EchoTwin); send a file from the laptop | it lands in that folder and the notification names it; tapping it opens the file; **Default** goes back to Download/EchoTwin |
+| 101 | Laptop window → Settings → turn on **Let your phone unlock this computer**; lock the laptop (Meta+L) | — |
+| 102 | Phone Home → **Unlock** → fingerprint (or PIN) | the laptop unlocks within a few seconds (Plasma 6.4 may take ~5 s); a popup "Unlocked by Galaxy S24 FE"; the phone says "Computer unlocked" |
+| 103 | Turn the switch off, lock again, press **Unlock** on the phone | the phone shows "Unlocking from the phone is switched off…"; the laptop stays locked |
 
 When something fails, include:
 - the step number

@@ -13,6 +13,8 @@ pub const CAP_NOTIFICATIONS: &str = "notifications/1";
 
 /// Lock the computer from the phone (phone → computer).
 pub const CAP_LOCK: &str = "lock/1";
+/// Unlock the computer's screen from the phone (after the phone's fingerprint or PIN).
+pub const CAP_UNLOCK: &str = "unlock/1";
 /// Clipboard text in both directions.
 pub const CAP_CLIPBOARD: &str = "clipboard/1";
 
@@ -200,6 +202,8 @@ pub const MAX_CLIPBOARD_TEXT: usize = 64 * 1024;
 /// A lock request older than this (it waited in a queue) is ignored: locking long after the
 /// tap would be a surprise. Generous for clock differences between the two devices.
 pub const LOCK_MAX_AGE_MS: u64 = 2 * 60 * 1000;
+/// An unlock request older than this is refused (it is sent only while connected anyway).
+pub const UNLOCK_MAX_AGE_MS: u64 = 30 * 1000;
 /// Clipboard text older than this is not applied (it would overwrite something newer).
 pub const CLIPBOARD_MAX_AGE_MS: u64 = 2 * 60 * 1000;
 
@@ -466,6 +470,10 @@ pub enum AppMessage {
     /// `Node::send_fleeting`, never queued). `x`, `y`: 0..=[`POINTER_MAX`]; `color`: 0xRRGGBB;
     /// `size`: 0 small, 1 medium, 2 large.
     Pointer { x: u16, y: u16, visible: bool, shape: PointerShape, color: u32, size: u8 },
+    /// Phone → computer: unlock the screen (`CAP_UNLOCK`; sent only while connected, after
+    /// the phone's fingerprint or screen lock; refused unless the computer allows it and
+    /// fresh within [`UNLOCK_MAX_AGE_MS`]). Answered with `ActionResult` `unlock`.
+    UnlockComputer { sent_ms: u64 },
 }
 
 /// Album art must be a small JPEG or PNG.
@@ -476,6 +484,8 @@ pub fn is_art_image(data: &[u8]) -> bool {
 
 /// `ActionResult::key` for the answer to `LockComputer`.
 pub const LOCK_RESULT_KEY: &str = "lock";
+/// `ActionResult::key` for the answer to `UnlockComputer`.
+pub const UNLOCK_RESULT_KEY: &str = "unlock";
 
 /// Is a timestamp from the other device recent enough (`max_age`), allowing for clocks
 /// that differ by up to `max_age` in either direction?
@@ -553,6 +563,7 @@ mod tests {
             },
             AppMessage::CallAction { key: "0|incallui|1".into(), action: CallActionKind::Hold },
             AppMessage::Pointer { x: 10_000, y: 0, visible: true, shape: PointerShape::Spotlight, color: 0xFF3B30, size: 2 },
+            AppMessage::UnlockComputer { sent_ms: 14 },
             AppMessage::OpenUrl {
                 url: "https://example.org/a?b=1".into(),
                 sent_ms: 9,
@@ -688,6 +699,7 @@ mod tests {
         assert_eq!(CallActionKind::ALL.map(|a| pos(&a)), [0, 1, 2, 3, 4, 5]);
         let p = AppMessage::Pointer { x: 0, y: 0, visible: false, shape: PointerShape::Dot, color: 0, size: 0 };
         assert_eq!(pos(&p), 41);
+        assert_eq!(pos(&AppMessage::UnlockComputer { sent_ms: 0 }), 42);
         assert!(p.encode().unwrap().len() < 32, "small enough to send 30 times a second");
         assert_eq!([PointerShape::Dot, PointerShape::Ring, PointerShape::Spotlight].map(|s| pos(&s)), [0, 1, 2]);
         assert_eq!(CallActionKind::ALL.map(|a| CallActionKind::parse(a.as_str())), CallActionKind::ALL.map(Some));

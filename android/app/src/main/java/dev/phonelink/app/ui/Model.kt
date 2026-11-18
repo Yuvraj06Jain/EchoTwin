@@ -58,6 +58,8 @@ interface Actions {
     fun pair()
     fun reconnect()
     fun lock()
+    /** Unlock the computer, after the phone's fingerprint or screen lock. */
+    fun unlock()
     fun ring(on: Boolean)
     fun openButtons()
     fun setPresentApp(app: String)

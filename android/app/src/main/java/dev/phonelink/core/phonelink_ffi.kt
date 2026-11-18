@@ -833,6 +833,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_transfers(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_phonelink_unlock_computer(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_phonelink_unpair(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_streampipe_closed(
@@ -971,6 +973,8 @@ internal object UniffiLib {
     external fun uniffi_phonelink_ffi_fn_method_phonelink_stop_discovery(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_phonelink_transfers(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_phonelink_ffi_fn_method_phonelink_unlock_computer(`ptr`: Long,`deviceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_phonelink_unpair(`ptr`: Long,`deviceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
@@ -1238,6 +1242,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_transfers() and 0xFFFF) != 29082) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_unlock_computer() and 0xFFFF) != 48237) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_phonelink_unpair() and 0xFFFF) != 53161) {
@@ -2624,6 +2631,14 @@ public interface PhoneLinkInterface {
      */
     fun `transfers`(): List<FileTransfer>
     
+    /**
+     * Unlock the computer's screen. Call only after the phone's fingerprint or screen lock
+     * confirmed it is the owner. Sent only while connected (never queued); the computer
+     * answers with `RequestResult` key `unlock` (it refuses unless allowed there). Returns
+     * its name.
+     */
+    fun `unlockComputer`(`deviceId`: kotlin.String?): kotlin.String
+    
     fun `unpair`(`deviceId`: kotlin.String)
     
     companion object
@@ -3482,6 +3497,27 @@ open class PhoneLink: Disposable, AutoCloseable, PhoneLinkInterface
     
 
     
+    /**
+     * Unlock the computer's screen. Call only after the phone's fingerprint or screen lock
+     * confirmed it is the owner. Sent only while connected (never queued); the computer
+     * answers with `RequestResult` key `unlock` (it refuses unless allowed there). Returns
+     * its name.
+     */
+    @Throws(LinkException::class)override fun `unlockComputer`(`deviceId`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(LinkException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_phonelink_unlock_computer(
+        it,
+        
+        FfiConverterOptionalString.lower(`deviceId`),_status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(LinkException::class)override fun `unpair`(`deviceId`: kotlin.String)
         = 
     callWithHandle {
@@ -4297,6 +4333,11 @@ data class Device (
     var `canPoint`: kotlin.Boolean
     , 
     /**
+     * Connected, and can be unlocked from here (if its owner allows it there).
+     */
+    var `canUnlock`: kotlin.Boolean
+    , 
+    /**
      * "wifi" or "bluetooth" while connected; empty when offline.
      */
     var `via`: kotlin.String
@@ -4345,6 +4386,7 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalUByte.read(buf),
@@ -4366,6 +4408,7 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.allocationSize(value.`canPresentApps`) +
             FfiConverterBoolean.allocationSize(value.`canMute`) +
             FfiConverterBoolean.allocationSize(value.`canPoint`) +
+            FfiConverterBoolean.allocationSize(value.`canUnlock`) +
             FfiConverterString.allocationSize(value.`via`) +
             FfiConverterOptionalString.allocationSize(value.`bluetooth`) +
             FfiConverterOptionalUByte.allocationSize(value.`battery`) +
@@ -4386,6 +4429,7 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.write(value.`canPresentApps`, buf)
             FfiConverterBoolean.write(value.`canMute`, buf)
             FfiConverterBoolean.write(value.`canPoint`, buf)
+            FfiConverterBoolean.write(value.`canUnlock`, buf)
             FfiConverterString.write(value.`via`, buf)
             FfiConverterOptionalString.write(value.`bluetooth`, buf)
             FfiConverterOptionalUByte.write(value.`battery`, buf)

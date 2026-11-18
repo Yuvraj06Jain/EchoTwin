@@ -77,7 +77,7 @@ function fakeTauri() {
         if (!fake.daemonUp) throw 'daemon-down';
         switch (cmd) {
           case 'status':
-            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66', battery: fake.computerBattery ?? null, charging: true }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, battery_saver: fake.saver !== false, auto_saver_below: fake.autoBelow ?? 20, saver_active: fake.saverActive ?? (fake.saver !== false), switches: { battery_alerts: fake.alerts !== false, pause_media_on_call: true, open_links: true, allow_ring: true, allow_commands: true, call_popup: true }, devices: fake.devices, call: fake.call || null, download_dir: fake.downloadDir || '/home/you/Downloads/EchoTwin' };
+            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66', battery: fake.computerBattery ?? null, charging: true }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, battery_saver: fake.saver !== false, auto_saver_below: fake.autoBelow ?? 20, saver_active: fake.saverActive ?? (fake.saver !== false), switches: { battery_alerts: fake.alerts !== false, pause_media_on_call: true, open_links: true, allow_ring: true, allow_commands: true, call_popup: true, allow_unlock: false }, devices: fake.devices, call: fake.call || null, download_dir: fake.downloadDir || '/home/you/Downloads/EchoTwin' };
           case 'notifications':
             if (fake.slowNext) {
               // Snapshot the data now, answer late (like a reload that started before news arrived).
@@ -559,6 +559,8 @@ function fakeTauri() {
   check((await txt('.sheet')).includes('Phone buttons') && (await txt('.sheet [data-command="0"]')).includes('systemctl suspend'), 'phone buttons listed with their commands');
   check((await txt('.sheet')).includes('Shown on the phone under My buttons'), 'the buttons are said to be under My buttons on the phone');
   check((await txt('.sheet')).includes('Show calls at the top of the screen'), 'the call card switch is in Settings');
+  check((await txt('.sheet')).includes('Let your phone unlock this computer') && (await txt('.sheet')).includes('fingerprint or screen lock first'), 'the unlock switch is in Settings and says what it means');
+  check(!(await page.$eval('[data-key="allowUnlock"]', (e) => e.getAttribute('aria-checked') === 'true' || e.checked === true)), 'unlock is off by default');
   console.log('Received files folder');
   check((await txt('.sheet [data-download-dir]')) === '~/Downloads/EchoTwin', 'the folder is shown, home as ~');
   check((await page.$$eval('.sheet [data-action="reset-download-dir"]', (b) => b.length)) === 0, 'no Default button while it is the default');

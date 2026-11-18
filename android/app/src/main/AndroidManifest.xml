@@ -16,6 +16,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Vibrate while the computer rings this phone (no prompt). -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Fingerprint or screen lock before unlocking the computer (no prompt). -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <!-- Only used while scanning the pairing QR code; given up again when the app closes
          (revokeSelfPermissionOnKill). Never used in the background. -->

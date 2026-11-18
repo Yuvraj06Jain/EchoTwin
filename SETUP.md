@@ -336,6 +336,14 @@ When something fails, include:
 | group conversations can't be answered | sending to groups isn't supported yet |
 | marking read on the laptop doesn't mark it on the phone | by design: only the default SMS app may change that |
 
+### Calls
+
+| Symptom | Fix |
+|---|---|
+| no card and no notification when the phone rings | update both sides, then `phonelink-app --overlay-check`: a sample card should show at the top for 20 s. `journalctl --user -u phonelinkd -n 50 \| grep -i call` says whether the card was shown or the notification used |
+| the card never shows but a notification does | the overlay doesn't work on this desktop: `sudo apt install libgtk-layer-shell-dev`, then `./packaging/install.sh` again |
+| during a call only End shows | phone Settings → Calls lists what the call notification offered; send a screenshot. Mute and Speaker are offered anyway and done with Android's audio controls; if the phone refuses, the laptop shows why |
+
 ### Bluetooth backup
 
 | Symptom | Fix |

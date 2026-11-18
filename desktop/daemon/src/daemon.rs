@@ -635,6 +635,7 @@ impl State {
                 tokio::time::sleep(CALL_CARD_WAIT).await;
                 let waiting = lock(&st.calls).get(&peer).is_some_and(|c| c.phase == CallPhase::Ringing && c.key == k && !c.card_shown);
                 if waiting {
+                    info!("no call card within 4 s (app missing, no overlay, or the page didn't show): KDE notification instead");
                     st.call_notification(peer);
                 }
             });
@@ -669,9 +670,8 @@ impl State {
         }) else {
             return;
         };
-        if !self.notifications_on() {
-            return;
-        }
+        // Shown even when "Desktop notifications" are off: a ringing phone matters more.
+        info!("call notification shown");
         let title = if call.caller.is_empty() { "Incoming call".to_string() } else { format!("{} is calling", call.caller) };
         let mut buttons = vec![];
         if call.actions.contains(&CallActionKind::Answer) {
@@ -699,6 +699,9 @@ impl State {
                 (*fp, std::mem::take(&mut c.kde_shown))
             })
         };
+        if peer.is_some() {
+            info!("call card shown by the app");
+        }
         if let Some((peer, true)) = peer {
             self.popups.send(PopupCmd::Close { id: format!("call/{}", peer.short()) });
         }

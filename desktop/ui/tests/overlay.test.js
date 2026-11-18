@@ -20,9 +20,13 @@ const FAKE = (status) => `
   window.__listeners = {};
   window.__status = ${JSON.stringify(status)};
   window.__emit = (name, payload) => (window.__listeners[name] || []).forEach((cb) => cb({ payload }));
+  window.__emitted = [];
   window.__TAURI__ = {
     core: { invoke: async (cmd, args) => { window.__calls.push([cmd, args]); if (cmd === 'status') return window.__status; return null; } },
-    event: { listen: async (name, cb) => { (window.__listeners[name] = window.__listeners[name] || []).push(cb); } },
+    event: {
+      listen: async (name, cb) => { (window.__listeners[name] = window.__listeners[name] || []).push(cb); },
+      emit: async (name, payload) => { window.__emitted.push([name, payload]); },
+    },
   };`;
 
 (async () => {
@@ -57,6 +61,29 @@ const FAKE = (status) => `
   await page.evaluate(() => window.__emit('phonelink://event', { kind: 'call_changed', id: 'P', name: 'Galaxy S24 FE', phase: 'active', caller: 'Mom', actions: ['end'] }));
   await page.waitForTimeout(50);
   check(!(await visible('#card')), 'hides once the call is answered');
+
+  console.log('Call card loaded after the call was announced');
+  // The service's status doesn't have the call (an older service, or the call just started):
+  // the page asks the app, which sends it; only then does it say it is visible.
+  const late = await browser.newPage({ viewport: { width: 452, height: 96 } });
+  await late.addInitScript(FAKE({}));
+  await late.goto('file://' + path.join(__dirname, '..', 'call.html'));
+  await late.waitForTimeout(150);
+  const emitted = () => late.evaluate(() => window.__emitted.map((e) => e[0]));
+  check((await emitted()).includes('phonelink://call-card-ready'), 'the page says it is ready');
+  check(!(await emitted()).includes('phonelink://call-card-visible'), 'nothing visible yet, so not reported');
+  check(await late.$eval('#card', (e) => e.hidden), 'hidden until it knows the call');
+  await late.evaluate(() => window.__emit('phonelink://event', { kind: 'call_changed', id: 'P', name: 'Galaxy S24 FE', phase: 'ringing', caller: 'Mom', actions: ['answer', 'decline'], card: true }));
+  await late.waitForTimeout(80);
+  check(!(await late.$eval('#card', (e) => e.hidden)), 'shown once the app answers');
+  check(JSON.stringify(await late.evaluate(() => window.__emitted.find((e) => e[0] === 'phonelink://call-card-visible'))) === '["phonelink://call-card-visible",{"id":"P"}]', 'and reported visible, with the call id');
+  await late.evaluate(() => window.__emit('phonelink://event', { kind: 'call_changed', id: 'P', name: 'Galaxy S24 FE', phase: 'ringing', caller: 'Mom', actions: ['answer', 'decline'] }));
+  await late.waitForTimeout(50);
+  check((await emitted()).filter((n) => n === 'phonelink://call-card-visible').length === 1, 'reported once per ring');
+  await late.evaluate(() => window.__emit('phonelink://event', { kind: 'call_changed', id: 'P', name: 'Galaxy S24 FE', phase: 'active', caller: 'Mom', actions: ['end'] }));
+  await late.waitForTimeout(50);
+  check(await late.$eval('#card', (e) => e.hidden), 'hidden once answered');
+  await late.close();
 
   console.log('Pointer');
   const pp = await browser.newPage({ viewport: { width: 1000, height: 500 }, deviceScaleFactor: 1 });

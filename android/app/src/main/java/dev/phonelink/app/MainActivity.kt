@@ -162,6 +162,7 @@ class MainActivity : ComponentActivity() {
                 val computerMedia by LinkManager.computerMedia.collectAsStateWithLifecycle()
                 val commands by LinkManager.commands.collectAsStateWithLifecycle()
                 val computerArt by LinkManager.computerArt.collectAsStateWithLifecycle()
+                val lastCallButtons by CallWatcher.lastSeen.collectAsStateWithLifecycle()
                 val computerPlayedMs by LinkManager.computerPlayedMs.collectAsStateWithLifecycle()
                 val state = UiState(
                     myId = myId,
@@ -182,6 +183,7 @@ class MainActivity : ComponentActivity() {
                     presentApp = presentApp,
                     receiveFolder = FileShare.folderName(receiveFolder),
                     receiveFolderChosen = receiveFolder != null,
+                    lastCallButtons = lastCallButtons,
                     pointerShape = pointerStyle.first,
                     pointerColor = pointerStyle.second,
                     pointerSize = pointerStyle.third,

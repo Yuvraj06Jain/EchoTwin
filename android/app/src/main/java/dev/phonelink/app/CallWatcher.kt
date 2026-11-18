@@ -33,14 +33,31 @@ object CallWatcher {
         CallActionFfi.ANSWER to answerWords,
         CallActionFfi.DECLINE to Regex("(?i)decline|reject|dismiss"),
         CallActionFfi.END to Regex("(?i)hang ?up|end|disconnect"),
-        CallActionFfi.MUTE to Regex("(?i)mute"),
-        CallActionFfi.SPEAKER to Regex("(?i)speaker"),
+        CallActionFfi.MUTE to Regex("(?i)mute|microphone|\\bmic\\b"),
+        CallActionFfi.SPEAKER to Regex("(?i)speaker|loudspeaker|speakerphone"),
         CallActionFfi.HOLD to Regex("(?i)hold|resume"),
     )
 
-    private fun kindOf(a: Notification.Action): CallActionFfi? {
-        val title = a.title?.toString() ?: return null
-        return kinds.firstOrNull { it.second.containsMatchIn(title) }?.first
+    /** Android's own tag first (Mute / Unmute), else the title. */
+    internal fun classify(title: String, semantic: Int): CallActionFfi? = when (semantic) {
+        Notification.Action.SEMANTIC_ACTION_MUTE, Notification.Action.SEMANTIC_ACTION_UNMUTE -> CallActionFfi.MUTE
+        else -> kinds.firstOrNull { it.second.containsMatchIn(title) }?.first
+    }
+
+    private fun kindOf(a: Notification.Action): CallActionFfi? =
+        classify(a.title?.toString().orEmpty(), a.semanticAction)
+
+    /** What the last call notification offered, for Settings → Calls (a screenshot tells all). */
+    val lastSeen = kotlinx.coroutines.flow.MutableStateFlow("")
+
+    @Suppress("DEPRECATION")
+    private fun describe(n: Notification): String {
+        val buttons = n.actions.orEmpty().joinToString(", ") { a ->
+            val kind = kindOf(a)?.name?.lowercase() ?: "?"
+            "\"${a.title}\" → $kind" + if (a.semanticAction != 0) " (tag ${a.semanticAction})" else ""
+        }.ifEmpty { "no buttons" }
+        val custom = n.contentView != null || n.bigContentView != null
+        return buttons + if (custom) " · plus a custom layout EchoTwin can't read" else ""
     }
 
     fun isCall(sbn: StatusBarNotification): Boolean =
@@ -61,8 +78,15 @@ object CallWatcher {
         val caller = person?.name?.toString()
             ?: extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
             ?: ""
-        val actions = n.actions.orEmpty().mapNotNull(::kindOf).distinct()
-        val call = Call(if (incoming) CallPhaseFfi.RINGING else CallPhaseFfi.ACTIVE, caller, actions)
+        val phase = if (incoming) CallPhaseFfi.RINGING else CallPhaseFfi.ACTIVE
+        var actions = n.actions.orEmpty().mapNotNull(::kindOf).distinct()
+        if (phase == CallPhaseFfi.ACTIVE) {
+            // Not offered as buttons the computer can press: done with Android's audio
+            // controls instead (CallAudio), if the phone allows it.
+            actions = actions + listOf(CallActionFfi.MUTE, CallActionFfi.SPEAKER).filter { it !in actions }
+        }
+        lastSeen.value = describe(n)
+        val call = Call(phase, caller, actions)
         main.post {
             calls[sbn.key] = call
             update()
@@ -127,7 +151,11 @@ object CallWatcher {
         val sbn = service.activeNotifications?.firstOrNull { it.key == key }
             ?: error("That call is no longer there")
         val action = sbn.notification.actions?.firstOrNull { kindOf(it) == kind }
-            ?: error("Your phone's call screen doesn't offer that")
+            ?: return@runCatching when (kind) {
+                CallActionFfi.MUTE -> CallAudio.toggleMute(service)
+                CallActionFfi.SPEAKER -> CallAudio.toggleSpeaker(service)
+                else -> error("Your phone's call screen doesn't offer that")
+            }
         if (Build.VERSION.SDK_INT >= 34) {
             // Answer may open the call screen: allow that from the background.
             val opts = ActivityOptions.makeBasic()

@@ -590,6 +590,7 @@ async fn watch_daemon(app: AppHandle) {
                 tauri::async_runtime::spawn(call_card_on_start(app.clone()));
                 while let Ok(Some(Reply::Event { event })) = c.next().await {
                     if let WatchEvent::CallChanged { id, card, .. } = &event {
+                        *LAST_CALL.lock().unwrap_or_else(|e| e.into_inner()) = serde_json::to_value(&event).ok();
                         tauri::async_runtime::spawn(call_card(app.clone(), id.clone(), *card));
                     }
                     if let WatchEvent::Pointer { visible, .. } = &event {
@@ -655,43 +656,108 @@ async fn pointer_watchdog(app: AppHandle) {
 
 /// The call card at the top of the screen: shown while a call rings (and `call_popup` is on),
 /// hidden otherwise. The service is told when it shows, so it skips the KDE notification.
-async fn call_card(app: AppHandle, id: String, show: bool) {
+/// The latest `call_changed` event: the card page asks for it once it has loaded (it is made
+/// after the event went out, so it can't have heard it).
+static LAST_CALL: Mutex<Option<serde_json::Value>> = Mutex::new(None);
+/// `--overlay-check` waits for its sample card to be seen.
+static CHECK_SEEN: Mutex<Option<oneshot::Sender<()>>> = Mutex::new(None);
+/// The sample call of `--overlay-check` (never reported to the service).
+const CHECK_ID: &str = "overlay-check";
+
+fn last_call() -> Option<serde_json::Value> {
+    LAST_CALL.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// The card page's two messages: "I have loaded" (send it the call) and "the card is on
+/// screen" (only then may the service skip its KDE notification).
+fn listen_to_call_card(app: &AppHandle) {
+    use tauri::Listener;
+    let a = app.clone();
+    app.listen("phonelink://call-card-ready", move |_| {
+        if let Some(call) = last_call() {
+            let _ = a.emit_to("call", "phonelink://event", call);
+        }
+    });
+    app.listen("phonelink://call-card-visible", move |e| {
+        let id = serde_json::from_str::<serde_json::Value>(e.payload())
+            .ok()
+            .and_then(|v| v.get("id").and_then(|i| i.as_str()).map(String::from))
+            .unwrap_or_default();
+        if id == CHECK_ID {
+            if let Some(tx) = CHECK_SEEN.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                let _ = tx.send(());
+            }
+        } else if !id.is_empty() {
+            tauri::async_runtime::spawn(async move {
+                let _ = expect_done(Request::CallPopupShown { id }).await;
+            });
+        }
+    });
+}
+
+async fn call_card(app: AppHandle, _id: String, show: bool) {
     if !show {
         let a = app.clone();
         let _ = app.run_on_main_thread(move || overlay::hide(&a, "call"));
         return;
     }
     match overlay::show(&app, "call", "call.html", overlay::Kind::TopCard { width: 440, height: 96 }).await {
+        // A page loaded earlier (the window is reused) gets the call now; a new page asks
+        // for it when ready. It reports back once the card is really visible.
         Ok(()) => {
-            let _ = app.emit_to("call", "phonelink://call-card", ());
-            let _ = expect_done(Request::CallPopupShown { id }).await;
+            if let Some(call) = last_call() {
+                let _ = app.emit_to("call", "phonelink://event", call);
+            }
         }
         Err(e) => eprintln!("phonelink-app: no call card ({e}); the service shows a notification instead"),
     }
 }
 
-async fn overlay_check(app: AppHandle) {
-    let r = overlay::show(&app, "call", "call.html", overlay::Kind::TopCard { width: 440, height: 96 }).await;
-    eprintln!("phonelink-app: overlay check: {}", match &r { Ok(()) => "call card shown".to_string(), Err(e) => e.clone() });
+/// `--overlay-check`: a sample call card through the same steps as a real call, and the
+/// pointer, for 20 s. `exit`: this instance was started only for the check.
+async fn overlay_check(app: AppHandle, exit: bool) {
+    let (tx, rx) = oneshot::channel();
+    *CHECK_SEEN.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
+    *LAST_CALL.lock().unwrap_or_else(|e| e.into_inner()) = Some(serde_json::json!({ "kind": "call_changed", "id": CHECK_ID,
+        "name": "this computer", "phase": "ringing", "caller": "Overlay check", "actions": ["answer", "decline"], "card": true }));
+    call_card(app.clone(), CHECK_ID.into(), true).await;
+    let card = match tokio::time::timeout(Duration::from_secs(5), rx).await {
+        Ok(Ok(())) => "call card visible".to_string(),
+        _ => "the call card didn't show; calls will use a KDE notification instead".to_string(),
+    };
+    println!("phonelink-app: overlay check: {card}");
     let p = overlay::show(&app, "pointer", "pointer.html", overlay::Kind::FullClickThrough).await;
-    eprintln!("phonelink-app: overlay check: {}", match &p { Ok(()) => "pointer shown".to_string(), Err(e) => e.clone() });
-    let r = r.and(p);
-    let sample = serde_json::json!({ "kind": "call_changed", "id": "check", "name": "this computer", "phase": "ringing",
-        "caller": "Overlay check", "actions": ["answer", "decline"], "card": true });
-    // Again every second: the page may still be loading the first time.
+    println!("phonelink-app: overlay check: {}", match &p { Ok(()) => "pointer shown".to_string(), Err(e) => e.clone() });
     for _ in 0..20 {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let _ = app.emit_to("call", "phonelink://event", sample.clone());
         let pointer = serde_json::json!({ "kind": "pointer", "x": 7000, "y": 6000, "visible": true, "shape": "dot", "color": 0xFF3B30, "size": 2 });
         let _ = app.emit_to("pointer", "phonelink://event", pointer);
     }
-    app.exit(if r.is_ok() { 0 } else { 1 });
+    // Put things back: a real call may have come meanwhile.
+    let mut last = LAST_CALL.lock().unwrap_or_else(|e| e.into_inner());
+    if last.as_ref().and_then(|v| v.get("id")).and_then(|i| i.as_str()) == Some(CHECK_ID) {
+        *last = None;
+        drop(last);
+        let a = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            overlay::hide(&a, "call");
+            overlay::hide(&a, "pointer");
+        });
+    }
+    if exit {
+        let ok = card.ends_with("visible") && p.is_ok();
+        app.exit(if ok { 0 } else { 1 });
+    }
 }
 
 async fn call_card_on_start(app: AppHandle) {
     let Ok(Reply::Status { call: Some(call), switches, .. }) = request(Request::Status).await else { return };
     let on = switches.get("call_popup").copied().unwrap_or(true);
     if call.phase == "ringing" && on {
+        // Started for this ring: the event went out before we were listening.
+        *LAST_CALL.lock().unwrap_or_else(|e| e.into_inner()) = Some(serde_json::json!({ "kind": "call_changed",
+            "id": call.id, "name": call.name, "phase": call.phase, "caller": call.caller,
+            "actions": call.actions, "active_ms": call.active_ms, "card": true }));
         call_card(app, call.id, true).await;
     }
 }
@@ -704,6 +770,8 @@ struct LaunchRequest {
     token: Option<String>,
     /// `--background`: started by the service for the call card or pointer; no main window.
     background: bool,
+    /// `--overlay-check`: show a sample call card and pointer.
+    overlay_check: bool,
 }
 
 fn launch_request(args: &[String]) -> LaunchRequest {
@@ -715,6 +783,8 @@ fn launch_request(args: &[String]) -> LaunchRequest {
             }
         } else if a == "--background" {
             req.background = true;
+        } else if a == "--overlay-check" {
+            req.overlay_check = true;
         } else if let Some(t) = a.strip_prefix("--activation-token=") {
             if !t.is_empty() && t.len() <= 512 && t.bytes().all(|b| b.is_ascii_graphic()) {
                 req.token = Some(t.to_string());
@@ -880,6 +950,10 @@ fn main() {
 
     let args: Vec<String> = std::env::args().collect();
     let first = launch_request(&args);
+    if first.overlay_check {
+        // If EchoTwin already runs, that instance shows it (and this one exits at once).
+        eprintln!("EchoTwin: a sample call card should appear at the top of the screen, and a red dot, for 20 s.");
+    }
     // The token in our environment (if any) belongs to this launch only.
     std::env::remove_var("XDG_ACTIVATION_TOKEN");
     std::env::remove_var("DESKTOP_STARTUP_ID");
@@ -887,7 +961,13 @@ fn main() {
     tauri::Builder::default()
         // Must be the first plugin: a second launch hands its arguments over and exits.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            bring_forward(app, launch_request(&argv));
+            let req = launch_request(&argv);
+            if req.overlay_check {
+                // Already running: check here, without opening the window.
+                tauri::async_runtime::spawn(overlay_check(app.clone(), false));
+                return;
+            }
+            bring_forward(app, req);
         }))
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
@@ -942,10 +1022,11 @@ fn main() {
             start_daemon
         ])
         .setup(move |app| {
-            if std::env::args().any(|a| a == "--overlay-check") {
+            listen_to_call_card(app.handle());
+            if first.overlay_check {
                 // Hidden: shows a sample call card and pointer for 20 s to check the overlay on this
                 // desktop (packaging/install.sh hints at it; tests use it under sway).
-                tauri::async_runtime::spawn(overlay_check(app.handle().clone()));
+                tauri::async_runtime::spawn(overlay_check(app.handle().clone(), true));
             } else if first.background {
                 tauri::async_runtime::spawn(exit_when_idle(app.handle().clone()));
             } else {
@@ -998,12 +1079,14 @@ mod launch_tests {
             launch_request(&args(&["x", "--show=notifications", "--activation-token=kwin-1"])),
             LaunchRequest {
                 background: false,
+                overlay_check: false,
                 tab: Some("notifications".into()),
                 token: Some("kwin-1".into())
             }
         );
         assert_eq!(launch_request(&args(&["x", "--show=note"])).tab.as_deref(), Some("note"), "the widget's Note button");
         assert!(launch_request(&args(&["x", "--background"])).background);
+        assert!(launch_request(&args(&["x", "--overlay-check"])).overlay_check);
         assert!(!launch_request(&args(&["x", "--background=1"])).background);
         let bad = launch_request(&args(&["x", "--show=\";alert(1)//", "--activation-token=a b"]));
         assert_eq!(bad, LaunchRequest::default());

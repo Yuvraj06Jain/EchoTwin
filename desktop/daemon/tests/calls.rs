@@ -342,6 +342,19 @@ async fn a_ringing_call_shows_the_card_or_else_a_notification_and_the_buttons_re
     let Reply::Status { call, .. } = rig.request(Request::Status).await else { panic!() };
     assert!(call.is_none());
 
+    // "Desktop notifications" off: a ringing call still notifies when no card shows.
+    assert_eq!(rig.request(Request::SetNotifications { enabled: false }).await, Reply::Done);
+    rig.call_popups();
+    let off = Request::SetSwitch { name: "call_popup".into(), on: false };
+    assert_eq!(rig.request(off).await, Reply::Done);
+    rig.info(CallPhase::Ringing, "Rahul", &[Answer, Decline]);
+    rig.call_event_full().await;
+    assert_eq!(rig.call_popups(), [r#"show Rahul is calling ["Answer", "Decline"] 0"#]);
+    rig.info(CallPhase::Idle, "", &[]);
+    rig.call_event().await;
+    let on = Request::SetSwitch { name: "call_popup".into(), on: true };
+    assert_eq!(rig.request(on).await, Reply::Done);
+
     // The card was shown this time: no KDE notification at all.
     rig.call_popups();
     rig.info(CallPhase::Ringing, "", &[Answer, Decline]);

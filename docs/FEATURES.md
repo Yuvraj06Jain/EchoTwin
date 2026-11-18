@@ -631,9 +631,23 @@ the phone's own "ringing" state, it sends Ringing without a name or buttons.
 On the laptop, a new ring with `call_popup` on starts the app in the background (`Effects::
 start_app`, at most every 30 s; `phonelink-app --background` opens no main window and quits
 a minute after its last window hid), which shows the card as a layer-shell overlay
-(`overlay.rs`, see below) and answers `Request::CallPopupShown`. If that doesn't come within 4 s
-(app missing, no layer-shell, anything), the KDE notification shows instead, with Answer and
-Decline as offered. The timer counts from this computer's clock when the call became active
+(`overlay.rs`, see below). The card window is made after the call was announced, so the page
+asks for it on load (`phonelink://call-card-ready`; the app answers with the latest call it
+kept in `LAST_CALL`, or from `Reply::Status.call` when it was started for this ring), and says
+`phonelink://call-card-visible` once the card is really on screen; only then does the app send
+`Request::CallPopupShown`. If that doesn't come within 4 s (app missing, no layer-shell, a page
+that didn't show, anything), the KDE notification shows instead, with Answer and Decline as
+offered, even when "Desktop notifications" are off. The service logs which happened
+(`journalctl --user -u phonelinkd | grep -i call`).
+
+In-call buttons: the phone classifies the call notification's buttons by Android's semantic
+tag (Mute/Unmute) and by title. Samsung's notification may not expose Mute and Speaker as
+buttons, so for an active call the phone always offers them and, if the notification has no
+such button, does it with Android's audio controls (`CallAudio.kt`: `setMicrophoneMute`;
+`setCommunicationDevice` to the speaker on Android 12+), reading the state back and saying so
+if the phone didn't allow it (MODIFY_AUDIO_SETTINGS, no prompt). Whether Samsung applies these
+to a carrier call is device-only [unverified]. Phone Settings â†’ Calls shows what the last call
+notification offered (titles, tags, custom layout), for diagnosing. The timer counts from this computer's clock when the call became active
 (`active_ms`), and ticks only while a call is active and the window or popup is open (the
 widget hash never changes because of it). The laptop pauses every MPRIS player that is
 *Playing* and later resumes only those, if they are still paused (`mpris::CallPause`). A phone
@@ -646,7 +660,8 @@ or stay above a full-screen window, so the card (and the presentation pointer, Â
 it), never taking the keyboard: needs `libgtk-layer-shell` (cargo feature `layer-shell`, on by
 default; `install.sh` builds without it and says so if the headers are missing). On X11 they
 are always-on-top windows placed on the primary monitor. Check on your desktop with
-`phonelink-app --overlay-check` (a sample card for 20 s). Verified here under sway (headless):
+`phonelink-app --overlay-check` (a sample card and pointer for 20 s, through the same steps
+as a real call; if EchoTwin already runs, that instance shows it without opening the window). Verified here under sway (headless):
 the card sits at the top centre above a full-screen window.
 
 | Layer | File | Functions |

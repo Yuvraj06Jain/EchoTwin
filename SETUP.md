@@ -236,6 +236,8 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 96 | Call again and press **Decline** on the card; then switch Settings → "Show calls at the top of the screen" off and call again | declined on the phone; with the switch off a normal KDE notification with Answer / Decline shows instead of the card |
 | 97 | Open a presentation full screen on the laptop; phone Home → **Presentation**, drag a finger on the pad | a red dot follows on the laptop screen above the slides; lifting the finger hides it; clicks on the laptop still reach the slides |
 | 98 | Press the colour square next to Black → **Spotlight**, **L**; drag again | the screen darkens with a clear circle that follows your finger |
+| 99 | Laptop window → Settings → Received files → **Change…**, pick a folder; send a photo from the phone | it lands in that folder; the popup names it; `phonelink download-dir` prints it; **Default** goes back to ~/Downloads/EchoTwin |
+| 100 | Phone: Settings → Received files → **Change**, pick or make a folder (e.g. Documents/EchoTwin); send a file from the laptop | it lands in that folder and the notification names it; tapping it opens the file; **Default** goes back to Download/EchoTwin |
 
 When something fails, include:
 - the step number

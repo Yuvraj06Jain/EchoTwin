@@ -81,6 +81,25 @@ class MainActivity : ComponentActivity() {
     private val scan = registerForActivityResult(ScanContract()) { result ->
         result.contents?.let { onScanned(it) }
     }
+    private var receiveFolder by mutableStateOf<String?>(null)
+    /** Android's folder chooser: EchoTwin gets access to that one folder only, kept across restarts. */
+    private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        try {
+            contentResolver.takePersistableUriPermission(uri, flags)
+        } catch (e: SecurityException) {
+            notice = "Android didn't allow EchoTwin to keep using that folder"
+            return@registerForActivityResult
+        }
+        // Give back access to the folder chosen before, if any.
+        receiveFolder?.let { old ->
+            runCatching { contentResolver.releasePersistableUriPermission(android.net.Uri.parse(old), flags) }
+        }
+        receiveFolder = uri.toString()
+        Prefs.setReceiveFolder(this, receiveFolder)
+        notice = "Files from your computer now go to ${FileShare.folderName(receiveFolder)}"
+    }
     private val askNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     private var smsOn by mutableStateOf(true)
@@ -161,6 +180,8 @@ class MainActivity : ComponentActivity() {
                     computerArt = computerArt?.takeIf { it.first == computerMedia?.artKey }?.second,
                     computerPlayedMs = computerPlayedMs,
                     presentApp = presentApp,
+                    receiveFolder = FileShare.folderName(receiveFolder),
+                    receiveFolderChosen = receiveFolder != null,
                     pointerShape = pointerStyle.first,
                     pointerColor = pointerStyle.second,
                     pointerSize = pointerStyle.third,
@@ -233,6 +254,22 @@ class MainActivity : ComponentActivity() {
             pointerStyle = Triple(shape, color, size)
             Prefs.setPointerStyle(this@MainActivity, shape, color, size)
         }
+        override fun chooseReceiveFolder() {
+            try {
+                pickFolder.launch(receiveFolder?.let(android.net.Uri::parse))
+            } catch (e: android.content.ActivityNotFoundException) {
+                notice = "This phone has no folder chooser"
+            }
+        }
+        override fun defaultReceiveFolder() {
+            receiveFolder?.let { old ->
+                val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                runCatching { contentResolver.releasePersistableUriPermission(android.net.Uri.parse(old), flags) }
+            }
+            receiveFolder = null
+            Prefs.setReceiveFolder(this@MainActivity, null)
+            notice = "Files from your computer now go to ${FileShare.DEFAULT_FOLDER}"
+        }
         override fun setPresentApp(app: String) {
             presentApp = app
             Prefs.setPresentApp(this@MainActivity, app)
@@ -304,6 +341,7 @@ class MainActivity : ComponentActivity() {
         queueOn = Prefs.queueNotifications(this)
         batteryAlertsOn = Prefs.batteryAlerts(this)
         presentApp = Prefs.presentApp(this)
+        receiveFolder = Prefs.receiveFolder(this)
         pointerStyle = Prefs.pointerStyle(this)
         pairedOnDisk = LinkManager.hasPairedDevice(this)
         smsOn = SmsSync.canRead()

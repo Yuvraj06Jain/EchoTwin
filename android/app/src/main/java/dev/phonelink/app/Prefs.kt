@@ -10,6 +10,13 @@ object Prefs {
     private const val CONNECTION = "connection"
     private const val BATTERY_ALERTS = "battery_alerts"
     private const val PRESENT_APP = "present_app"
+    private const val RECEIVE_FOLDER = "receive_folder"
+
+    /** The folder received files go to (a document tree the user picked), or null: Download/EchoTwin. */
+    fun receiveFolder(context: Context): String? = prefs(context).getString(RECEIVE_FOLDER, null)
+
+    fun setReceiveFolder(context: Context, uri: String?) =
+        prefs(context).edit().apply { if (uri == null) remove(RECEIVE_FOLDER) else putString(RECEIVE_FOLDER, uri) }.apply()
     private const val POINTER_SHAPE = "pointer_shape"
     private const val POINTER_COLOR = "pointer_color"
     private const val POINTER_SIZE = "pointer_size"

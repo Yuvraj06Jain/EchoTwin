@@ -126,7 +126,7 @@ or files, write a note, ring the laptop to find it, mute it, or start presenting
 | **Notifications** | Popups with the full text, reply, the app's own buttons, dismiss on both devices, mute per app, OTP copy |
 | **SMS** | Read and reply with contact names; start a new conversation with contact search |
 | **Calls** | Card at the top of the screen with Answer / Decline; End, Mute, Speaker, Hold from the laptop; music pauses during calls |
-| **Files** | Both ways, drag and drop, share sheet, Dolphin's right-click menu; resumes after drops |
+| **Files** | Both ways, drag and drop, share sheet, Dolphin's right-click menu; resumes after drops; you choose the folder they land in, on each device |
 | **Clipboard and notes** | Copy here, paste there; notes both ways with a Copy button |
 | **Remote** | The laptop's music on the phone with album art; Mute; your own buttons |
 | **Presentations** | Start/End per app (PowerPoint, Impress, Google Slides, Canva, full screen), Next / Previous, black screen, volume-key clicker, pointer |

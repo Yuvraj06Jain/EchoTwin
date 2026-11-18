@@ -2227,12 +2227,14 @@ mod tests {
         let d = &phone.devices()[0];
         assert!(d.can_mute && d.can_present_apps && d.can_point);
         // The pointer: clamped, masked, not queued.
+        let queued_before = phone.node.pending_count(&laptop.fingerprint()).unwrap();
         assert!(phone.pointer(None, 20_000, 5_000, true, PointerShapeFfi::Ring, 0xAAFF3B30, 9).unwrap());
         assert!(matches!(
             next_from_phone(&mut lrx),
             AppMessage::Pointer { x: 10_000, y: 5_000, visible: true, shape: phonelink_core::PointerShape::Ring, color: 0xFF3B30, size: 2 }
         ));
-        assert_eq!(phone.node.pending_count(&laptop.fingerprint()).unwrap(), 0, "never queued");
+        // Earlier messages may still wait for their ack; the pointer adds nothing to the queue.
+        assert!(phone.node.pending_count(&laptop.fingerprint()).unwrap() <= queued_before, "never queued");
         phone.computer_media_control(None, MediaCommand::ToggleMute).unwrap();
         assert!(matches!(next_from_phone(&mut lrx), AppMessage::ComputerMediaControl { action: MediaAction::ToggleMute }));
         for (ffi, wire) in [

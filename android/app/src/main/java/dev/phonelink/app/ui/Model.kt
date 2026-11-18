@@ -39,6 +39,9 @@ data class UiState(
     val computerPlayedMs: Long = 0L,
     /** Presentation app for Start: office | slides | canva | fullscreen. */
     val presentApp: String = "office",
+    /** Where received files are saved ("Download/EchoTwin" or the chosen folder), and if chosen. */
+    val receiveFolder: String = "Download/EchoTwin",
+    val receiveFolderChosen: Boolean = false,
     /** The pointer's look: dot | ring | spotlight, 0xRRGGBB, size 0..2. */
     val pointerShape: String = "dot",
     val pointerColor: Int = 0xFF3B30,
@@ -58,6 +61,9 @@ interface Actions {
     fun ring(on: Boolean)
     fun openButtons()
     fun setPresentApp(app: String)
+    /** Pick the folder for received files (Android's folder chooser), or go back to the default. */
+    fun chooseReceiveFolder()
+    fun defaultReceiveFolder()
     /** Pointer at x, y (0..10000) or, `visible` false, gone. */
     fun pointer(x: Int, y: Int, visible: Boolean)
     fun setPointerStyle(shape: String, color: Int, size: Int)

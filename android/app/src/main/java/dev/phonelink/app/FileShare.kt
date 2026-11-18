@@ -8,6 +8,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Environment
 import android.os.ParcelFileDescriptor
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import dev.phonelink.core.FileSource
@@ -21,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
  * checking, cancelling); this side only:
  *
  * * opens the file being sent when the core asks (a content URI → file descriptor),
- * * publishes received files to Download/EchoTwin through MediaStore (no storage
+ * * publishes received files to the folder chosen in Settings, else Download/EchoTwin through MediaStore (no storage
  *   permission needed), and
  * * keeps the progress notification up to date.
  */
@@ -169,14 +170,68 @@ object FileShare : FileSource {
         list.filter { !it.outgoing && it.state == "done" }.forEach(::publish)
     }
 
+    /** Shown when no folder is chosen, or the chosen one can't be used. */
+    const val DEFAULT_FOLDER = "Download/EchoTwin"
+
+    /** "Documents/Phone" for a picked folder's document tree (what the user sees in Files). */
+    fun folderName(treeUri: String?): String {
+        if (treeUri == null) return DEFAULT_FOLDER
+        return try {
+            val id = DocumentsContract.getTreeDocumentId(Uri.parse(treeUri))
+            val path = id.substringAfter(':', id)
+            when {
+                path.isNotEmpty() -> path
+                id.startsWith("primary") -> "Internal storage"
+                else -> id.substringBefore(':')
+            }
+        } catch (e: Exception) {
+            "the chosen folder"
+        }
+    }
+
     /**
-     * Move a received file from the app's private folder to Download/EchoTwin, where the
-     * Files app and others see it. Idempotent: once moved, the private copy is gone.
+     * Move a received file from the app's private folder to the chosen folder (Settings →
+     * Received files) or, without one or if it can't be used any more, to Download/EchoTwin,
+     * where the Files app and others see it. Idempotent: once moved, the private copy is gone.
      */
     @Synchronized
     private fun publish(t: FileTransfer) {
         val private = t.path?.let(::File) ?: return
         if (!private.exists()) return
+        val chosen = Prefs.receiveFolder(app)
+        val (uri, where) = chosen?.let { tree -> toTree(tree, t, private)?.let { it to folderName(tree) } }
+            ?: (toDownloads(t, private) ?: return) to DEFAULT_FOLDER
+        private.delete()
+        val open = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, t.mime.ifBlank { "*/*" })
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        val note = if (chosen != null && where == DEFAULT_FOLDER) " (the chosen folder isn't available)" else ""
+        Notifications.fileResult(app, t.id, "Received ${t.name}", "From ${t.deviceName} · saved in $where$note", open)
+    }
+
+    /** Copy into the picked folder; null if it is gone or access was taken back. */
+    private fun toTree(tree: String, t: FileTransfer, file: File): Uri? {
+        val cr = app.contentResolver
+        return try {
+            val treeUri = Uri.parse(tree)
+            val parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri))
+            val doc = DocumentsContract.createDocument(cr, parent, t.mime.ifBlank { "application/octet-stream" }, t.name)
+                ?: return null
+            try {
+                cr.openOutputStream(doc)?.use { out -> file.inputStream().use { it.copyTo(out) } }
+                    ?: throw IllegalStateException("no output")
+                doc
+            } catch (e: Exception) {
+                runCatching { DocumentsContract.deleteDocument(cr, doc) }
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Copy into Download/EchoTwin through MediaStore (no storage permission needed). */
+    private fun toDownloads(t: FileTransfer, file: File): Uri? {
         val cr = app.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, t.name)
@@ -188,18 +243,15 @@ object FileShare : FileSource {
             cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
         } catch (e: Exception) {
             null
-        } ?: return
-        try {
-            cr.openOutputStream(uri)?.use { out -> private.inputStream().use { it.copyTo(out) } }
+        } ?: return null
+        return try {
+            cr.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
                 ?: throw IllegalStateException("no output")
             cr.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
-            private.delete()
-            val open = Intent(Intent.ACTION_VIEW)
-                .setDataAndType(uri, t.mime.ifBlank { "*/*" })
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            Notifications.fileResult(app, t.id, "Received ${t.name}", "From ${t.deviceName} · saved in Download/EchoTwin", open)
+            uri
         } catch (e: Exception) {
             runCatching { cr.delete(uri, null, null) } // keep the private copy; retried later
+            null
         }
     }
 }

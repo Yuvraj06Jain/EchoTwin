@@ -472,3 +472,22 @@ async fn a_device_with_an_older_phonelink_is_not_sent_files() {
         })
         .await;
 }
+
+#[tokio::test]
+async fn received_files_go_to_the_folder_chosen_last() {
+    let (laptop, _lrx, phone, _prx) = paired_pair().await;
+    let (src, ldir, pdir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (lt, lseen) = engine(&laptop, ldir.path(), None, 0);
+    let (pt, _pseen) = engine(&phone, pdir.path(), None, 0);
+
+    // A folder that doesn't exist yet: made when the file arrives.
+    let chosen = ldir.path().join("Received from phone");
+    lt.set_incoming_dir(chosen.clone());
+    assert_eq!(lt.incoming_dir(), chosen);
+    let photo = random_file(src.path(), "photo.jpg", 200_000);
+    let id = send(&pt, laptop.fingerprint(), &photo);
+    lseen.until("received", |_| done(&lseen, &id)).await;
+    let saved = PathBuf::from(lseen.latest(&id).unwrap().path.unwrap());
+    assert_eq!(saved, chosen.join("photo.jpg"));
+    assert!(same_content(&photo, &saved));
+}

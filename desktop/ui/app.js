@@ -1300,6 +1300,26 @@
   if (api.setBlur) applyAppearance(); // only inside the desktop app
 
   /** Your own buttons, shown on the phone under My buttons. */
+  /** "/home/you/Downloads/EchoTwin" → "~/Downloads/EchoTwin". */
+  const homeShort = (p) => String(p).replace(/^\/home\/[^/]+(?=\/|$)/, '~');
+
+  /** Where files from the phone go, with Change… (the system's folder chooser) and Default. */
+  function downloadSection(s) {
+    if (!('downloadDir' in s) || !api.pickDownloadDir) return '';
+    const isDefault = /\/Downloads\/EchoTwin$/.test(s.downloadDir || '');
+    return `<div class="sheet-section"><p class="section-label">Received files</p>
+        <div class="row"><div class="grow"><div class="mono" data-download-dir title="${esc(s.downloadDir)}">${esc(homeShort(s.downloadDir || ''))}</div>
+          <div class="row-desc">Files from your phone are saved here.</div></div>
+          <button type="button" class="btn btn-sm" data-action="pick-download-dir">Change…</button>
+          ${isDefault ? '' : '<button type="button" class="btn btn-ghost btn-sm" data-action="reset-download-dir">Default</button>'}</div>
+      </div>`;
+  }
+
+  function redrawDownloadSection() {
+    const box = $('[data-download-section]');
+    if (box && state.settings) box.innerHTML = downloadSection(state.settings);
+  }
+
   function commandsSection(s) {
     if (!state.commands || !('allowCommands' in s)) return '';
     const rows = state.commands
@@ -1387,6 +1407,7 @@
         ${caps.bluetooth ? switchRow('Bluetooth backup', s.bluetoothBackup && s.bluetoothStatus ? `Not available right now: ${s.bluetoothStatus}.` : 'When Wi-Fi is gone, your phone stays connected over Bluetooth: after 15 s if the two are paired in Bluetooth settings, after 2 minutes if not. Same encryption as Wi-Fi.', 'toggle-setting', !!s.bluetoothBackup, 'data-key="bluetoothBackup"') : ''}
         ${caps.discoveryToggle ? switchRow('Find my phone on this network', 'Anonymous: nothing that identifies you is broadcast.', 'toggle-setting', !!s.discovery, 'data-key="discovery"') : ''}
       </div>
+      <div data-download-section>${downloadSection(s)}</div>
       <div data-commands-section>${commandsSection(s)}</div>
       ${appearanceSection()}`;
   }
@@ -1655,6 +1676,22 @@
         return openNoteDialog();
       case 'new-sms':
         return openNewSmsDialog();
+      case 'pick-download-dir':
+      case 'reset-download-dir': {
+        a.disabled = true;
+        try {
+          const dir = a.dataset.action === 'pick-download-dir' ? await api.pickDownloadDir() : await api.resetDownloadDir();
+          if (!dir) return undefined; // cancelled
+          if (state.settings) state.settings.downloadDir = dir;
+          redrawDownloadSection();
+          $('[data-download-section] [data-action="pick-download-dir"]')?.focus();
+          return toast(`Files from your phone now go to ${homeShort(dir)}`);
+        } catch (err) {
+          return toast(`Couldn't use that folder: ${(err && err.message) || err}`);
+        } finally {
+          a.disabled = false;
+        }
+      }
       case 'call-action': {
         if (!state.call) return undefined;
         const what = a.dataset.call;

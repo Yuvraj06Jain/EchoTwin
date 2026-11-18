@@ -74,6 +74,7 @@
   let connection = true;
   let batterySaver = true;
   let autoSaverBelow = 20;
+  let downloadDir = '';
   let saverActive = true;
   // Simple on/off settings from the service, by snake_case name (battery_alerts …).
   let switches = {};
@@ -147,6 +148,7 @@
       connection = s.connection !== false;
       batterySaver = s.battery_saver !== false;
       autoSaverBelow = typeof s.auto_saver_below === 'number' ? s.auto_saver_below : 20;
+      downloadDir = s.download_dir || '';
       saverActive = s.saver_active !== undefined ? !!s.saver_active : batterySaver;
       switches = s.switches || {};
       const devices = s.devices.map(toDevice);
@@ -255,6 +257,7 @@
         connection,
         batterySaver,
         autoSaverBelow,
+        downloadDir,
         saverAuto: saverActive && !batterySaver,
         ...Object.fromEntries(Object.entries(switches).map(([n, on]) => [camel(n), on])),
         apps: knownApps.map((a) => ({ name: a.app, package: a.package, enabled: !a.muted })),
@@ -311,6 +314,16 @@
     },
     async setCommands(items) {
       await invoke('set_commands', { items });
+    },
+    /** The folder chooser for received files; the new folder, or null if cancelled. */
+    async pickDownloadDir() {
+      const dir = await invoke('pick_download_dir');
+      if (dir) downloadDir = dir;
+      return dir;
+    },
+    async resetDownloadDir() {
+      downloadDir = await invoke('set_download_dir', { path: null });
+      return downloadDir;
     },
     async callAction(action) {
       await invoke('call_action', { action });

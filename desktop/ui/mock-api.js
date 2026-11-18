@@ -84,6 +84,7 @@
       { id: 'f3', name: 'OS-lab-report-final.pdf', size: Math.round(2.4 * 1024 * 1024), done: Math.round(2.4 * 1024 * 1024), direction: 'to-phone', state: 'done', message: '' },
     ],
     settings: {
+      downloadDir: '/home/you/Downloads/EchoTwin',
       desktopNotifications: true,
       syncDismissals: false,
       discovery: true,
@@ -383,6 +384,16 @@
     async settings() {
       await wait(40);
       return clone(db.settings);
+    },
+    async pickDownloadDir() {
+      await wait(60);
+      db.settings.downloadDir = '/home/you/Documents/From phone';
+      return db.settings.downloadDir;
+    },
+    async resetDownloadDir() {
+      await wait(60);
+      db.settings.downloadDir = '/home/you/Downloads/EchoTwin';
+      return db.settings.downloadDir;
     },
     async updateSetting(key, value) {
       await wait(60);

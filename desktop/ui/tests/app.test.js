@@ -77,7 +77,7 @@ function fakeTauri() {
         if (!fake.daemonUp) throw 'daemon-down';
         switch (cmd) {
           case 'status':
-            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66', battery: fake.computerBattery ?? null, charging: true }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, battery_saver: fake.saver !== false, auto_saver_below: fake.autoBelow ?? 20, saver_active: fake.saverActive ?? (fake.saver !== false), switches: { battery_alerts: fake.alerts !== false, pause_media_on_call: true, open_links: true, allow_ring: true, allow_commands: true, call_popup: true }, devices: fake.devices, call: fake.call || null };
+            return { computer: { name: 'kubuntu', id: '405F-AEB0-D952-DF66', battery: fake.computerBattery ?? null, charging: true }, notifications: fake.notifications, sync_dismissals: fake.sync, clipboard_sync: fake.clip, allow_lock: fake.lock, bluetooth_backup: fake.bt, bluetooth_status: fake.btStatus, connection: fake.connection !== false, battery_saver: fake.saver !== false, auto_saver_below: fake.autoBelow ?? 20, saver_active: fake.saverActive ?? (fake.saver !== false), switches: { battery_alerts: fake.alerts !== false, pause_media_on_call: true, open_links: true, allow_ring: true, allow_commands: true, call_popup: true }, devices: fake.devices, call: fake.call || null, download_dir: fake.downloadDir || '/home/you/Downloads/EchoTwin' };
           case 'notifications':
             if (fake.slowNext) {
               // Snapshot the data now, answer late (like a reload that started before news arrived).
@@ -183,6 +183,14 @@ function fakeTauri() {
           case 'ring':
           case 'decline_call':
           case 'call_action':
+            return null;
+          case 'pick_download_dir':
+            if (fake.pickTo === null) return null; // cancelled
+            fake.downloadDir = '/home/you/Documents/From phone';
+            return fake.downloadDir;
+          case 'set_download_dir':
+            fake.downloadDir = args.path || '/home/you/Downloads/EchoTwin';
+            return fake.downloadDir;
             return null;
           case 'unpair':
             fake.devices = fake.devices.filter((d) => d.id !== args.device);
@@ -551,6 +559,23 @@ function fakeTauri() {
   check((await txt('.sheet')).includes('Phone buttons') && (await txt('.sheet [data-command="0"]')).includes('systemctl suspend'), 'phone buttons listed with their commands');
   check((await txt('.sheet')).includes('Shown on the phone under My buttons'), 'the buttons are said to be under My buttons on the phone');
   check((await txt('.sheet')).includes('Show calls at the top of the screen'), 'the call card switch is in Settings');
+  console.log('Received files folder');
+  check((await txt('.sheet [data-download-dir]')) === '~/Downloads/EchoTwin', 'the folder is shown, home as ~');
+  check((await page.$$eval('.sheet [data-action="reset-download-dir"]', (b) => b.length)) === 0, 'no Default button while it is the default');
+  await page.click('.sheet [data-action="pick-download-dir"]');
+  await page.waitForTimeout(250);
+  check((await lastCall('pick_download_dir')) !== undefined, 'Change… opens the folder chooser');
+  check((await txt('.sheet [data-download-dir]')) === '~/Documents/From phone', 'the chosen folder is shown');
+  check((await txt('#toast')).includes('now go to ~/Documents/From phone'), 'and said');
+  await page.click('.sheet [data-action="reset-download-dir"]');
+  await page.waitForTimeout(250);
+  check((await lastCall('set_download_dir'))[1].path === null, 'Default asks for the default');
+  check((await txt('.sheet [data-download-dir]')) === '~/Downloads/EchoTwin', 'back to the default');
+  await page.evaluate(() => { window.__fake.pickTo = null; });
+  await page.click('.sheet [data-action="pick-download-dir"]');
+  await page.waitForTimeout(250);
+  check((await txt('.sheet [data-download-dir]')) === '~/Downloads/EchoTwin', 'cancelling the chooser changes nothing');
+  await page.evaluate(() => { delete window.__fake.pickTo; });
   await page.fill('.command-form [name="name"]', 'Lock screen');
   await page.fill('.command-form [name="run"]', 'loginctl lock-session');
   await page.click('.command-form button[type="submit"]');

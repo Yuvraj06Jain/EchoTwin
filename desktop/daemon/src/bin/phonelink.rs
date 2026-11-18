@@ -59,6 +59,13 @@ enum Cmd {
         #[arg(value_parser = ["answer", "decline", "end", "mute", "speaker", "hold"])]
         action: String,
     },
+    /// Where files from the phone are saved: shows it, or sets it to FOLDER
+    /// (`--default`: back to ~/Downloads/EchoTwin).
+    DownloadDir {
+        folder: Option<std::path::PathBuf>,
+        #[arg(long, conflicts_with = "folder")]
+        default: bool,
+    },
     /// Ring your phone loudly (even on silent) to find it; `phonelink ring stop` stops it.
     Ring {
         #[arg(value_parser = ["start", "stop"], default_value = "start")]
@@ -496,6 +503,23 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             show(&r);
             if !cli.json {
                 println!("Unpaired {device}. It can no longer connect.");
+            }
+        }
+        Cmd::DownloadDir { folder, default } => {
+            if folder.is_none() && !default {
+                let Reply::Status { download_dir, .. } = c.request(&Request::Status).await? else {
+                    bail!("unexpected reply from phonelinkd")
+                };
+                println!("{download_dir}");
+            } else {
+                // A relative folder means relative to here, as in any command.
+                let path = folder.map(|f| std::path::absolute(&f).unwrap_or(f).to_string_lossy().into_owned());
+                let r = c.request(&Request::SetDownloadDir { path }).await?;
+                fail_on_error(&r)?;
+                let Reply::Status { download_dir, .. } = c.request(&Request::Status).await? else {
+                    bail!("unexpected reply from phonelinkd")
+                };
+                println!("Files from your phone now go to {download_dir}");
             }
         }
         Cmd::Call { action } => {

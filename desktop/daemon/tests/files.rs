@@ -45,7 +45,7 @@ async fn setup() -> Rig {
             discovery: false,
             ..Config::default()
         },
-        config_path: None,
+        config_path: Some(dir.path().join("config.toml")),
         popups: Some(popups),
         buses: Buses::unreachable(),
         download_dir: downloads.clone(),
@@ -312,4 +312,54 @@ async fn cancelling_in_the_laptop_app_stops_the_phone_too() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     let left: Vec<_> = std::fs::read_dir(&incoming).map(|d| d.count()).into_iter().collect();
     assert_eq!(left, vec![0], "nothing left on the phone");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_folder_for_received_files_can_be_changed_and_is_remembered() {
+    let r = setup().await;
+    let src = tempfile::tempdir().unwrap();
+    let status_dir = |reply: Reply| match reply {
+        Reply::Status { download_dir, .. } => download_dir,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(status_dir(r.request(Request::Status).await), r.downloads.to_string_lossy());
+
+    // A new folder (made if missing): the next file lands there, the popup says so, and
+    // config.toml remembers it.
+    let chosen = r.dir.path().join("Phone stuff");
+    let set = Request::SetDownloadDir { path: Some(chosen.to_string_lossy().into()) };
+    assert_eq!(r.request(set).await, Reply::Done);
+    assert_eq!(status_dir(r.request(Request::Status).await), chosen.to_string_lossy());
+    let saved = std::fs::read_to_string(r.dir.path().join("config.toml")).unwrap();
+    assert!(saved.contains("Phone stuff"), "{saved}");
+    r.popups.try_iter().for_each(drop);
+    let doc = file(src.path(), "scan.pdf", 50_000);
+    let id = r.phone_files.send_file(r.laptop, doc.to_string_lossy().into(), "scan.pdf", 50_000, "application/pdf").unwrap();
+    let list = r.laptop_until("received", |t| t.iter().any(|x| x.id == id && x.state == TransferState::Done)).await;
+    let got = list.iter().find(|x| x.id == id).unwrap();
+    assert_eq!(PathBuf::from(got.path.clone().unwrap()), chosen.join("scan.pdf"));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let bodies: Vec<String> = r
+        .popups
+        .try_iter()
+        .filter_map(|p| match p {
+            PopupCmd::Show { body, .. } => Some(body),
+            _ => None,
+        })
+        .collect();
+    assert!(bodies.iter().any(|b| b.contains("Phone stuff")), "{bodies:?}");
+
+    // Refused: a relative path, a file instead of a folder.
+    let r1 = r.request(Request::SetDownloadDir { path: Some("relative/dir".into()) }).await;
+    assert!(matches!(r1, Reply::Error { .. }), "{r1:?}");
+    let a_file = file(src.path(), "not-a-folder", 1);
+    let r2 = r.request(Request::SetDownloadDir { path: Some(a_file.to_string_lossy().into()) }).await;
+    assert!(matches!(&r2, Reply::Error { message } if message.contains("not a folder")), "{r2:?}");
+    assert_eq!(status_dir(r.request(Request::Status).await), chosen.to_string_lossy(), "unchanged after a refusal");
+
+    // Back to the default: config.toml forgets it.
+    assert_eq!(r.request(Request::SetDownloadDir { path: None }).await, Reply::Done);
+    let saved = std::fs::read_to_string(r.dir.path().join("config.toml")).unwrap();
+    assert!(!saved.contains("Phone stuff"), "{saved}");
+    let _ = (&r.phone_dir, &r.phone);
 }

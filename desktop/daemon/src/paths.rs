@@ -2,6 +2,15 @@
 
 use std::{env, path::PathBuf};
 
+/// `path` with the home folder shown as `~` (for messages).
+pub fn tilde(path: &std::path::Path) -> String {
+    match path.strip_prefix(home()) {
+        Ok(rest) if rest.as_os_str().is_empty() => "~".into(),
+        Ok(rest) => format!("~/{}", rest.display()),
+        Err(_) => path.display().to_string(),
+    }
+}
+
 fn home() -> PathBuf {
     env::var_os("HOME")
         .map(PathBuf::from)

@@ -189,6 +189,9 @@ struct Row {
 struct Inner {
     node: Node,
     cfg: TransferConfig,
+    /// Where finished files go; starts as `cfg.incoming_dir`, changed with
+    /// [`Transfers::set_incoming_dir`].
+    incoming_dir: Mutex<PathBuf>,
     db: Mutex<Connection>,
     opener: Arc<dyn SourceOpener>,
     events: mpsc::UnboundedSender<TransferInfo>,
@@ -274,6 +277,27 @@ pub fn safe_name(name: &str) -> String {
     format!("{}{}", &stem[..end], ext)
 }
 
+/// Move a finished file into place: a rename, or copy and delete when the folder was changed
+/// to another disk while the file was arriving.
+fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    match std::fs::rename(from, to) {
+        Ok(()) => Ok(()),
+        Err(e) if e.raw_os_error() == Some(libc_exdev()) => {
+            std::fs::copy(from, to)?;
+            std::fs::remove_file(from)
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(to); // the empty name we reserved
+            Err(e)
+        }
+    }
+}
+
+/// EXDEV ("cross-device link") on Linux and Android.
+const fn libc_exdev() -> i32 {
+    18
+}
+
 /// Reserve a free name in `dir` (`photo.jpg`, `photo (2).jpg`, …) by creating it empty.
 fn reserve_unique(dir: &Path, name: &str) -> std::io::Result<PathBuf> {
     let (stem, ext) = match name.rfind('.') {
@@ -321,6 +345,17 @@ enum Outcome {
 impl Transfers {
     /// Start the engine: takes over `node`'s incoming data streams. Events: every change
     /// to a transfer (progress at most 4 times a second per transfer).
+    /// Where received files go from now on (created when the next file arrives). Files
+    /// already arriving finish there too.
+    pub fn set_incoming_dir(&self, dir: PathBuf) {
+        *self.inner.incoming_dir.lock().unwrap_or_else(|e| e.into_inner()) = dir;
+    }
+
+    /// Where received files go.
+    pub fn incoming_dir(&self) -> PathBuf {
+        self.inner.incoming_dir.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     pub fn start(
         node: Node,
         cfg: TransferConfig,
@@ -355,6 +390,7 @@ impl Transfers {
         let (events, rx) = mpsc::unbounded_channel();
         let t = Transfers {
             inner: Arc::new(Inner {
+                incoming_dir: Mutex::new(cfg.incoming_dir.clone()),
                 node,
                 cfg,
                 db: Mutex::new(db),
@@ -988,7 +1024,7 @@ impl Transfers {
             }
             Some(r) => r,
             None => {
-                let dir = &self.inner.cfg.incoming_dir;
+                let dir = &self.incoming_dir();
                 if let Err(e) = std::fs::create_dir_all(dir) {
                     warn!("cannot create {}: {e}", dir.display());
                     let _ = wire::write_frame(&mut send, &reject("Can't save files on the other device")).await;
@@ -1159,9 +1195,9 @@ impl Transfers {
             let _ = send.finish();
             return Outcome::Retry("Arrived damaged; sending it again".into());
         }
-        let dir = self.inner.cfg.incoming_dir.clone();
-        let final_path = match reserve_unique(&dir, &info.name).and_then(|p| {
-            std::fs::rename(&part, &p)?;
+        let dir = self.incoming_dir();
+        let final_path = match std::fs::create_dir_all(&dir).and_then(|_| reserve_unique(&dir, &info.name)).and_then(|p| {
+            move_file(&part, &p)?;
             Ok(p)
         }) {
             Ok(p) => p,

@@ -287,7 +287,17 @@ extrapolates the position locally; buttons send `MediaControl` back.
 **What:** send files both ways; resumes after drops/restarts; verified; cancel from either
 side. Laptop: drag onto the window or widget, "Send files", Dolphin "Send to phone",
 `phonelink send-file`. Phone: Share → EchoTwin, "Send files". Received on the laptop in
-`~/Downloads/EchoTwin`, on the phone in `Download/EchoTwin`.
+`~/Downloads/EchoTwin`, on the phone in `Download/EchoTwin`, unless you choose another folder:
+
+- **Laptop:** window → Settings → *Received files* → **Change…** (the system's folder
+  chooser) or **Default**; or `phonelink download-dir <folder>` / `--default`. The service
+  checks the folder is absolute and writable (it is made if missing), switches at once (a file
+  that is already arriving finishes there too; across disks it is copied), and saves it as
+  `download_dir` in config.toml. Popups say where each file went.
+- **Phone:** Settings → *Received files* → **Change** opens Android's own folder chooser;
+  EchoTwin gets access to that one folder only (kept across restarts; no storage permission)
+  and gives it back on **Default** or another choice. If the folder is deleted or the access
+  taken away, files go to `Download/EchoTwin` and the notification says so.
 
 **How:** [PROTOCOL → File data streams](PROTOCOL.md#file-data-streams). The engine is in the
 core and runs on both sides; the phone only provides file descriptors and publishes
@@ -295,22 +305,25 @@ results.
 
 | Layer | File | Functions |
 |---|---|---|
-| Core | `core/src/transfer.rs` | `Transfers::{start, send_file, cancel, on_message, list, clear_finished, nudge}`, `safe_name`, `reserve_unique`, `SourceOpener`, `PathOpener` |
+| Core | `core/src/transfer.rs` | `Transfers::{start, send_file, cancel, on_message, list, clear_finished, nudge, set_incoming_dir, incoming_dir}`, `safe_name`, `reserve_unique`, `move_file`, `SourceOpener`, `PathOpener` |
 | Core | `core/src/node.rs` | `open_data`, `data_streams` |
-| Laptop | `desktop/daemon/src/daemon.rs` | `State::send_files`, `transfer_updates`, requests `Transfers`, `SendFiles`, `CancelTransfer`, `ClearTransfers`, `OpenTransfer` |
+| Laptop | `desktop/daemon/src/daemon.rs` | `State::send_files`, `transfer_updates`, `set_download_dir`, requests `Transfers`, `SendFiles`, `CancelTransfer`, `ClearTransfers`, `OpenTransfer`, `SetDownloadDir`; `Reply::Status.download_dir` |
 | Laptop | `desktop/daemon/src/open.rs` | `open_file`, `reveal_file`, `guess_mime` |
-| Window | `desktop/app/src/main.rs` | `send_files`, `pick_files`, `cancel_transfer`, `clear_transfers`, `open_transfer`, `WindowEvent::DragDrop` → `phonelink://drop` |
-| Window UI | `app.js` | `sendFiles`, `sendPaths`, `upsertTransfer`, `renderFiles`, `transferRow` |
+| Window | `desktop/app/src/main.rs` | `send_files`, `pick_files`, `pick_download_dir`, `set_download_dir`, `cancel_transfer`, `clear_transfers`, `open_transfer`, `WindowEvent::DragDrop` → `phonelink://drop` |
+| Window UI | `app.js` | `sendFiles`, `sendPaths`, `upsertTransfer`, `renderFiles`, `transferRow`, `downloadSection` |
 | Widget | `CompactRepresentation.qml` / `FullRepresentation.qml` `DropArea`, `FileDialog` → `main.qml` `sendUrls` |
 | Dolphin | `packaging/dolphin/phonelink-send.desktop.in` | |
 | FFI | `core-ffi/src/lib.rs` | `send_file`, `cancel_transfer`, `transfers`, `clear_transfers`, trait `FileSource`, `LinkEvent::TransferChanged` |
-| Phone | `android/…/FileShare.kt` | `open` (URI → fd), `send`, `onChanged` (publish to MediaStore + notification), `publishLeftovers` |
+| Phone | `android/…/FileShare.kt` | `open` (URI → fd), `send`, `onChanged`, `publish` (`toTree` for a chosen folder, else `toDownloads` via MediaStore; notification), `folderName`, `publishLeftovers`; `Prefs.receiveFolder`; `MainActivity.pickFolder` (OpenDocumentTree) |
 | Phone | `ShareActivity.kt`, `MainActivity` file picker, `ui/OtherScreens.kt` `FilesScreen`, `HomeScreen` `TransferCard` | |
 
 Speed and time left: `transfer.rs` keeps a smoothed rate per running transfer
 (`smooth_rate`, `eta`) and reports `TransferInfo.rate` / `eta_secs`; shown by `app.js`
 `transferStatus`/`fmtEta`, the widget (`Shell.left`), the CLI and the phone (`formatEta`).
 Files are sent byte-for-byte, never compressed.
+**Tests (folder choice):** `core/tests/files.rs` `received_files_go_to_the_folder_chosen_last`,
+`desktop/daemon/tests/files.rs` `the_folder_for_received_files_can_be_changed_and_is_remembered`,
+UI suite ("Received files folder").
 
 **Settings:** laptop `download_dir`.
 **Tests:** `core/tests/files.rs`, `desktop/daemon/tests/files.rs`.

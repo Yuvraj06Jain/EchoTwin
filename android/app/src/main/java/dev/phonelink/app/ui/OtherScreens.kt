@@ -122,6 +122,21 @@ fun SettingsScreen(state: UiState, actions: Actions, onOpenSetup: () -> Unit, mo
                 ) { actions.setBatteryAlerts(it) }
             }
         }
+        item { SectionTitle("Received files") }
+        item {
+            Panel {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(state.receiveFolder, fontWeight = FontWeight.Medium)
+                        Hint("Files from your computer are saved here.")
+                    }
+                    TextButton(onClick = actions::chooseReceiveFolder) { Text("Change", color = Pl.AccentText) }
+                    if (state.receiveFolderChosen) {
+                        TextButton(onClick = actions::defaultReceiveFolder) { Text("Default", color = Pl.Muted) }
+                    }
+                }
+            }
+        }
         item { SectionTitle("Bluetooth backup") }
         item {
             Panel {

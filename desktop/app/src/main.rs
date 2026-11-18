@@ -61,6 +61,8 @@ struct StatusDto {
     devices: Vec<DeviceInfo>,
     /// The call on the phone, if any.
     call: Option<phonelink_desktop::ipc::CallView>,
+    /// Where received files go.
+    download_dir: String,
 }
 
 #[derive(Serialize)]
@@ -143,6 +145,7 @@ async fn status() -> Result<StatusDto, String> {
             auto_saver_below,
             saver_active,
             call,
+            download_dir,
             ..
         } => Ok(StatusDto {
             computer: Computer { name, id, battery, charging },
@@ -159,6 +162,7 @@ async fn status() -> Result<StatusDto, String> {
             switches,
             devices,
             call,
+            download_dir,
         }),
         r => Err(unexpected(r)),
     }
@@ -285,6 +289,42 @@ async fn pick_files(app: AppHandle) -> Result<Vec<String>, String> {
         .filter_map(|f| f.into_path().ok())
         .map(|p| p.to_string_lossy().into_owned())
         .collect())
+}
+
+/// Where received files go now (after a change).
+async fn current_download_dir() -> Result<String, String> {
+    match request(Request::Status).await? {
+        Reply::Status { download_dir, .. } => Ok(download_dir),
+        r => Err(unexpected(r)),
+    }
+}
+
+/// "Change…" for received files: the system's folder chooser, then the service checks and
+/// saves it. `None` when the chooser was cancelled.
+#[tauri::command]
+async fn pick_download_dir(app: AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let start = current_download_dir().await.ok();
+    let (tx, rx) = oneshot::channel();
+    let mut dialog = app.dialog().file().set_title("Where should files from your phone go?");
+    if let Some(dir) = start.filter(|d| std::path::Path::new(d).is_dir()) {
+        dialog = dialog.set_directory(dir);
+    }
+    dialog.pick_folder(move |folder| {
+        let _ = tx.send(folder);
+    });
+    let Some(folder) = rx.await.map_err(|e| e.to_string())?.and_then(|f| f.into_path().ok()) else {
+        return Ok(None);
+    };
+    expect_done(Request::SetDownloadDir { path: Some(folder.to_string_lossy().into_owned()) }).await?;
+    current_download_dir().await.map(Some)
+}
+
+/// Set the folder for received files (`None`: the default). Returns it.
+#[tauri::command]
+async fn set_download_dir(path: Option<String>) -> Result<String, String> {
+    expect_done(Request::SetDownloadDir { path }).await?;
+    current_download_dir().await
 }
 
 #[tauri::command]
@@ -891,6 +931,8 @@ fn main() {
             transfers,
             send_files,
             pick_files,
+            pick_download_dir,
+            set_download_dir,
             cancel_transfer,
             clear_transfers,
             open_transfer,

@@ -120,6 +120,8 @@ struct State {
     buses: Buses,
     media: Mutex<MediaStore>,
     transfers: Transfers,
+    /// The default folder for received files (`SetDownloadDir` with no path).
+    default_download_dir: PathBuf,
     sms: Mutex<SmsStore>,
     /// Why the Bluetooth backup isn't ready (empty: ready).
     bt_status: Mutex<String>,
@@ -291,6 +293,8 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         buses: opts.buses.clone(),
         media: Mutex::new(MediaStore::default()),
         transfers,
+        // Started with a configured folder: the default is the usual one; otherwise the one we got.
+        default_download_dir: if opts.config.download_dir.is_some() { crate::paths::download_dir() } else { opts.download_dir.clone() },
         sms: Mutex::new(SmsStore::default()),
         bt_status: Mutex::new("starting".into()),
         bt_wake: Arc::new(Notify::new()),
@@ -849,6 +853,29 @@ impl State {
     /// One of the simple on/off settings (`config::SWITCHES`).
     fn switch_on(&self, name: &str) -> bool {
         lock(&self.settings).switches.switch(name).unwrap_or(false)
+    }
+
+    /// Received files go to `path` from now on (`None`: the default folder). It must be an
+    /// absolute folder this user can write to; it is made if missing.
+    fn set_download_dir(&self, path: Option<&str>) -> Result<PathBuf, String> {
+        let dir = match path.map(str::trim) {
+            None | Some("") => self.default_download_dir.clone(),
+            Some(p) => PathBuf::from(p),
+        };
+        if !dir.is_absolute() {
+            return Err("choose a full folder path (starting with /)".into());
+        }
+        if dir.exists() && !dir.is_dir() {
+            return Err(format!("{} is a file, not a folder", crate::paths::tilde(&dir)));
+        }
+        std::fs::create_dir_all(&dir).map_err(|e| format!("can't make {}: {e}", crate::paths::tilde(&dir)))?;
+        let probe = dir.join(".echotwin-write-test");
+        std::fs::write(&probe, b"")
+            .and_then(|_| std::fs::remove_file(&probe))
+            .map_err(|e| format!("can't save files in {}: {e}", crate::paths::tilde(&dir)))?;
+        info!(dir = %dir.display(), "received files now go here");
+        self.transfers.set_incoming_dir(dir.clone());
+        Ok(dir)
     }
 
     fn persist(&self, change: impl FnOnce(&mut Config)) -> Reply {
@@ -1924,7 +1951,10 @@ async fn transfer_updates(state: Arc<State>, mut events: tokio::sync::mpsc::Unbo
                     notify,
                     format!("file/{}", t.id),
                     format!("Received “{}”", t.name),
-                    format!("From {device}. Saved in Downloads/EchoTwin."),
+                    format!(
+                        "From {device}. Saved in {}.",
+                        t.path.as_deref().and_then(|p| std::path::Path::new(p).parent()).map(crate::paths::tilde).unwrap_or_default()
+                    ),
                     crate::popups::Tab::Files,
                 ),
                 (Direction::Outgoing, TransferState::Failed) => state.popup_to(
@@ -2082,6 +2112,13 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                 lock(&state.settings).battery_saver = on;
                 let reply = match state.apply_saver() {
                     Ok(()) => state.persist(|c| c.battery_saver = on),
+                    Err(message) => Reply::Error { message },
+                };
+                write_reply(&mut w, &reply).await?;
+            }
+            Request::SetDownloadDir { path } => {
+                let reply = match state.set_download_dir(path.as_deref()) {
+                    Ok(dir) => state.persist(|c| c.download_dir = path.filter(|p| !p.trim().is_empty()).map(|_| dir.to_string_lossy().into_owned())),
                     Err(message) => Reply::Error { message },
                 };
                 write_reply(&mut w, &reply).await?;
@@ -2433,6 +2470,7 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                     battery: battery.map(|b| b.0),
                     charging: battery.is_some_and(|b| b.1),
                     call: state.call_view(),
+                    download_dir: state.transfers.incoming_dir().to_string_lossy().into_owned(),
                 };
                 write_reply(&mut w, &reply).await?;
             }

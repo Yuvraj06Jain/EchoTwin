@@ -156,6 +156,11 @@ pub enum Request {
     SetBatterySaver {
         on: bool,
     },
+    /// Where received files go: an absolute folder (made if missing; must be writable), or
+    /// `None` for the default (`~/Downloads/EchoTwin`). Saved in config.toml.
+    SetDownloadDir {
+        path: Option<String>,
+    },
     /// Turn the battery saver on by itself at or below this battery level (0 = never, ≤ 50).
     SetAutoSaver {
         below: u8,
@@ -401,6 +406,9 @@ pub enum Reply {
         /// The call on the phone, if there is one.
         #[serde(default)]
         call: Option<CallView>,
+        /// Where received files go (absolute).
+        #[serde(default)]
+        download_dir: String,
     },
     Notifications {
         items: Vec<NotificationInfo>,

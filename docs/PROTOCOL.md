@@ -253,7 +253,27 @@ Source of truth: `core/src/touchpad.rs`.
 | 1 | `Release` | phone → laptop | the pad left the screen: lift every finger, let go of both buttons |
 | 2 | `PadStatus { ok, message }` | laptop → phone | the virtual touchpad is ready, or why not (message ≤ 200 bytes) |
 | 3 | `Button { button: Left \| Right, down }` | phone → laptop | Left click / Right click pressed or released |
+| 4 | `Scroll { v120 }` | phone → laptop | the scroll strip: hi-res wheel units (120 = one notch, positive = up), at most ±1200 |
+| 5 | `LaptopTouchpad { in_use }` | laptop → phone | the laptop's own touchpad is in use (phone input ignored) or no longer |
+
+A laptop whose touchpad is switched off answers `PadInfo` with `PadStatus { ok: false }` and
+a message saying so (and sends it to connected phones when switched off).
 
 - **Liveness:** while a finger or a button is down the phone sends a frame at least every
   100 ms (empty frames while only a button is held). After 400 ms without one, the laptop
   lifts every finger and releases both buttons. Also on disconnect and on `Release`.
+
+**The touchpad's control socket** (`/run/phonelink-touchpad/control.sock`, mode 0666):
+one JSON request line, then JSON reply lines. The types are
+`phonelink_core::touchpad::control`, used by the service, `phonelink touchpad` and the
+window.
+
+| Request | polkit | Replies |
+|---|---|---|
+| `{"cmd":"pair"}` | `manage-phones` (password) | `pairing_code {uri, seconds}`, then `paired {name}` or `pairing_expired`; closing the connection cancels |
+| `{"cmd":"devices"}` | none | `devices {devices}` |
+| `{"cmd":"unpair","who":…}` | `manage-phones` (password) | `unpaired {name}` |
+| `{"cmd":"status"}` | none | `status {enabled, devices}` |
+| `{"cmd":"set_enabled","on":…}` | `set-enabled` (your active session, no password) | `enabled {on}` |
+
+Any refusal or failure: `error {message}`.

@@ -99,11 +99,12 @@ deliberately not part of `phonelinkd` (which runs as you): only it may create in
 | File | What it does | Key items |
 |---|---|---|
 | `src/main.rs` | `run` (the system service: its own node on port 47830, mDNS, control socket, finger frames and buttons → the virtual touchpad, 400 ms watchdog), `mirror`, `pair`, `devices`, `unpair`, `demo`. Uses `desktop/daemon/src/netaddrs.rs` directly. | `run`, `Pad`, `use_pad`, `data_dir` |
-| `src/pad.rs` | Pure: finger snapshots → multitouch protocol B events; the two buttons. | `PadState::apply`, `Geometry`, `Buttons` |
-| `src/uinput.rs` | The uinput device "EchoTwin Touchpad" (BTN_LEFT, BTN_RIGHT, not a clickpad). | `VirtualPad::create`, `DEVICE_NAME` |
+| `src/pad.rs` | Pure: finger snapshots → multitouch protocol B events; the two buttons; the scroll wheel's notches. | `PadState::apply`, `Geometry`, `Buttons`, `Wheel` |
+| `src/uinput.rs` | The uinput devices "EchoTwin Touchpad" (BTN_LEFT, BTN_RIGHT, not a clickpad) and "EchoTwin Touchpad Scroll" (hi-res wheel). | `VirtualPad::create`, `VirtualWheel::create` |
 | `src/control.rs` | Control socket `/run/phonelink-touchpad/control.sock`, JSON lines; `pair`/`unpair` checked with polkit per request; the client side prints the QR code. | `serve`, `client_pair`, `client_devices`, `client_unpair` |
 | `src/polkit.rs` | `CheckAuthorization` for `dev.echotwin.touchpad.manage-phones` (your password). | `authorize`, `parse_start_time` |
 | `src/kwin.rs` | Copies the real touchpad's libinput settings to the virtual one through KWin's D-Bus. | `mirror_forever` |
+| `src/realpad.rs` | Reads the laptop's real touchpads (BTN_TOUCH only, no grab) so the phone is ignored while one is in use. | `watch`, `Busy` |
 | `tests/service.rs` | The real binary end to end: pairing over the control socket, pad status, button, unpair; pairing refused without polkit. | |
 
 ## desktop/daemon/ (phonelinkd + phonelink CLI)
@@ -214,7 +215,7 @@ Package `dev.phonelink.app` in `android/app/src/main/java/dev/phonelink/app/`.
 | `LockReceiver.kt` | "Lock computer" button on the status notification. |
 | `BluetoothBackup.kt` | After 15 s (paired) or 2 min (not paired) without Wi-Fi: RFCOMM socket to the laptop, piped into the core (`open_stream`). Never scans; failures name their cause and Settings → Test lists each attempt. |
 | `ui/Glyphs.kt` | Icons the core Material set lacks (open padlock, speaker off, the Touchpad tab's finger), from Material path data. |
-| `ui/TouchpadScreen.kt` | The Touchpad tab: setup card (scan `phonelink touchpad pair`), status line, Left click / Right click, the pad. |
+| `ui/TouchpadScreen.kt` | The Touchpad tab: setup card (scan `phonelink touchpad pair`), status line, Left click / scroll strip / Right click in the chosen order, the pad; `TouchpadSettings` (layout, speeds, reverse scroll), also shown in the Settings tab. |
 | `TouchPadView.kt` | The pad's touch surface: raw multitouch with stable slots, every finger forwarded; keeps the back gesture off its edges. |
 | `UnlockPrompt.kt` | Android's fingerprint / screen-lock prompt before asking the computer to unlock. |
 | `CopyReceiver.kt` | "Copy" on a note's notification: puts the note on the phone's clipboard (not exported). |
@@ -234,6 +235,7 @@ Package `dev.phonelink.app` in `android/app/src/main/java/dev/phonelink/app/`.
 | File | What it does |
 |---|---|
 | `install-touchpad.sh`, `uninstall-touchpad.sh` | Install / remove the Touchpad tab's laptop side (needs sudo inside; refuses while TouchTwin is still installed). |
+| `touchpad/73-phonelink-realpad.rules` | Read access for the touchpad service to the laptop's real touchpads only (never keyboards). |
 | `touchpad/` | The touchpad service's system user (`phonelink-touchpad.sysusers`), udev rules (`60-phonelink-uinput.rules`, `71-touchpad-phonelink.rules`, `72-phonelink-pad.rules.in`), hardened unit `phonelink-touchpad.service`, user unit `phonelink-touchpad-mirror.service`, polkit action `dev.echotwin.touchpad.policy`. |
 | `install.sh` | Builds (or uses prebuilt) binaries into `~/.local/bin`, installs the systemd user unit, Dolphin service menu, desktop entry + icons, the KDE widget (`kpackagetool6`), then starts `phonelinkd`. |
 | `uninstall.sh` | Removes all of the above (`--purge` also deletes keys and pairings). |

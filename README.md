@@ -72,8 +72,10 @@ plus a **Mute** tile for the laptop and **My buttons** for your own one-tap comm
 On the couch with the laptop on the TV? Open the **Touchpad** tab: the whole screen is the
 laptop's touchpad, with **Left click** and **Right click** on top. Tap to click, two fingers
 to scroll, three-finger swipes: all exactly like the laptop's own touchpad, because the
-laptop sees a real one. A small separate service on the laptop is the only thing allowed to
-create it, with its own pairing.
+laptop sees a real one. A small scroll strip sits between the buttons, and you choose their
+order and the pointer and scroll speeds. Your own touchpad always wins: touch it and the
+phone steps aside. A small separate service on the laptop is the only thing allowed to
+create the touchpad; pair it and switch it on or off in the window's Settings.
 
 ### 🔋 Always there in the panel
 

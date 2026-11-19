@@ -250,6 +250,13 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 110 | **Right click** on a file in Dolphin; hold **Left click** and move a finger over text | a context menu opens; the text is selected (a drag) |
 | 111 | Hold a finger on the pad and switch to the Home tab (or press the phone's Home button) | the laptop lets go at once: no stuck click or drag |
 | 112 | `getfacl /dev/input/eventN` for "EchoTwin Touchpad" (find N with `sudo libinput list-devices`) | `user:<you>:r--`; writing to it as you is refused |
+| 113 | Run `./packaging/install-touchpad.sh` again (it adds rule 73). Laptop window → Settings → **Touchpad** → **Pair a phone**; type your password; scan in the Touchpad tab | the code shows after the password; "Touchpad paired with …"; the phone is listed with Forget |
+| 114 | Switch "Let your phone be this laptop's touchpad" off; touch the phone's pad | the phone shows "switched off on the laptop" in red and nothing moves; switch on: it works again without re-pairing |
+| 115 | Drag up and down on the phone's **Scroll** strip in a long web page | the page scrolls, a tick per notch; Settings → Touchpad → **Scroll speed** 2× scrolls twice as far; **Reverse** flips it |
+| 116 | Settings → Touchpad → **Layout**: pick Scroll · Left · Right | the Touchpad tab's row changes to that order at once |
+| 117 | **Pointer speed** 2×, then 0.5× | the same swipe moves the pointer about twice as far, then half as far |
+| 118 | Keep a finger moving on the phone's pad and put a finger on the laptop's own touchpad | the phone stops moving the pointer at once and shows "its touchpad is in use"; half a second after you lift from the laptop's touchpad, the phone works again |
+| 119 | `getfacl /dev/input/eventN` for your real touchpad | `group:phonelink-touchpad:r--` (read only); your keyboard's node has no such entry |
 
 When something fails, include:
 - the step number
@@ -362,6 +369,9 @@ When something fails, include:
 | "the laptop cannot create a touchpad: /dev/uinput …" in red | run `./packaging/install-touchpad.sh` again; `ls -l /dev/uinput` must say `root phonelink-touchpad` |
 | `phonelink touchpad pair` says "not authorised" | the KDE password dialog was cancelled or polkit's KDE agent isn't running; try again from your desktop session |
 | taps don't click, or scrolling feels different from the real touchpad | `systemctl --user status phonelink-touchpad-mirror` (it copies your touchpad settings) |
+| the phone says "switched off on the laptop" | laptop window → Settings → Touchpad → switch it on, or `phonelink touchpad on` |
+| the phone always says "its touchpad is in use" | a finger (or palm) rests on the laptop's touchpad; `sudo journalctl -u phonelink-touchpad -n 30` names the touchpad it watches |
+| Settings → Touchpad says "isn't installed" | `./packaging/install-touchpad.sh` |
 | the Touchpad tab says "That's EchoTwin's main pairing code" | that QR was from `phonelink pair`; the touchpad has its own: `phonelink touchpad pair` |
 
 To remove only the touchpad:

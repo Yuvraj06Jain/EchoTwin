@@ -852,6 +852,47 @@ readable but not writable by you, via udev rules 71/72, so InputActions can foll
 but no program can inject events. `phonelink-touchpad mirror` (a user service, no privileges)
 copies the real touchpad's libinput settings through KWin's D-Bus.
 
+**The scroll strip, layout and speeds (phone):** the row above the pad holds Left click, a
+narrow ribbed **scroll strip** and Right click, by default in that order like a mouse. Drag
+up or down on the strip to scroll; there is a light tick at each notch. Settings tab →
+**Touchpad** (or ⋯ on the tab → Layout and speed) has these options:
+- the **layout**: any of the six orders
+- **pointer speed**, 0.5–2×
+- **scroll speed**, 0.5–3×
+- **reverse scroll**
+
+Pointer speed scales the pad size the phone tells the laptop. libinput moves the pointer by
+physical distance, so a pad reported k times larger moves it k times farther. It also
+scales two-finger scrolling. The strip sends `Msg::Scroll` in hi-res wheel units (about
+20 per mm × scroll speed, at most every 16 ms). The laptop plays them on a second device,
+**"EchoTwin Touchpad Scroll"** (`REL_WHEEL_HI_RES`, plus whole notches on `REL_WHEEL`),
+so the touchpad itself stays a plain touchpad.
+
+**The switch (laptop):** EchoTwin window → Settings → **Touchpad** → "Let your phone be this
+laptop's touchpad". It is on by default; `phonelink touchpad on|off|status` does the same.
+- **Off:** the service refuses the phone, which shows "switched off on the laptop" with
+  where to turn it on, and removes its virtual devices.
+- **Polkit:** switching needs `dev.echotwin.touchpad.set-enabled`. That is allowed without a
+  password for your own active desktop session, and for nobody else.
+- **Storage:** saved in `/var/lib/phonelink-touchpad/settings.json`.
+
+**Pairing from the window:** the same section lists the phones paired with the touchpad
+(Forget), and **Pair a phone** shows the touchpad's own QR code after KDE's password dialog.
+The window talks to the service's control socket directly (`desktop/app/src/touchpad.rs`).
+phonelinkd can't do this: it runs outside your desktop session, where polkit can't ask you.
+Closing the code (Cancel, closing Settings, or Ctrl+C on `phonelink touchpad pair`) cancels
+it at once.
+
+**Your own touchpad wins:** while a finger is on the laptop's real touchpad, and for 500 ms
+after, the service ignores the phone's fingers, buttons and scrolling. It lets go of
+anything the phone held, and tells the phone (`Msg::LaptopTouchpad`); the phone's pad dims
+with "its touchpad is in use".
+- **How it knows:** `realpad.rs` reads the real touchpads' `BTN_TOUCH`, without grabbing them.
+- **Its access:** udev rule `73-phonelink-realpad.rules` gives the service's group **read**
+  access to touchpad device nodes only (never keyboards), and the unit has
+  `DeviceAllow=char-input r`. So the service can see where your fingers are on the real
+  touchpad, and nothing you type.
+
 **Setup (once, on the laptop):**
 
 ```bash
@@ -874,6 +915,11 @@ Approve the admin prompt, then scan the code in the Touchpad tab. If ufw is on:
 | laptop service | `desktop/touchpad/src/uinput.rs` | `VirtualPad::create` ("EchoTwin Touchpad") |
 | laptop service | `desktop/touchpad/src/control.rs`, `polkit.rs` | control socket `/run/phonelink-touchpad/control.sock`; `pair`/`unpair` need `dev.echotwin.touchpad.manage-phones` |
 | laptop service | `desktop/touchpad/src/kwin.rs` | `mirror_forever` (settings copy) |
+| laptop service | `desktop/touchpad/src/realpad.rs` | `watch` (the laptop's touchpads), `Busy` (in use + 500 ms) |
+| laptop service | `desktop/touchpad/src/control.rs` | `Switch` (on/off, `settings.json`), `Shared`, cancel when the client leaves |
+| core | `core/src/touchpad.rs` `control` | `Request`/`Reply` of the control socket, shared by the service, the CLI and the window |
+| window | `desktop/app/src/touchpad.rs`, `desktop/ui/app.js` `touchpadSection` | Settings → Touchpad: switch, phones, pairing |
+| Android | `android/…/ui/TouchpadScreen.kt` | `ScrollStrip`, `TouchpadSettings`, `LayoutChoice`; `PadPrefs` in `ui/Model.kt`, saved by `Prefs` |
 | CLI | `desktop/daemon/src/bin/phonelink.rs` | `phonelink touchpad pair\|devices\|unpair` (runs `phonelink-touchpad`) |
 | packaging | `packaging/touchpad/`, `packaging/install-touchpad.sh`, `uninstall-touchpad.sh` | system user, udev rules, hardened unit, polkit action, mirror unit |
 | FFI | `core-ffi/src/touchpad.rs` | `TouchpadLink`: `start`, `pair`, `laptops`, `unpair`, `open_pad`, `close_pad`, `touch`, `button`, `latency_ms`; `PadEvent` |
@@ -885,8 +931,12 @@ Approve the admin prompt, then scan the code in the Touchpad tab. If ufw is on:
 is no Bluetooth backup for the touchpad. Unpairing in the app forgets the laptop on the
 phone only; run `phonelink touchpad unpair <phone>` on the laptop too.
 
-**Tests:** `core/src/touchpad.rs` (frames, strict decoding, `Button` appended last, the two
-pairing codes never mix); `core/tests/touchpad.rs` (datagrams arrive; a node without
+**Tests:** `core/src/touchpad.rs` (frames, strict decoding, the variants' positions,
+the scroll clamp, the control JSON, the two pairing codes never mix);
+`desktop/touchpad/src/pad.rs` `Wheel` and `realpad.rs` `Busy`;
+`desktop/touchpad/tests/service.rs` also covers the switch (off → the phone told, saved,
+on), switching refused without polkit, and a cancelled code that can't pair;
+`desktop/ui/tests/app.test.js` "Touchpad"; `core/tests/touchpad.rs` (datagrams arrive; a node without
 datagrams never reports them; touchpad messages in order); `desktop/touchpad/src/pad.rs`
 (protocol B reports, `Buttons`); `desktop/touchpad/tests/service.rs` (the real binary: pair
 over the control socket, open the pad, button, unpair; pairing refused without polkit);

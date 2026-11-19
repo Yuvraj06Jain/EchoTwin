@@ -79,6 +79,7 @@ class MainActivity : ComponentActivity() {
     private var pointerStyle by mutableStateOf(Triple("dot", 0xFF3B30, 1))
     private var presenting by mutableStateOf(false)
     private var pairedOnDisk by mutableStateOf(false)
+    private var padPrefs by mutableStateOf(dev.phonelink.app.ui.PadPrefs())
 
     private val scan = registerForActivityResult(ScanContract()) { result ->
         result.contents?.let { onScanned(it) }
@@ -204,6 +205,7 @@ class MainActivity : ComponentActivity() {
                     busy = busy,
                     bluetoothProblem = BluetoothBackup.problem,
                     touchpad = touchpad,
+                    padPrefs = padPrefs,
                 )
                 val snackbar = remember { SnackbarHostState() }
                 LaunchedEffect(notice) {
@@ -359,6 +361,12 @@ class MainActivity : ComponentActivity() {
         override fun touch(fingers: List<dev.phonelink.core.Finger>) = LinkManager.touch(fingers)
         override fun button(left: Boolean, down: Boolean) = LinkManager.button(left, down)
         override fun touchpadLatency(): Int? = LinkManager.touchpadLatency()
+        override fun scroll(v120: Int) = LinkManager.scroll(v120)
+        override fun setPadPrefs(prefs: dev.phonelink.app.ui.PadPrefs) {
+            padPrefs = prefs
+            Prefs.setPadPrefs(this@MainActivity, prefs)
+            LinkManager.padPrefsChanged()
+        }
     }
 
     /** While presenting, the volume keys work as a clicker: down = next, up = previous. */
@@ -388,6 +396,7 @@ class MainActivity : ComponentActivity() {
         presentApp = Prefs.presentApp(this)
         receiveFolder = Prefs.receiveFolder(this)
         pointerStyle = Prefs.pointerStyle(this)
+        padPrefs = Prefs.padPrefs(this)
         pairedOnDisk = LinkManager.hasPairedDevice(this)
         smsOn = SmsSync.canRead()
         bluetoothOn = BluetoothBackup.allowed()

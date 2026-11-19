@@ -55,6 +55,7 @@ data class UiState(
     val bluetoothProblem: String?,
     /** The Touchpad tab. */
     val touchpad: TouchpadStatus = TouchpadStatus(),
+    val padPrefs: PadPrefs = PadPrefs(),
 ) {
     val touchpadPaired: Boolean get() = touchpad.paired
 }
@@ -74,8 +75,28 @@ data class TouchpadStatus(
     val padError: String? = null,
     /** "Pairing…" while a scanned code is being used. */
     val pairing: String? = null,
+    /** The laptop's own touchpad is in use: the laptop ignores the phone meanwhile. */
+    val laptopInUse: Boolean = false,
 ) {
     val paired: Boolean get() = laptops.isNotEmpty()
+}
+
+/**
+ * The Touchpad tab's own settings (this phone only).
+ * `layout`: the order of Left click (L), the scroll strip (S) and Right click (R).
+ * `pointerSpeed` 0.5–2: the pad size told to the laptop is scaled by it, so the pointer
+ * goes that much farther for the same swipe. `scrollSpeed` 0.5–3: the scroll strip.
+ */
+data class PadPrefs(
+    val layout: String = "LSR",
+    val pointerSpeed: Float = 1f,
+    val scrollSpeed: Float = 1f,
+    val reverseScroll: Boolean = false,
+) {
+    companion object {
+        /** Every order, in the order the settings show them. */
+        val LAYOUTS = listOf("LSR", "LRS", "SLR", "RSL", "RLS", "SRL")
+    }
 }
 
 /** Everything the screens can ask for; implemented by MainActivity. */
@@ -130,6 +151,9 @@ interface Actions {
     fun button(left: Boolean, down: Boolean)
     /** Round trip to the laptop the pad drives, ms (null: not connected). Call off the main thread. */
     fun touchpadLatency(): Int?
+    /** The scroll strip: hi-res wheel units (120 = one notch, positive = up). Never blocks. */
+    fun scroll(v120: Int)
+    fun setPadPrefs(prefs: PadPrefs)
 }
 
 val FileTransfer.isActive: Boolean get() = state == "active" || state == "waiting" || state == "queued"

@@ -237,9 +237,12 @@ object LinkManager {
                 is dev.phonelink.core.PadEvent.Paired -> st.copy(pairing = null)
                 is dev.phonelink.core.PadEvent.Connected ->
                     st.copy(connectedTo = event.name, padReady = false, padError = null)
-                is dev.phonelink.core.PadEvent.Disconnected -> st.copy(connectedTo = null, padReady = false)
+                is dev.phonelink.core.PadEvent.Disconnected ->
+                    st.copy(connectedTo = null, padReady = false, laptopInUse = false)
                 is dev.phonelink.core.PadEvent.PadReady -> st.copy(padReady = true, padError = null)
-                is dev.phonelink.core.PadEvent.PadFailed -> st.copy(padReady = false, padError = event.message)
+                is dev.phonelink.core.PadEvent.PadFailed ->
+                    st.copy(padReady = false, padError = event.message, laptopInUse = false)
+                is dev.phonelink.core.PadEvent.LaptopTouchpad -> st.copy(laptopInUse = event.inUse)
             }
             refreshTouchpad()
         }
@@ -254,7 +257,7 @@ object LinkManager {
         try {
             val p = touchpadLink()
             p.reconnectNow()
-            padOpenMm?.let { (w, h) -> p.openPad(w, h) }
+            padOpenMm?.let { (w, h) -> openScaled(p, w, h) }
         } catch (e: Exception) {
             _touchpad.value = _touchpad.value.copy(startError = e.message ?: "The touchpad could not start")
         }
@@ -295,7 +298,26 @@ object LinkManager {
         }
         padOpenMm = widthMm to heightMm
         val p = pad
-        if (p != null) p.openPad(widthMm, heightMm) else startTouchpad()
+        if (p != null) openScaled(p, widthMm, heightMm) else startTouchpad()
+    }
+
+    /**
+     * The pad size the laptop is told, times the pointer speed: libinput moves the pointer by
+     * physical distance, so a pad reported k times larger moves it k times farther.
+     */
+    private fun openScaled(p: dev.phonelink.core.TouchpadLink, widthMm: Float, heightMm: Float) {
+        val k = Prefs.padPrefs(app).pointerSpeed
+        p.openPad(widthMm * k, heightMm * k)
+    }
+
+    /** The Touchpad settings changed: tell the laptop the new size if the pad is open. */
+    fun padPrefsChanged() {
+        val p = pad ?: return
+        padOpenMm?.let { (w, h) -> openScaled(p, w, h) }
+    }
+
+    fun scroll(v120: Int) {
+        pad?.scroll(v120)
     }
 
     /** The pad left the screen: lift every finger and button on the laptop. */

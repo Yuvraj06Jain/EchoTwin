@@ -159,6 +159,16 @@ fun SettingsScreen(state: UiState, actions: Actions, onOpenSetup: () -> Unit, mo
                 }
             }
         }
+        item { SectionTitle("Touchpad") }
+        item {
+            Panel {
+                TouchpadSettings(
+                    state.padPrefs,
+                    actions,
+                    forget = if (state.touchpadPaired) ({ actions.forgetTouchpad() }) else null,
+                )
+            }
+        }
         item { SectionTitle("Access") }
         item {
             Panel(Modifier.clickable(onClick = onOpenSetup)) {

@@ -11,6 +11,29 @@ object Prefs {
     private const val BATTERY_ALERTS = "battery_alerts"
     private const val PRESENT_APP = "present_app"
     private const val RECEIVE_FOLDER = "receive_folder"
+    private const val PAD_LAYOUT = "pad_layout"
+    private const val PAD_SPEED = "pad_pointer_speed"
+    private const val PAD_SCROLL = "pad_scroll_speed"
+    private const val PAD_REVERSE = "pad_reverse_scroll"
+
+    /** The Touchpad tab's layout and speeds. */
+    fun padPrefs(context: Context): dev.phonelink.app.ui.PadPrefs = prefs(context).let {
+        val d = dev.phonelink.app.ui.PadPrefs()
+        dev.phonelink.app.ui.PadPrefs(
+            layout = it.getString(PAD_LAYOUT, d.layout)?.takeIf { l -> l in dev.phonelink.app.ui.PadPrefs.LAYOUTS } ?: d.layout,
+            pointerSpeed = it.getFloat(PAD_SPEED, d.pointerSpeed).coerceIn(0.5f, 2f),
+            scrollSpeed = it.getFloat(PAD_SCROLL, d.scrollSpeed).coerceIn(0.5f, 3f),
+            reverseScroll = it.getBoolean(PAD_REVERSE, d.reverseScroll),
+        )
+    }
+
+    fun setPadPrefs(context: Context, p: dev.phonelink.app.ui.PadPrefs) =
+        prefs(context).edit()
+            .putString(PAD_LAYOUT, p.layout)
+            .putFloat(PAD_SPEED, p.pointerSpeed)
+            .putFloat(PAD_SCROLL, p.scrollSpeed)
+            .putBoolean(PAD_REVERSE, p.reverseScroll)
+            .apply()
 
     /** The folder received files go to (a document tree the user picked), or null: Download/EchoTwin. */
     fun receiveFolder(context: Context): String? = prefs(context).getString(RECEIVE_FOLDER, null)

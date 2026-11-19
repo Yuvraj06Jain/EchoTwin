@@ -236,13 +236,14 @@ object LinkManager {
             _touchpad.value = when (event) {
                 is dev.phonelink.core.PadEvent.Paired -> st.copy(pairing = null)
                 is dev.phonelink.core.PadEvent.Connected ->
-                    st.copy(connectedTo = event.name, padReady = false, padError = null)
+                    st.copy(connectedTo = event.name, padReady = false, padError = null, keyboardOff = false)
                 is dev.phonelink.core.PadEvent.Disconnected ->
                     st.copy(connectedTo = null, padReady = false, laptopInUse = false)
                 is dev.phonelink.core.PadEvent.PadReady -> st.copy(padReady = true, padError = null)
                 is dev.phonelink.core.PadEvent.PadFailed ->
                     st.copy(padReady = false, padError = event.message, laptopInUse = false)
                 is dev.phonelink.core.PadEvent.LaptopTouchpad -> st.copy(laptopInUse = event.inUse)
+                is dev.phonelink.core.PadEvent.KeyboardOff -> st.copy(keyboardOff = true)
             }
             refreshTouchpad()
         }
@@ -318,6 +319,48 @@ object LinkManager {
 
     fun scroll(v120: Int) {
         pad?.scroll(v120)
+    }
+
+    /** Typing, in order: text runs, pastes and keys never overtake each other. */
+    private val typing = Executors.newSingleThreadExecutor { r -> Thread(r, "touchpad-typing") }
+
+    /** How long the laptop gets to take a pasted run onto its clipboard before Ctrl+V. */
+    private const val PASTE_DELAY_MS = 300L
+
+    /**
+     * Type `text` on the laptop. What its keyboard (US layout) can type goes as key presses;
+     * anything else (emoji, other scripts) goes to the laptop's clipboard over the main
+     * EchoTwin link and is pasted with Ctrl+V.
+     */
+    fun typeText(text: String, onNote: (String) -> Unit) {
+        val p = pad ?: return
+        _touchpad.value = _touchpad.value.copy(keyboardOff = false)
+        typing.execute {
+            for (run in dev.phonelink.core.textRuns(text)) {
+                if (run.typeable) {
+                    p.typeText(run.text)
+                } else if (!pasteOnComputer(run.text)) {
+                    main.post { onNote("Turn on clipboard sharing (on both devices) to type emoji and other scripts") }
+                } else {
+                    Thread.sleep(PASTE_DELAY_MS)
+                    p.key(dev.phonelink.core.PadKey.Char("v"), 1u)
+                    main.post { onNote("${run.text} pasted (not on the laptop's keyboard)") }
+                }
+            }
+        }
+    }
+
+    fun key(k: dev.phonelink.core.PadKey, mods: Int) {
+        val p = pad ?: return
+        typing.execute { p.key(k, mods.toUByte()) }
+    }
+
+    /** Put `text` on the laptop's clipboard through the main link (needs clipboard sharing). */
+    private fun pasteOnComputer(text: String): Boolean {
+        if (!Prefs.clipboardSharing(app)) return false
+        val l = link ?: return false
+        if (_devices.value.none { it.connected && it.canClipboard }) return false
+        return runCatching { l.sendClipboard(text) }.isSuccess
     }
 
     /** The pad left the screen: lift every finger and button on the laptop. */

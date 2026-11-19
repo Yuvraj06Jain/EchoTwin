@@ -362,6 +362,8 @@ class MainActivity : ComponentActivity() {
         override fun button(left: Boolean, down: Boolean) = LinkManager.button(left, down)
         override fun touchpadLatency(): Int? = LinkManager.touchpadLatency()
         override fun scroll(v120: Int) = LinkManager.scroll(v120)
+        override fun typeText(text: String, onNote: (String) -> Unit) = LinkManager.typeText(text, onNote)
+        override fun key(key: dev.phonelink.core.PadKey, mods: Int) = LinkManager.key(key, mods)
         override fun setPadPrefs(prefs: dev.phonelink.app.ui.PadPrefs) {
             padPrefs = prefs
             Prefs.setPadPrefs(this@MainActivity, prefs)

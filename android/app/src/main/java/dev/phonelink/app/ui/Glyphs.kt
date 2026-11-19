@@ -44,4 +44,12 @@ object Glyphs {
             "c0.27,0.27 0.65,0.44 1.06,0.44h6.79c0.75,0 1.33,-0.55 1.44,-1.28l0.75,-5.27c0.01,-0.07 0.02,-0.14 0.02,-0.2" +
             " 0,-0.62 -0.38,-1.16 -0.91,-1.38z",
     )
+
+    /** A keyboard: the Touchpad tab's typing button. */
+    val Keyboard: ImageVector = icon(
+        "Keyboard",
+        "M20,5H4C2.9,5 2.01,5.9 2.01,7L2,17c0,1.1 0.9,2 2,2h16c1.1,0 2,-0.9 2,-2V7C22,5.9 21.1,5 20,5zM11,8h2v2h-2V8zM11,11h2v2h-2V11z" +
+            "M8,8h2v2H8V8zM8,11h2v2H8V11zM7,13H5v-2h2V13zM7,10H5V8h2V10zM16,17H8v-2h8V17zM16,13h-2v-2h2V13zM16,10h-2V8h2V10z" +
+            "M19,13h-2v-2h2V13zM19,10h-2V8h2V10z",
+    )
 }

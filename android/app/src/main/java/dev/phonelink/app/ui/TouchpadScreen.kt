@@ -21,7 +21,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -173,8 +177,10 @@ private fun TouchpadPad(t: TouchpadStatus, prefs: PadPrefs, actions: Actions, mo
     val connectedAndReady = t.connectedTo != null && t.padReady
     val ready = connectedAndReady && !t.laptopInUse
     var settingsOpen by remember { mutableStateOf(false) }
+    var typing by remember { mutableStateOf(false) }
+    val typingNow by rememberUpdatedState(typing)
     Column(
-        modifier.fillMaxSize().padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 12.dp),
+        modifier.fillMaxSize().imePadding().padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         StatusLine(t, latency, actions, onSettings = { settingsOpen = true })
@@ -188,10 +194,10 @@ private fun TouchpadPad(t: TouchpadStatus, prefs: PadPrefs, actions: Actions, mo
                 }
             }
         }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
         Box(
             Modifier
-                .weight(1f)
-                .fillMaxWidth()
+                .fillMaxSize()
                 .alpha(if (t.laptopInUse) 0.4f else 1f)
                 .clip(RoundedCornerShape(20.dp))
                 .background(PadSurface)
@@ -215,8 +221,12 @@ private fun TouchpadPad(t: TouchpadStatus, prefs: PadPrefs, actions: Actions, mo
                         ctx,
                         onFingers = { actions.touch(it) },
                         onSize = { w, h ->
-                            sizeMm = w to h
-                            actions.openPad(w, h)
+                            // While typing, the keyboard squeezes the pad: keep the size the
+                            // laptop knows, so it doesn't rebuild its touchpad each time.
+                            if (!typingNow || sizeMm == null) {
+                                sizeMm = w to h
+                                actions.openPad(w, h)
+                            }
                         },
                     ).also { padView = it }
                 },
@@ -235,6 +245,26 @@ private fun TouchpadPad(t: TouchpadStatus, prefs: PadPrefs, actions: Actions, mo
                     modifier = Modifier.padding(32.dp),
                 )
             }
+        }
+            // The keyboard button (✕ while typing), over the pad's corner.
+            Surface(
+                onClick = { typing = !typing },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp).size(48.dp),
+                shape = CircleShape,
+                color = Pl.Accent,
+                shadowElevation = 6.dp,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        if (typing) Icons.Filled.Close else Glyphs.Keyboard,
+                        contentDescription = if (typing) "Close the keyboard" else "Type on the laptop",
+                        tint = Color.White,
+                    )
+                }
+            }
+        }
+        if (typing) {
+            PhoneKeyboard(t.connectedTo ?: t.laptops.firstOrNull() ?: "the laptop", t.keyboardOff, actions)
         }
     }
     if (settingsOpen) TouchpadSettingsDialog(prefs, actions) { settingsOpen = false }

@@ -77,6 +77,8 @@ data class TouchpadStatus(
     val pairing: String? = null,
     /** The laptop's own touchpad is in use: the laptop ignores the phone meanwhile. */
     val laptopInUse: Boolean = false,
+    /** Typing is switched off on the laptop. */
+    val keyboardOff: Boolean = false,
 ) {
     val paired: Boolean get() = laptops.isNotEmpty()
 }
@@ -154,6 +156,10 @@ interface Actions {
     /** The scroll strip: hi-res wheel units (120 = one notch, positive = up). Never blocks. */
     fun scroll(v120: Int)
     fun setPadPrefs(prefs: PadPrefs)
+    /** Type on the laptop; what its keyboard can't type is pasted. `onNote` says what happened. */
+    fun typeText(text: String, onNote: (String) -> Unit)
+    /** One key with modifiers (Ctrl 1, Alt 2, Shift 4, Super 8). */
+    fun key(key: dev.phonelink.core.PadKey, mods: Int)
 }
 
 val FileTransfer.isActive: Boolean get() = state == "active" || state == "waiting" || state == "queued"

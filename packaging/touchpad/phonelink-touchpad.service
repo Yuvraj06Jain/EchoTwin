@@ -20,6 +20,9 @@ RestartSec=3
 # It needs the network, /dev/uinput and D-Bus (polkit). Nothing else.
 DevicePolicy=closed
 DeviceAllow=/dev/uinput rw
+# Read-only: to see when a finger is on your real touchpad (73-phonelink-realpad.rules
+# grants read access to touchpads only).
+DeviceAllow=char-input r
 CapabilityBoundingSet=
 NoNewPrivileges=yes
 ProtectSystem=strict

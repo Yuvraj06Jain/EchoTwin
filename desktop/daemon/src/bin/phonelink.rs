@@ -146,6 +146,12 @@ enum TouchpadCmd {
     Devices,
     /// Forget a phone (name or fingerprint prefix; asks for your password).
     Unpair { device: String },
+    /// On or off, and the paired phones.
+    Status,
+    /// Let the phone's Touchpad tab drive this laptop (the default).
+    On,
+    /// Refuse the phone's Touchpad tab until switched on again.
+    Off,
 }
 
 /// Where `install-touchpad.sh` puts the touchpad service.
@@ -178,6 +184,9 @@ fn touchpad(cmd: TouchpadCmd) -> anyhow::Result<()> {
         }
         TouchpadCmd::Devices => vec!["devices".into()],
         TouchpadCmd::Unpair { device } => vec!["unpair".into(), device],
+        TouchpadCmd::Status => vec!["status".into()],
+        TouchpadCmd::On => vec!["on".into()],
+        TouchpadCmd::Off => vec!["off".into()],
     };
     let Some(program) = touchpad_program() else {
         bail!(

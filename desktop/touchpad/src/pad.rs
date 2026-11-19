@@ -7,7 +7,7 @@
 //! Ported from TouchTwin (`daemon/src/pad.rs`); [`Buttons`] (the Left/Right click buttons)
 //! is new.
 
-use evdev::{AbsoluteAxisCode as Abs, EventType, InputEvent, KeyCode as Key};
+use evdev::{AbsoluteAxisCode as Abs, EventType, InputEvent, KeyCode as Key, RelativeAxisCode as Rel};
 use phonelink_core::touchpad::{Button, Contact, PadInfo, COORD_MAX, MAX_CONTACTS};
 
 /// Device units per millimetre on both axes.
@@ -233,6 +233,33 @@ impl Buttons {
     }
 }
 
+/// The scroll strip's wheel: hi-res steps (120 = one notch) as they come, plus a whole
+/// notch on the classic axis each time 120 have built up in one direction, as a real
+/// hi-res wheel reports them.
+#[derive(Debug, Default)]
+pub struct Wheel {
+    acc: i32,
+}
+
+impl Wheel {
+    pub fn scroll(&mut self, v120: i32) -> Report {
+        if v120 == 0 {
+            return vec![];
+        }
+        if (self.acc > 0) != (v120 > 0) {
+            self.acc = 0; // direction changed: start counting afresh
+        }
+        self.acc += v120;
+        let notches = self.acc / 120;
+        self.acc -= notches * 120;
+        let mut r = vec![InputEvent::new(EventType::RELATIVE.0, Rel::REL_WHEEL_HI_RES.0, v120)];
+        if notches != 0 {
+            r.push(InputEvent::new(EventType::RELATIVE.0, Rel::REL_WHEEL.0, notches));
+        }
+        r
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -251,6 +278,7 @@ mod tests {
             .map(|e| match e.event_type() {
                 EventType::ABSOLUTE => format!("{:?}={}", Abs(e.code()), e.value()),
                 EventType::KEY => format!("{:?}={}", Key(e.code()), e.value()),
+                EventType::RELATIVE => format!("{:?}={}", Rel(e.code()), e.value()),
                 _ => format!("{e:?}"),
             })
             .collect()
@@ -351,5 +379,17 @@ mod tests {
         assert!(!b.any_down());
         assert!(b.release_all().is_empty(), "nothing left to release");
         assert!(b.set(Button::Left, false).is_none(), "a stray release changes nothing");
+    }
+
+    #[test]
+    fn the_wheel_sends_hi_res_steps_and_whole_notches() {
+        let mut w = Wheel::default();
+        assert_eq!(names(&w.scroll(60)), ["REL_WHEEL_HI_RES=60"]);
+        assert_eq!(names(&w.scroll(60)), ["REL_WHEEL_HI_RES=60", "REL_WHEEL=1"]);
+        assert_eq!(names(&w.scroll(300)), ["REL_WHEEL_HI_RES=300", "REL_WHEEL=2"]);
+        // 60 left over; turning round drops it, so no stray notch the other way.
+        assert_eq!(names(&w.scroll(-100)), ["REL_WHEEL_HI_RES=-100"]);
+        assert_eq!(names(&w.scroll(-20)), ["REL_WHEEL_HI_RES=-20", "REL_WHEEL=-1"]);
+        assert!(w.scroll(0).is_empty());
     }
 }

@@ -10,7 +10,10 @@ use anyhow::Context;
 use tracing::warn;
 use zbus::{zvariant::Value, Connection};
 
-pub const ACTION: &str = "dev.echotwin.touchpad.manage-phones";
+/// Pairing or forgetting a phone: your password.
+pub const MANAGE: &str = "dev.echotwin.touchpad.manage-phones";
+/// Switching the touchpad on or off: allowed for the active desktop session, no password.
+pub const SWITCH: &str = "dev.echotwin.touchpad.set-enabled";
 
 /// polkit's `AllowUserInteraction` flag: show the password dialog if needed.
 const ALLOW_USER_INTERACTION: u32 = 1;
@@ -24,9 +27,9 @@ pub fn parse_start_time(stat: &str) -> Option<u64> {
     after_comm.split_whitespace().nth(22 - 3)?.parse().ok()
 }
 
-/// Is the process `pid` (running as `uid`) allowed to manage paired phones? May show the
-/// password dialog and wait for the user.
-pub async fn authorize(pid: i32, uid: u32) -> anyhow::Result<bool> {
+/// Is the process `pid` (running as `uid`) allowed `action`? May show the password dialog
+/// and wait for the user.
+pub async fn authorize(pid: i32, uid: u32, action: &str) -> anyhow::Result<bool> {
     if std::env::var_os("PHONELINK_TOUCHPAD_DEV_NO_AUTH").is_some() {
         // Only for tests run by hand: the system service's environment comes from its unit
         // file, which only root can change.
@@ -53,7 +56,7 @@ pub async fn authorize(pid: i32, uid: u32) -> anyhow::Result<bool> {
             "/org/freedesktop/PolicyKit1/Authority",
             Some("org.freedesktop.PolicyKit1.Authority"),
             "CheckAuthorization",
-            &(subject, ACTION, details, ALLOW_USER_INTERACTION, ""),
+            &(subject, action, details, ALLOW_USER_INTERACTION, ""),
         )
         .await
         .context("asking polkit")?;

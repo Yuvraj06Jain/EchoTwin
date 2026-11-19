@@ -1,0 +1,4 @@
+# EchoTwin touchpad: the laptop's own touchpad comes first. The touchpad service may READ
+# your real touchpads (only touchpads, never keyboards) to see when a finger is on one;
+# meanwhile it ignores the phone. EchoTwin's own virtual touchpad is left out.
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_TOUCHPAD}=="1", ATTRS{name}!="EchoTwin Touchpad*", RUN+="/usr/bin/setfacl -m g:phonelink-touchpad:r $devnode"

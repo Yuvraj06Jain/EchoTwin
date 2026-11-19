@@ -163,3 +163,129 @@ fn pairing_needs_polkit_without_the_test_switch() {
     assert!(String::from_utf8_lossy(&pair.stderr).contains("not authorised"), "{}", String::from_utf8_lossy(&pair.stderr));
     assert!(s.cmd(&["devices"]).output().unwrap().status.success());
 }
+
+/// Start the service (polkit bypassed) and a stand-in phone paired with it.
+async fn paired_phone(svc: &Service) -> (Node, tokio::sync::mpsc::UnboundedReceiver<Event>, phonelink_core::Fingerprint) {
+    let mut pair = svc.cmd(&["pair", "--uri"]).stdout(Stdio::piped()).spawn().unwrap();
+    let mut out = BufReader::new(pair.stdout.take().unwrap());
+    let uri = loop {
+        let mut line = String::new();
+        assert!(out.read_line(&mut line).unwrap() > 0, "pair ended without a code");
+        if line.starts_with(PAIR_URI_PREFIX) {
+            break line.trim().to_string();
+        }
+    };
+    let mut cfg = NodeConfig::new("Test phone", None, "0.0.0.0:0".parse().unwrap());
+    cfg.capabilities = vec![CAP_TOUCHPAD.into()];
+    let (phone, prx) = Node::start(cfg).await.unwrap();
+    let laptop = phone.pair_with(&offer_from_pair_uri(&uri).unwrap()).await.unwrap().fingerprint;
+    assert!(pair.wait().unwrap().success());
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !phone.is_connected(&laptop) {
+        assert!(Instant::now() < deadline, "never connected");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    (phone, prx, laptop)
+}
+
+fn start_with(env: &[(&str, &str)]) -> Service {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = Service { child: Command::new("true").spawn().unwrap(), dir };
+    let mut c = s.cmd(&["run"]);
+    c.env("PHONELINK_TOUCHPAD_DATA_DIR", s.dir.path().join("state"))
+        .env("PHONELINK_TOUCHPAD_PORT", free_udp_port().to_string())
+        .env_remove("PHONELINK_TOUCHPAD_DEV_NO_AUTH");
+    for (k, v) in env {
+        c.env(k, v);
+    }
+    s.child = c.spawn().unwrap();
+    let sock = s.dir.path().join("run/control.sock");
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !sock.exists() {
+        assert!(Instant::now() < deadline, "the service never opened its control socket");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    s
+}
+
+fn out(svc: &Service, args: &[&str]) -> (bool, String) {
+    let o = svc.cmd(args).output().unwrap();
+    (o.status.success(), format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr)))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_switch_turns_the_touchpad_off_and_on_and_is_saved() {
+    let svc = start_with(&[("PHONELINK_TOUCHPAD_DEV_NO_AUTH", "1")]);
+    let (ok, text) = out(&svc, &["status"]);
+    assert!(ok && text.contains("Touchpad: on"), "on by default: {text}");
+
+    let (phone, mut prx, laptop) = paired_phone(&svc).await;
+    let (ok, text) = out(&svc, &["off"]);
+    assert!(ok && text.contains("Touchpad off"), "{text}");
+    phone
+        .send_fleeting(&laptop, Msg::PadInfo(PadInfo { width_dmm: 700, height_dmm: 1500 }).encode())
+        .unwrap();
+    // Every status now says it's switched off (one may also come from switching itself).
+    match next_msg(&mut prx).await {
+        Msg::PadStatus { ok: false, message } => assert!(message.contains("switched off"), "{message}"),
+        other => panic!("{other:?}"),
+    }
+    assert!(std::fs::read_to_string(svc.dir.path().join("state/settings.json")).unwrap().contains("false"));
+
+    // Back on: the phone that asked for the pad gets an answer that isn't "switched off".
+    let (ok, _) = out(&svc, &["on"]);
+    assert!(ok);
+    let msg = loop {
+        match next_msg(&mut prx).await {
+            Msg::PadStatus { message, .. } if message.contains("switched off") => continue,
+            m => break m,
+        }
+    };
+    match msg {
+        Msg::PadStatus { ok: true, .. } => {}
+        Msg::PadStatus { ok: false, message } => assert!(message.contains("cannot create a touchpad"), "{message}"),
+        other => panic!("{other:?}"),
+    }
+    // Scrolling and the laptop's answer to it don't upset the session.
+    assert!(phone.send_fleeting(&laptop, Msg::scroll(240).encode()).unwrap());
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(phone.is_connected(&laptop));
+    phone.shutdown().await;
+}
+
+#[test]
+fn switching_needs_polkit_and_a_leaving_client_cancels_pairing() {
+    // No bypass: polkit isn't here (or says no), so switching is refused and nothing changes.
+    let svc = start_with(&[]);
+    let (ok, text) = out(&svc, &["off"]);
+    assert!(!ok && text.contains("not authorised"), "{text}");
+    let (_, text) = out(&svc, &["status"]);
+    assert!(text.contains("Touchpad: on"), "{text}");
+    drop(svc);
+
+    // With the bypass: a pairing client that leaves takes its code with it.
+    let svc = start_with(&[("PHONELINK_TOUCHPAD_DEV_NO_AUTH", "1")]);
+    let mut pair = svc.cmd(&["pair", "--uri"]).stdout(Stdio::piped()).spawn().unwrap();
+    let mut rd = BufReader::new(pair.stdout.take().unwrap());
+    let uri = loop {
+        let mut line = String::new();
+        assert!(rd.read_line(&mut line).unwrap() > 0);
+        if line.starts_with(PAIR_URI_PREFIX) {
+            break line.trim().to_string();
+        }
+    };
+    pair.kill().unwrap();
+    pair.wait().unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let mut cfg = NodeConfig::new("Late phone", None, "0.0.0.0:0".parse().unwrap());
+        cfg.capabilities = vec![CAP_TOUCHPAD.into()];
+        let (phone, _prx) = Node::start(cfg).await.unwrap();
+        let r = tokio::time::timeout(Duration::from_secs(10), phone.pair_with(&offer_from_pair_uri(&uri).unwrap())).await;
+        assert!(!matches!(r, Ok(Ok(_))), "the cancelled code must not pair");
+        phone.shutdown().await;
+    });
+    let (_, text) = out(&svc, &["devices"]);
+    assert!(!text.contains("Late phone"), "{text}");
+}

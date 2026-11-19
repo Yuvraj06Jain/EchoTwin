@@ -43,7 +43,16 @@ pub enum Msg {
     /// is held the phone keeps sending touch frames (empty ones too), so the laptop's
     /// watchdog can tell "held" from "connection lost".
     Button { button: Button, down: bool },
+    /// Phone → laptop: the scroll strip moved, in hi-res wheel units (120 = one notch,
+    /// positive = up / away from you). At most [`MAX_SCROLL`] either way per message.
+    Scroll { v120: i32 },
+    /// Laptop → phone: the laptop's own touchpad is in use (or no longer), so the phone's
+    /// input is ignored meanwhile.
+    LaptopTouchpad { in_use: bool },
 }
+
+/// Largest scroll step in one [`Msg::Scroll`] (ten notches); more is clamped.
+pub const MAX_SCROLL: i32 = 1200;
 
 /// The pad's two physical buttons.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -80,6 +89,11 @@ pub fn offer_from_pair_uri(uri: &str) -> crate::Result<crate::PairingOffer> {
 pub const MAX_STATUS_LEN: usize = 200;
 
 impl Msg {
+    /// A `Scroll`, clamped to ±[`MAX_SCROLL`].
+    pub fn scroll(v120: i32) -> Self {
+        Msg::Scroll { v120: v120.clamp(-MAX_SCROLL, MAX_SCROLL) }
+    }
+
     /// A `PadStatus`, its message cut to [`MAX_STATUS_LEN`] bytes on a char boundary.
     pub fn status(ok: bool, message: &str) -> Self {
         let mut end = message.len().min(MAX_STATUS_LEN);
@@ -216,6 +230,8 @@ mod tests {
             Msg::PadStatus { ok: false, message: "no uinput".into() },
             Msg::Button { button: Button::Left, down: true },
             Msg::Button { button: Button::Right, down: false },
+            Msg::Scroll { v120: -360 },
+            Msg::LaptopTouchpad { in_use: true },
         ] {
             assert_eq!(Msg::decode(&m.encode()), Some(m));
         }
@@ -229,6 +245,26 @@ mod tests {
         assert_eq!(Msg::status(true, "").encode()[0], 2);
         assert_eq!(Msg::Button { button: Button::Left, down: true }.encode(), [3, 0, 1]);
         assert_eq!(Msg::Button { button: Button::Right, down: false }.encode(), [3, 1, 0]);
+        assert_eq!(Msg::scroll(1).encode()[0], 4);
+        assert_eq!(Msg::LaptopTouchpad { in_use: false }.encode(), [5, 0]);
+    }
+
+    #[test]
+    fn scroll_is_clamped() {
+        assert_eq!(Msg::scroll(99_999), Msg::Scroll { v120: MAX_SCROLL });
+        assert_eq!(Msg::scroll(-99_999), Msg::Scroll { v120: -MAX_SCROLL });
+        assert_eq!(Msg::scroll(-240), Msg::Scroll { v120: -240 });
+    }
+
+    #[test]
+    fn control_requests_and_replies_keep_their_json_shape() {
+        use control::*;
+        let r: Request = serde_json::from_str(r#"{"cmd":"set_enabled","on":false}"#).unwrap();
+        assert!(matches!(r, Request::SetEnabled { on: false }));
+        let r: Request = serde_json::from_str(r#"{"cmd":"pair"}"#).unwrap();
+        assert!(matches!(r, Request::Pair));
+        let st = Reply::Status { enabled: true, devices: vec![] };
+        assert_eq!(serde_json::to_string(&st).unwrap(), r#"{"reply":"status","enabled":true,"devices":[]}"#);
     }
 
     #[test]
@@ -257,5 +293,54 @@ mod tests {
         let e = crate::PairingOffer::from_uri(&tp).unwrap_err().to_string();
         assert!(e.contains("Touchpad tab"), "{e}");
         assert!(offer_from_pair_uri("hello").is_err());
+    }
+}
+
+/// The touchpad service's local control socket: one JSON request line in, JSON reply lines
+/// out. Shared by the service, `phonelink touchpad …` and the desktop window.
+pub mod control {
+    use serde::{Deserialize, Serialize};
+    use std::path::PathBuf;
+
+    /// Where the service listens (`PHONELINK_TOUCHPAD_SOCKET` overrides it).
+    pub fn socket_path() -> PathBuf {
+        std::env::var_os("PHONELINK_TOUCHPAD_SOCKET")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/run/phonelink-touchpad/control.sock"))
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(tag = "cmd", rename_all = "snake_case")]
+    pub enum Request {
+        /// Show a pairing code (polkit: your password). Leaving the connection cancels it.
+        Pair,
+        Devices,
+        /// Forget a phone (polkit: your password).
+        Unpair { who: String },
+        /// Whether the touchpad is switched on, and the paired phones.
+        Status,
+        /// Switch the touchpad on or off (polkit: allowed for your active desktop session).
+        SetEnabled { on: bool },
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(tag = "reply", rename_all = "snake_case")]
+    pub enum Reply {
+        PairingCode { uri: String, seconds: u64 },
+        Paired { name: String },
+        PairingExpired,
+        Devices { devices: Vec<Device> },
+        Unpaired { name: String },
+        Error { message: String },
+        Status { enabled: bool, devices: Vec<Device> },
+        Enabled { on: bool },
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    pub struct Device {
+        pub name: String,
+        /// Full hex fingerprint.
+        pub fingerprint: String,
+        pub connected: bool,
     }
 }

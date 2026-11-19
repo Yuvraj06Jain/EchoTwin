@@ -17,4 +17,15 @@
          you run). Without this, polkit refuses the service's question. -->
     <annotate key="org.freedesktop.policykit.owner">unix-user:phonelink-touchpad</annotate>
   </action>
+  <action id="dev.echotwin.touchpad.set-enabled">
+    <description>Switch the phone's touchpad on or off</description>
+    <message>Authentication is required to switch the phone's touchpad on or off</message>
+    <defaults>
+      <!-- Your own active desktop session may switch it without a password; nobody else. -->
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.owner">unix-user:phonelink-touchpad</annotate>
+  </action>
 </policyconfig>

@@ -1,22 +1,36 @@
-//! Local control socket: `phonelink touchpad pair` / `devices` / `unpair` (forwarded to
-//! `phonelink-touchpad`) talk to the running service.
+//! Local control socket: `phonelink touchpad …` (through `phonelink-touchpad`) and the
+//! EchoTwin window talk to the running service here.
 //!
-//! `/run/phonelink-touchpad/control.sock` (`PHONELINK_TOUCHPAD_SOCKET` overrides it). Any local program may
-//! connect and list devices, but pairing or forgetting a phone needs polkit's approval for
-//! the connecting process (your password). One JSON request line in, JSON reply lines out.
+//! `/run/phonelink-touchpad/control.sock` (`PHONELINK_TOUCHPAD_SOCKET` overrides it); the
+//! request and reply types are `phonelink_core::touchpad::control`. Any local program may
+//! connect, list phones and read the switch. Pairing or forgetting a phone needs polkit's
+//! approval for the connecting process (your password); switching the touchpad on or off
+//! needs polkit too, which allows it without a password for your active desktop session
+//! only. One JSON request line in, JSON reply lines out. A client that leaves while its
+//! pairing code is shown cancels the pairing.
 
-use std::{os::unix::fs::PermissionsExt, path::PathBuf, time::Duration};
+use std::{
+    os::unix::fs::PermissionsExt,
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::{bail, Context};
+use phonelink_core::{
+    touchpad::{
+        self,
+        control::{socket_path, Device, Reply, Request},
+    },
+    Fingerprint, Node,
+};
 use qrcode::{render::unicode::Dense1x2, QrCode};
-use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
-    net::{UnixListener, UnixStream},
-    sync::broadcast,
+    net::{unix::OwnedReadHalf, UnixListener, UnixStream},
+    sync::{broadcast, watch},
     task::JoinHandle,
 };
-use phonelink_core::{touchpad, Fingerprint, Node};
 use tracing::{debug, info, warn};
 
 use crate::{netaddrs, polkit};
@@ -24,48 +38,59 @@ use crate::{netaddrs, polkit};
 /// How long a pairing QR code works.
 const PAIRING_TTL: Duration = Duration::from_secs(120);
 
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "cmd", rename_all = "snake_case")]
-enum Request {
-    Pair,
-    Devices,
-    Unpair { who: String },
+/// The touchpad's on/off switch, saved in the state directory (`settings.json`).
+pub struct Switch {
+    path: PathBuf,
+    tx: watch::Sender<bool>,
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "reply", rename_all = "snake_case")]
-enum Reply {
-    PairingCode { uri: String, seconds: u64 },
-    Paired { name: String },
-    PairingExpired,
-    Devices { devices: Vec<Device> },
-    Unpaired { name: String },
-    Error { message: String },
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Settings {
+    enabled: bool,
 }
 
-#[derive(Serialize, Deserialize)]
-struct Device {
-    name: String,
-    fingerprint: String,
-    connected: bool,
+impl Switch {
+    /// Load it (on when there is no file yet, or it can't be read).
+    pub fn load(dir: &std::path::Path) -> Self {
+        let path = dir.join("settings.json");
+        let enabled = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Settings>(&s).ok())
+            .is_none_or(|s| s.enabled);
+        Self { path, tx: watch::channel(enabled).0 }
+    }
+
+    pub fn on(&self) -> bool {
+        *self.tx.borrow()
+    }
+
+    pub fn subscribe(&self) -> watch::Receiver<bool> {
+        self.tx.subscribe()
+    }
+
+    fn set(&self, on: bool) -> anyhow::Result<()> {
+        let tmp = self.path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec(&Settings { enabled: on })?)?;
+        std::fs::rename(&tmp, &self.path)?;
+        self.tx.send_replace(on);
+        Ok(())
+    }
 }
 
-fn socket_path() -> PathBuf {
-    std::env::var_os("PHONELINK_TOUCHPAD_SOCKET")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/run/phonelink-touchpad/control.sock"))
+/// What every control client shares.
+pub struct Shared {
+    pub node: Node,
+    pub port: u16,
+    pub paired: broadcast::Sender<String>,
+    pub switch: Switch,
 }
 
-pub async fn serve(
-    node: Node,
-    port: u16,
-    paired: broadcast::Sender<String>,
-) -> anyhow::Result<JoinHandle<()>> {
+pub async fn serve(shared: Arc<Shared>) -> anyhow::Result<JoinHandle<()>> {
     let path = socket_path();
     let dir = path.parent().expect("has a parent");
     if !dir.exists() {
         std::fs::create_dir_all(dir)?;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755))?;
     }
     if path.exists() {
         if UnixStream::connect(&path).await.is_ok() {
@@ -78,9 +103,9 @@ pub async fn serve(
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666))?;
     Ok(tokio::spawn(async move {
         while let Ok((stream, _)) = listener.accept().await {
-            let (node, paired) = (node.clone(), paired.subscribe());
+            let shared = shared.clone();
             tokio::spawn(async move {
-                if let Err(e) = handle(stream, node, port, paired).await {
+                if let Err(e) = handle(stream, shared).await {
                     debug!("control client: {e}");
                 }
             });
@@ -95,38 +120,72 @@ async fn send(w: &mut (impl AsyncWriteExt + Unpin), reply: &Reply) -> anyhow::Re
     Ok(())
 }
 
-async fn handle(
-    stream: UnixStream,
-    node: Node,
-    port: u16,
-    mut paired: broadcast::Receiver<String>,
-) -> anyhow::Result<()> {
-    let cred = stream.peer_cred()?;
-    let (r, mut w) = stream.into_split();
-    let mut line = String::new();
-    BufReader::new(r.take(4096)).read_line(&mut line).await?;
-    let req: Request = serde_json::from_str(&line)?;
+fn devices(node: &Node) -> Vec<Device> {
+    node.peers()
+        .into_iter()
+        .map(|p| Device {
+            connected: node.is_connected(&p.fingerprint),
+            name: p.name,
+            fingerprint: p.fingerprint.to_hex(),
+        })
+        .collect()
+}
 
-    if matches!(req, Request::Pair | Request::Unpair { .. }) {
+/// Resolves when the client closes its end (it sends nothing after its request).
+async fn client_left(r: &mut OwnedReadHalf) {
+    let mut buf = [0u8; 64];
+    loop {
+        match r.read(&mut buf).await {
+            Ok(0) | Err(_) => return,
+            Ok(_) => {} // ignore anything else it sends
+        }
+    }
+}
+
+async fn handle(stream: UnixStream, shared: Arc<Shared>) -> anyhow::Result<()> {
+    let cred = stream.peer_cred()?;
+    let (mut r, mut w) = stream.into_split();
+    // Read the request line byte by byte, so nothing after it is swallowed by a buffer
+    // (the rest of the connection only tells us when the client leaves).
+    let mut line = Vec::new();
+    let mut byte = [0u8; 1];
+    while line.len() < 4096 {
+        if r.read(&mut byte).await? == 0 || byte[0] == b'\n' {
+            break;
+        }
+        line.push(byte[0]);
+    }
+    let req: Request = serde_json::from_slice(&line)?;
+    let node = &shared.node;
+
+    let action = match req {
+        Request::Pair | Request::Unpair { .. } => Some(polkit::MANAGE),
+        Request::SetEnabled { .. } => Some(polkit::SWITCH),
+        Request::Devices | Request::Status => None,
+    };
+    if let Some(action) = action {
         let allowed = match cred.pid() {
-            Some(pid) => polkit::authorize(pid, cred.uid()).await.unwrap_or_else(|e| {
+            Some(pid) => polkit::authorize(pid, cred.uid(), action).await.unwrap_or_else(|e| {
                 warn!("polkit check failed: {e:#}");
                 false
             }),
             None => false,
         };
         if !allowed {
-            info!(uid = cred.uid(), pid = ?cred.pid(), "refused: not authorised to manage phones");
-            return send(&mut w, &Reply::Error {
-                message: "not authorised (pairing and unpairing need your password)".into(),
-            })
-            .await;
+            info!(uid = cred.uid(), pid = ?cred.pid(), action, "refused: not authorised");
+            let message = if action == polkit::MANAGE {
+                "not authorised (pairing and unpairing need your password)"
+            } else {
+                "not authorised (only your own desktop session can switch the touchpad)"
+            };
+            return send(&mut w, &Reply::Error { message: message.into() }).await;
         }
     }
 
     match req {
         Request::Pair => {
-            let offer = node.start_pairing(PAIRING_TTL, netaddrs::lan_addrs(port));
+            let mut paired = shared.paired.subscribe();
+            let offer = node.start_pairing(PAIRING_TTL, netaddrs::lan_addrs(shared.port));
             if offer.addrs.is_empty() {
                 node.cancel_pairing();
                 return send(&mut w, &Reply::Error {
@@ -134,28 +193,40 @@ async fn handle(
                 })
                 .await;
             }
-            send(&mut w, &Reply::PairingCode { uri: touchpad::to_pair_uri(&offer), seconds: PAIRING_TTL.as_secs() })
-                .await?;
-            let reply = match tokio::time::timeout(PAIRING_TTL, paired.recv()).await {
-                Ok(Ok(name)) => Reply::Paired { name },
-                _ => {
+            send(&mut w, &Reply::PairingCode {
+                uri: touchpad::to_pair_uri(&offer),
+                seconds: PAIRING_TTL.as_secs(),
+            })
+            .await?;
+            let reply = tokio::select! {
+                got = tokio::time::timeout(PAIRING_TTL, paired.recv()) => match got {
+                    Ok(Ok(name)) => Reply::Paired { name },
+                    _ => {
+                        node.cancel_pairing();
+                        Reply::PairingExpired
+                    }
+                },
+                _ = client_left(&mut r) => {
                     node.cancel_pairing();
-                    Reply::PairingExpired
+                    info!("pairing cancelled: the client left");
+                    return Ok(());
                 }
             };
             send(&mut w, &reply).await
         }
-        Request::Devices => {
-            let devices = node
-                .peers()
-                .into_iter()
-                .map(|p| Device {
-                    connected: node.is_connected(&p.fingerprint),
-                    name: p.name,
-                    fingerprint: p.fingerprint.to_hex(),
-                })
-                .collect();
-            send(&mut w, &Reply::Devices { devices }).await
+        Request::Devices => send(&mut w, &Reply::Devices { devices: devices(node) }).await,
+        Request::Status => {
+            send(&mut w, &Reply::Status { enabled: shared.switch.on(), devices: devices(node) }).await
+        }
+        Request::SetEnabled { on } => {
+            let reply = match shared.switch.set(on) {
+                Ok(()) => {
+                    info!(on, "touchpad switched");
+                    Reply::Enabled { on }
+                }
+                Err(e) => Reply::Error { message: format!("could not save the setting: {e}") },
+            };
+            send(&mut w, &reply).await
         }
         Request::Unpair { who } => {
             let who_l = who.to_lowercase();
@@ -182,7 +253,9 @@ async fn handle(
 
 // ---------------------------------------------------------------- client side
 
-async fn request(req: &Request) -> anyhow::Result<tokio::io::Lines<BufReader<tokio::net::unix::OwnedReadHalf>>> {
+type Lines = tokio::io::Lines<BufReader<tokio::net::unix::OwnedReadHalf>>;
+
+async fn request(req: &Request) -> anyhow::Result<(Lines, tokio::net::unix::OwnedWriteHalf)> {
     let path = socket_path();
     let stream = UnixStream::connect(&path).await.with_context(|| {
         format!(
@@ -194,10 +267,11 @@ async fn request(req: &Request) -> anyhow::Result<tokio::io::Lines<BufReader<tok
     let mut line = serde_json::to_vec(req)?;
     line.push(b'\n');
     w.write_all(&line).await?;
-    Ok(BufReader::new(r).lines())
+    // The write half stays open: closing it would tell the service we left.
+    Ok((BufReader::new(r).lines(), w))
 }
 
-async fn next(lines: &mut tokio::io::Lines<BufReader<tokio::net::unix::OwnedReadHalf>>) -> anyhow::Result<Reply> {
+async fn next(lines: &mut Lines) -> anyhow::Result<Reply> {
     let line = lines.next_line().await?.context("the touchpad service closed the connection")?;
     Ok(serde_json::from_str(&line)?)
 }
@@ -215,7 +289,7 @@ fn qr(uri: &str) -> anyhow::Result<String> {
 
 /// `show_uri`: also print the code as text (for `fake_touchpad_phone` and debugging).
 pub async fn client_pair(show_uri: bool) -> anyhow::Result<()> {
-    let mut lines = request(&Request::Pair).await?;
+    let (mut lines, _w) = request(&Request::Pair).await?;
     loop {
         match next(&mut lines).await? {
             Reply::PairingCode { uri, seconds } => {
@@ -236,31 +310,52 @@ pub async fn client_pair(show_uri: bool) -> anyhow::Result<()> {
     }
 }
 
-pub async fn client_devices() -> anyhow::Result<()> {
-    let mut lines = request(&Request::Devices).await?;
-    match next(&mut lines).await? {
-        Reply::Devices { devices } if devices.is_empty() => {
-            println!("No phones paired with the touchpad yet. Run: phonelink touchpad pair")
-        }
-        Reply::Devices { devices } => {
-            for d in devices {
-                let fp: Fingerprint = Fingerprint::from_hex(&d.fingerprint)?;
-                println!(
-                    "{}  {}  {}",
-                    if d.connected { "●" } else { "○" },
-                    fp.short(),
-                    d.name
-                );
-            }
-        }
-        Reply::Error { message } => bail!("{message}"),
-        _ => bail!("unexpected reply"),
+fn print_devices(devices: &[Device]) -> anyhow::Result<()> {
+    if devices.is_empty() {
+        println!("No phones paired with the touchpad yet. Run: phonelink touchpad pair");
+    }
+    for d in devices {
+        let fp: Fingerprint = Fingerprint::from_hex(&d.fingerprint)?;
+        println!("{}  {}  {}", if d.connected { "●" } else { "○" }, fp.short(), d.name);
     }
     Ok(())
 }
 
+pub async fn client_devices() -> anyhow::Result<()> {
+    let (mut lines, _w) = request(&Request::Devices).await?;
+    match next(&mut lines).await? {
+        Reply::Devices { devices } => print_devices(&devices),
+        Reply::Error { message } => bail!("{message}"),
+        _ => bail!("unexpected reply"),
+    }
+}
+
+pub async fn client_status() -> anyhow::Result<()> {
+    let (mut lines, _w) = request(&Request::Status).await?;
+    match next(&mut lines).await? {
+        Reply::Status { enabled, devices } => {
+            println!("Touchpad: {}", if enabled { "on" } else { "off (the phone's Touchpad tab is refused)" });
+            print_devices(&devices)
+        }
+        Reply::Error { message } => bail!("{message}"),
+        _ => bail!("unexpected reply"),
+    }
+}
+
+pub async fn client_set_enabled(on: bool) -> anyhow::Result<()> {
+    let (mut lines, _w) = request(&Request::SetEnabled { on }).await?;
+    match next(&mut lines).await? {
+        Reply::Enabled { on } => {
+            println!("Touchpad {}.", if on { "on" } else { "off" });
+            Ok(())
+        }
+        Reply::Error { message } => bail!("{message}"),
+        _ => bail!("unexpected reply"),
+    }
+}
+
 pub async fn client_unpair(who: &str) -> anyhow::Result<()> {
-    let mut lines = request(&Request::Unpair { who: who.into() }).await?;
+    let (mut lines, _w) = request(&Request::Unpair { who: who.into() }).await?;
     match next(&mut lines).await? {
         Reply::Unpaired { name } => println!("Forgot {name}."),
         Reply::Error { message } => bail!("{message}"),

@@ -11,11 +11,12 @@ systemctl --user daemon-reload
 sudo systemctl disable --now phonelink-touchpad.service 2>/dev/null || true
 sudo rm -f /etc/systemd/system/phonelink-touchpad.service \
   /etc/udev/rules.d/60-phonelink-uinput.rules /etc/udev/rules.d/71-touchpad-phonelink.rules \
-  /etc/udev/rules.d/72-phonelink-pad.rules \
+  /etc/udev/rules.d/72-phonelink-pad.rules /etc/udev/rules.d/73-phonelink-realpad.rules \
   /usr/share/polkit-1/actions/dev.echotwin.touchpad.policy /etc/sysusers.d/phonelink-touchpad.conf \
   /usr/local/bin/phonelink-touchpad
 sudo rm -rf /var/lib/phonelink-touchpad
 sudo systemctl daemon-reload
 sudo udevadm control --reload && sudo udevadm trigger --sysname-match=uinput
+sudo udevadm trigger --subsystem-match=input --action=change
 sudo userdel phonelink-touchpad 2>/dev/null || true
 echo "EchoTwin touchpad removed."

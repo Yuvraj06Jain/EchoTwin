@@ -9,6 +9,8 @@
 #   * a polkit action: pairing or forgetting a phone asks for your password
 #   * the virtual touchpad's device node readable (not writable) by you, for InputActions
 #   * phonelink-touchpad-mirror (user service, no privileges): copies your touchpad settings
+#   * read-only access for the service to your real touchpad (never the keyboard), so it
+#     can ignore the phone while you use the laptop's own touchpad
 #
 # Undo with packaging/uninstall-touchpad.sh.
 set -euo pipefail
@@ -48,8 +50,10 @@ sudo install -Dm644 $P/60-phonelink-uinput.rules /etc/udev/rules.d/60-phonelink-
 sudo install -Dm644 $P/71-touchpad-phonelink.rules /etc/udev/rules.d/71-touchpad-phonelink.rules
 sed "s/@USER@/$ME/g" $P/72-phonelink-pad.rules.in |
   sudo tee /etc/udev/rules.d/72-phonelink-pad.rules >/dev/null
+sudo install -Dm644 $P/73-phonelink-realpad.rules /etc/udev/rules.d/73-phonelink-realpad.rules
 sudo udevadm control --reload
 sudo udevadm trigger --sysname-match=uinput
+sudo udevadm trigger --subsystem-match=input --action=change
 sudo install -Dm644 $P/phonelink-touchpad.service /etc/systemd/system/phonelink-touchpad.service
 sudo systemctl daemon-reload
 sudo systemctl enable phonelink-touchpad.service

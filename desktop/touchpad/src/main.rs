@@ -20,11 +20,17 @@
 //! phonelink-touchpad pair       show a QR code to pair a phone (asks for your password)
 //! phonelink-touchpad devices    list paired phones
 //! phonelink-touchpad unpair N   forget a paired phone (name or fingerprint prefix)
+//! phonelink-touchpad status     on or off, and the paired phones
+//! phonelink-touchpad on|off     switch the touchpad on or off (your desktop session only)
 //! phonelink-touchpad demo       play scripted gestures (needs the phonelink-touchpad group)
 //! ```
-//! `phonelink touchpad pair|devices|unpair` runs the same commands.
+//! `phonelink touchpad …` runs the same commands; the EchoTwin window uses the same socket.
 //!
-//! Ported from TouchTwin (`daemon/src/main.rs`); the buttons are new.
+//! The laptop's own touchpad comes first: while it is touched (and half a second after),
+//! the phone's input is ignored (`realpad`).
+//!
+//! Ported from TouchTwin (`daemon/src/main.rs`); the buttons, the scroll wheel, the switch
+//! and `realpad` are new.
 
 mod control;
 mod kwin;
@@ -33,6 +39,7 @@ mod kwin;
 mod netaddrs;
 mod pad;
 mod polkit;
+mod realpad;
 mod uinput;
 
 use std::{
@@ -52,9 +59,14 @@ use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 
 use crate::{
-    pad::{Buttons, Geometry, PadState},
-    uinput::VirtualPad,
+    pad::{Buttons, Geometry, PadState, Wheel},
+    realpad::{Busy, Seen},
+    uinput::{VirtualPad, VirtualWheel},
 };
+
+/// What the phone is told while the touchpad is switched off on the laptop.
+const SWITCHED_OFF: &str =
+    "The touchpad is switched off on the laptop (EchoTwin → Settings → Touchpad, or `phonelink touchpad on`).";
 
 pub const DEFAULT_PORT: u16 = 47830;
 /// Fingers or buttons held down with no frame for this long are let go (the phone sends a
@@ -86,7 +98,8 @@ fn device_name() -> String {
         .unwrap_or_else(|| "Laptop".into())
 }
 
-const USAGE: &str = "usage: phonelink-touchpad pair [--uri] | devices | unpair <name> | run | mirror | demo";
+const USAGE: &str =
+    "usage: phonelink-touchpad pair [--uri] | devices | unpair <name> | status | on | off | run | mirror | demo";
 
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
@@ -116,6 +129,9 @@ async fn real_main() -> anyhow::Result<()> {
             let who = args.get(1).context("usage: phonelink touchpad unpair <name or fingerprint>")?;
             control::client_unpair(who).await
         }
+        Some("status") => control::client_status().await,
+        Some("on") => control::client_set_enabled(true).await,
+        Some("off") => control::client_set_enabled(false).await,
         Some("demo") => demo().await,
         None | Some("-h" | "--help" | "help") => {
             println!("{USAGE}");
@@ -185,9 +201,10 @@ impl Pad {
     }
 }
 
-/// Who is driving the pad right now.
+/// Who is driving the pad right now, and the pad size they asked for.
 struct Active {
     peer: Fingerprint,
+    info: PadInfo,
     last_seq: Option<u32>,
     last_frame: Instant,
 }
@@ -195,16 +212,30 @@ struct Active {
 async fn run() -> anyhow::Result<()> {
     let (node, mut events) = start_node().await?;
     let port = node.local_addr()?.port();
-    info!(port, peers = node.peers().len(), "phonelink-touchpad running");
+    let dir = data_dir();
+    let shared = Arc::new(control::Shared {
+        node: node.clone(),
+        port,
+        paired: broadcast::channel::<String>(4).0,
+        switch: control::Switch::load(&dir),
+    });
+    info!(port, peers = node.peers().len(), on = shared.switch.on(), "phonelink-touchpad running");
 
     let refresh = Arc::new(tokio::sync::Notify::new());
     let lan = Lan::new().context("starting mDNS")?;
     let _advert = lan.advertise(node.clone(), port, refresh.clone());
+    let _control = control::serve(shared.clone()).await?;
+    let mut switch = shared.switch.subscribe();
 
-    let (paired_tx, _) = broadcast::channel::<String>(4);
-    let _control = control::serve(node.clone(), port, paired_tx.clone()).await?;
+    // The laptop's own touchpad: touches arrive here; `busy` says whether the phone waits.
+    let (real_tx, mut real_rx) = tokio::sync::mpsc::unbounded_channel::<Seen>();
+    realpad::watch(real_tx);
+    let mut busy = Busy::default();
+    let mut busy_told = false;
+    let mut real_open = true;
 
     let mut pad: Option<Pad> = None;
+    let mut wheel: Option<(VirtualWheel, Wheel)> = None;
     let mut active: Option<Active> = None;
     let mut watchdog = tokio::time::interval(Duration::from_millis(50));
     watchdog.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -213,10 +244,11 @@ async fn run() -> anyhow::Result<()> {
         tokio::select! {
             ev = events.recv() => {
                 let Some(ev) = ev else { break };
+                let laptop_busy = busy.in_use(Instant::now());
                 match ev {
                     Event::Paired { name, .. } => {
                         refresh.notify_one();
-                        let _ = paired_tx.send(name);
+                        let _ = shared.paired.send(name);
                     }
                     Event::PeerConnected { name, addr, .. } => {
                         info!(%name, ?addr, "phone connected");
@@ -233,14 +265,22 @@ async fn run() -> anyhow::Result<()> {
                     Event::PeerPaused { .. } => {}
                     Event::Message { peer, body, .. } => match Msg::decode(&body) {
                         Some(Msg::PadInfo(info)) => {
-                            let status = use_pad(&mut pad, info);
-                            if let Some(p) = pad.as_mut() { p.release(); }
-                            active = Some(Active { peer, last_seq: None, last_frame: Instant::now() });
-                            let reply = match status {
-                                Ok(()) => Msg::status(true, ""),
-                                Err(e) => { warn!("{e:#}"); Msg::status(false, &format!("{e:#}")) }
+                            active = Some(Active { peer, info, last_seq: None, last_frame: Instant::now() });
+                            let reply = if shared.switch.on() {
+                                let status = use_pad(&mut pad, info);
+                                if let Some(p) = pad.as_mut() { p.release(); }
+                                match status {
+                                    Ok(()) => Msg::status(true, ""),
+                                    Err(e) => { warn!("{e:#}"); Msg::status(false, &format!("{e:#}")) }
+                                }
+                            } else {
+                                Msg::status(false, SWITCHED_OFF)
                             };
                             let _ = node.send_fleeting(&peer, reply.encode());
+                            if laptop_busy {
+                                busy_told = true;
+                                let _ = node.send_fleeting(&peer, Msg::LaptopTouchpad { in_use: true }.encode());
+                            }
                         }
                         Some(Msg::Release) => {
                             if active.as_ref().is_some_and(|a| a.peer == peer) {
@@ -249,16 +289,33 @@ async fn run() -> anyhow::Result<()> {
                         }
                         Some(Msg::Button { button, down }) => {
                             let (Some(a), Some(p)) = (active.as_mut(), pad.as_mut()) else { continue };
-                            if a.peer != peer { continue }
+                            if a.peer != peer || (down && laptop_busy) { continue }
                             a.last_frame = Instant::now();
                             p.button(button, down);
+                        }
+                        Some(Msg::Scroll { v120 }) => {
+                            let Some(a) = active.as_mut() else { continue };
+                            if a.peer != peer || !shared.switch.on() || laptop_busy { continue }
+                            a.last_frame = Instant::now();
+                            if wheel.is_none() {
+                                match VirtualWheel::create() {
+                                    Ok(w) => wheel = Some((w, Wheel::default())),
+                                    Err(e) => { warn!("{e:#}"); continue }
+                                }
+                            }
+                            if let Some((dev, state)) = wheel.as_mut() {
+                                let report = state.scroll(v120.clamp(-phonelink_core::touchpad::MAX_SCROLL, phonelink_core::touchpad::MAX_SCROLL));
+                                if let Err(e) = dev.send(&report) {
+                                    warn!("writing to the scroll wheel failed: {e}");
+                                }
+                            }
                         }
                         Some(other) => debug!("ignoring {other:?}"),
                         None => debug!("undecodable message"),
                     },
                     Event::Datagram { peer, body } => {
                         let (Some(a), Some(p)) = (active.as_mut(), pad.as_mut()) else { continue };
-                        if a.peer != peer { continue }
+                        if a.peer != peer || laptop_busy { continue }
                         let Some(frame) = TouchFrame::decode(&body) else { continue };
                         if a.last_seq.is_some_and(|last| !seq_newer(frame.seq, last)) {
                             continue; // late or duplicate: a newer snapshot was applied already
@@ -269,7 +326,53 @@ async fn run() -> anyhow::Result<()> {
                     }
                 }
             }
+            seen = real_rx.recv(), if real_open => {
+                let now = Instant::now();
+                match seen {
+                    Some(Seen::Touch(t)) => busy.touch(&t, now),
+                    Some(Seen::Gone(d)) => busy.gone(&d, now),
+                    None => { real_open = false; continue }
+                }
+                // A finger on the laptop's touchpad: let go of the phone's at once.
+                if busy.in_use(now) && !busy_told {
+                    busy_told = true;
+                    if let Some(p) = pad.as_mut() { p.release(); }
+                    if let Some(a) = &active {
+                        info!("the laptop's touchpad is in use; ignoring the phone");
+                        let _ = node.send_fleeting(&a.peer, Msg::LaptopTouchpad { in_use: true }.encode());
+                    }
+                }
+            }
+            changed = switch.changed() => {
+                if changed.is_err() { continue }
+                let on = *switch.borrow_and_update();
+                if on {
+                    if let Some(a) = &active {
+                        let reply = match use_pad(&mut pad, a.info) {
+                            Ok(()) => Msg::status(true, ""),
+                            Err(e) => Msg::status(false, &format!("{e:#}")),
+                        };
+                        let _ = node.send_fleeting(&a.peer, reply.encode());
+                    }
+                } else {
+                    // Off: let go of everything and remove the devices.
+                    if let Some(mut p) = pad.take() { p.release(); }
+                    wheel = None;
+                    for p in node.peers() {
+                        if node.is_connected(&p.fingerprint) {
+                            let _ = node.send_fleeting(&p.fingerprint, Msg::status(false, SWITCHED_OFF).encode());
+                        }
+                    }
+                }
+            }
             _ = watchdog.tick() => {
+                let now = Instant::now();
+                if busy_told && !busy.in_use(now) {
+                    busy_told = false;
+                    if let Some(a) = &active {
+                        let _ = node.send_fleeting(&a.peer, Msg::LaptopTouchpad { in_use: false }.encode());
+                    }
+                }
                 if let (Some(a), Some(p)) = (active.as_ref(), pad.as_mut()) {
                     if p.anything_down() && a.last_frame.elapsed() > SILENCE_LIMIT {
                         info!("phone went quiet with fingers or a button down; letting go");

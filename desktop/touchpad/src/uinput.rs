@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use anyhow::Context;
 use evdev::{
     uinput::VirtualDevice, AbsInfo, AbsoluteAxisCode as Abs, AttributeSet, BusType, InputId,
-    KeyCode as Key, PropType, UinputAbsSetup,
+    KeyCode as Key, PropType, RelativeAxisCode as Rel, UinputAbsSetup,
 };
 use phonelink_core::touchpad::MAX_CONTACTS;
 
@@ -24,6 +24,8 @@ use crate::pad::{Geometry, Report, UNITS_PER_MM};
 
 /// Stable name, so KDE remembers the device's settings between runs.
 pub const DEVICE_NAME: &str = "EchoTwin Touchpad";
+/// The scroll strip's wheel: a device of its own, so the touchpad stays a plain touchpad.
+pub const WHEEL_NAME: &str = "EchoTwin Touchpad Scroll";
 const VENDOR: u16 = 0x7470; // "tp"
 const PRODUCT: u16 = 0x6574; // "et"
 
@@ -99,5 +101,39 @@ impl VirtualPad {
             self.dev.emit(r)?;
         }
         Ok(())
+    }
+}
+
+/// The scroll strip's wheel: a hi-res mouse wheel and nothing else (libinput wants a
+/// pointer device to have a button, so it has BTN_MIDDLE, never pressed).
+pub struct VirtualWheel {
+    dev: VirtualDevice,
+}
+
+impl VirtualWheel {
+    pub fn create() -> anyhow::Result<Self> {
+        let mut rel = AttributeSet::<Rel>::new();
+        rel.insert(Rel::REL_WHEEL);
+        rel.insert(Rel::REL_WHEEL_HI_RES);
+        let mut keys = AttributeSet::<Key>::new();
+        keys.insert(Key::BTN_MIDDLE);
+        let dev = VirtualDevice::builder()
+            .map_err(|e| anyhow::anyhow!("the laptop cannot create the scroll wheel: /dev/uinput: {e}"))?
+            .name(WHEEL_NAME)
+            .input_id(InputId::new(BusType::BUS_VIRTUAL, VENDOR, PRODUCT + 1, 1))
+            .with_keys(&keys)?
+            .with_relative_axes(&rel)?
+            .build()
+            .context("creating the scroll wheel")?;
+        tracing::info!("virtual scroll wheel created");
+        Ok(Self { dev })
+    }
+
+    /// One report (followed by SYN_REPORT); nothing for an empty one.
+    pub fn send(&mut self, report: &Report) -> std::io::Result<()> {
+        if report.is_empty() {
+            return Ok(());
+        }
+        self.dev.emit(report)
     }
 }

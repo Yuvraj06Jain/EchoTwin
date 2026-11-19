@@ -11,6 +11,10 @@
 //! [`Node::connect_stream`] / [`Node::accept_stream`] do mutual TLS 1.3 with the same pinned
 //! keys, then the same Hello/Deliver/Ack protocol. One session per peer: QUIC always wins,
 //! and a QUIC connection that comes back replaces a running stream session.
+//!
+//! A node made with [`NodeConfig::datagrams`] also reads unreliable QUIC datagrams
+//! ([`Event::Datagram`], [`Node::send_datagram`]): the touchpad's finger frames, where a
+//! late frame is worse than none.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -47,6 +51,9 @@ use crate::{
 
 /// Capability for the generic durable message channel.
 pub const CAP_MESSAGES: &str = "messages/1";
+
+/// Largest datagram sent or accepted. Touch frames are well under 100 bytes.
+pub const MAX_DATAGRAM_LEN: usize = 512;
 
 pub mod close_code {
     pub const NORMAL: u32 = 0;
@@ -95,6 +102,9 @@ pub struct NodeConfig {
     pub stream_silence_limit: Duration,
     /// Keep-alive, reconnect and search timers; changeable later with [`Node::set_timings`].
     pub timings: Timings,
+    /// Read QUIC datagrams from peers ([`Event::Datagram`]). Off by default: only the
+    /// touchpad uses them, and a node that doesn't leaves them unread.
+    pub datagrams: bool,
 }
 
 /// Timers that trade how quickly a lost or returning peer is noticed against how often
@@ -202,6 +212,7 @@ impl NodeConfig {
             stream_ping_every: STREAM_PING_EVERY,
             stream_silence_limit: STREAM_SILENCE_LIMIT,
             timings: Timings::default(),
+            datagrams: false,
         }
     }
 }
@@ -317,6 +328,12 @@ pub enum Event {
         peer: Fingerprint,
         id: MsgId,
         body: Vec<u8>,
+    },
+    /// An unreliable QUIC datagram (may be lost or reordered). Only on a node made with
+    /// [`NodeConfig::datagrams`].
+    Datagram {
+        peer: Fingerprint,
+        body: bytes::Bytes,
     },
 }
 
@@ -1101,6 +1118,18 @@ impl Node {
             transport,
         });
 
+        // Datagrams: the touchpad's finger frames.
+        if let (Link::Quic(conn), true) = (&link, self.inner.config.datagrams) {
+            let (node, conn) = (self.clone(), conn.clone());
+            tokio::spawn(async move {
+                while let Ok(body) = conn.read_datagram().await {
+                    if body.len() <= MAX_DATAGRAM_LEN {
+                        node.emit(Event::Datagram { peer, body });
+                    }
+                }
+            });
+        }
+
         // Further streams on a QUIC session carry file data.
         if let Link::Quic(conn) = &link {
             let (conn, data_tx) = (conn.clone(), self.inner.data_tx.clone());
@@ -1446,6 +1475,28 @@ impl Node {
             Some(s) => s.tx.send(Control::Fleeting { body }).is_ok(),
             None => false,
         })
+    }
+
+    /// Send an unreliable QUIC datagram now if `peer` is connected over QUIC; dropped
+    /// otherwise (or when congested). Returns whether QUIC took it. At most
+    /// [`MAX_DATAGRAM_LEN`] bytes.
+    pub fn send_datagram(&self, peer: &Fingerprint, body: Vec<u8>) -> Result<bool> {
+        if body.len() > MAX_DATAGRAM_LEN {
+            return Err(Error::Protocol("datagram too large".into()));
+        }
+        let conn = match self.sessions().get(peer).map(|s| s.link.clone()) {
+            Some(Link::Quic(c)) => c,
+            _ => return Ok(false),
+        };
+        Ok(conn.send_datagram(bytes::Bytes::from(body)).is_ok())
+    }
+
+    /// Round-trip time of the QUIC session with `peer` (`None`: not connected over QUIC).
+    pub fn rtt(&self, peer: &Fingerprint) -> Option<Duration> {
+        match self.sessions().get(peer).map(|s| s.link.clone()) {
+            Some(Link::Quic(c)) => Some(c.rtt()),
+            _ => None,
+        }
     }
 
     /// Tell reconnect loops to retry right now instead of waiting out their backoff.

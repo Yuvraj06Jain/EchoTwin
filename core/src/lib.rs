@@ -6,6 +6,7 @@
 //! * [`node`]: endpoint, sessions, durable at-least-once message delivery, auto-reconnect.
 //! * [`discovery`]: rotating opaque tokens so the LAN never learns who you are.
 //! * [`limiter`]: handshake flood protection for hostile networks.
+//! * [`touchpad`]: the Touchpad tab's protocol with the laptop's `phonelink-touchpad` service.
 
 pub mod alerts;
 pub mod discovery;
@@ -19,6 +20,7 @@ pub mod outbox;
 pub mod pairing;
 pub mod probe;
 pub mod tls;
+pub mod touchpad;
 pub mod transfer;
 pub mod trust;
 mod util;

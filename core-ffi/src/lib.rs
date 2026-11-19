@@ -904,6 +904,8 @@ impl PhoneLink {
                             via: via(Some(transport)),
                         }
                     }
+                    // Datagrams belong to the separate TouchpadLink node.
+                    Event::Datagram { .. } => continue,
                     Event::PeerPaused { peer } => LinkEvent::ComputerPaused { id: peer.short() },
                     Event::PeerDisconnected { peer } => {
                         pump_caps

@@ -1568,6 +1568,8 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     via: via(Some(transport)).unwrap_or_default(),
                 }
             }
+            // Only the touchpad service reads datagrams; this node never asks for them.
+            Event::Datagram { .. } => continue,
             Event::PeerPaused { peer } => WatchEvent::PeerPaused {
                 id: peer.short(),
                 name: state.name_of(&peer),

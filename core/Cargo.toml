@@ -16,6 +16,7 @@ sha2 = "0.10"
 hmac = "0.12"
 hkdf = "0.12"
 rand = "0.8"
+bytes = "1"
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "fs"] }
 serde = { version = "1", features = ["derive"] }

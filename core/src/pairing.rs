@@ -58,6 +58,9 @@ impl PairingOffer {
 
     pub fn from_uri(uri: &str) -> Result<Self> {
         let bad = |m: &str| Error::BadOffer(m.to_string());
+        if uri.trim().starts_with(crate::touchpad::PAIR_URI_PREFIX) {
+            return Err(bad("this is the touchpad's pairing code; scan it in the app's Touchpad tab"));
+        }
         let query = uri
             .trim()
             .strip_prefix(URI_PREFIX)

@@ -15,8 +15,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 P=packaging/touchpad
 
+stop() { echo; echo "Nothing was installed: $*"; exit 1; }
+# Any other failure (the build, sudo, systemctl) also says so before exiting.
+trap 'echo; echo "install-touchpad.sh stopped at line $LINENO. Paste this whole output when asking for help."' ERR
+
 if [[ $EUID -eq 0 ]]; then
-  echo "Run this as your normal user; it uses sudo where needed."; exit 1
+  stop "run this as your normal user (not with sudo); it uses sudo where needed."
 fi
 ME="$(id -un)"
 
@@ -25,11 +29,12 @@ if [[ -e /etc/systemd/system/touchtwind.service || -e /etc/udev/rules.d/60-touch
   echo "TouchTwin is still installed. Remove it first (it uses the same port and /dev/uinput):"
   echo "    ~/Desktop/Projects/PhoneMouse/scripts/uninstall-system.sh"
   echo "then run this again."
-  exit 1
+  stop "TouchTwin is still installed."
 fi
 if ! command -v setfacl >/dev/null; then
-  echo "setfacl is missing (package 'acl'): sudo apt install acl"; exit 1
+  stop "setfacl is missing. Install it with: sudo apt install acl"
 fi
+command -v cargo >/dev/null || stop "Rust (cargo) is not installed; get it from https://rustup.rs"
 
 echo "==> Building phonelink-touchpad"
 cargo build --release --locked -p phonelink-touchpad
@@ -81,5 +86,6 @@ fi
 if command -v ufw >/dev/null && sudo ufw status | grep -q "Status: active"; then
   echo "note: ufw is active; let the phone in with: sudo ufw allow 47830/udp"
 fi
+ls -l /usr/local/bin/phonelink-touchpad
 echo
-echo "Pair your phone:  phonelink touchpad pair   (then scan it in the app's Touchpad tab)"
+echo "Done. Pair your phone:  phonelink touchpad pair   (then scan it in the app's Touchpad tab)"

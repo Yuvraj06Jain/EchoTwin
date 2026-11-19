@@ -356,6 +356,7 @@ When something fails, include:
 
 | Symptom | Fix |
 |---|---|
+| `phonelink touchpad pair` says "the touchpad isn't installed on this laptop yet" (older versions: "could not run phonelink-touchpad … os error 2") | `install-touchpad.sh` didn't finish. Run `./packaging/install-touchpad.sh` on its own; its last lines say why it stopped ("Nothing was installed: …") |
 | `install-touchpad.sh` says TouchTwin is still installed | remove it first: `~/Desktop/Projects/PhoneMouse/scripts/uninstall-system.sh` (both use port 47830 and /dev/uinput's group), then run the installer again |
 | the tab says "The touchpad service isn't running" or stays "looking for it…" | `systemctl status phonelink-touchpad` and `sudo journalctl -u phonelink-touchpad -n 50`; with ufw on: `sudo ufw allow 47830/udp` |
 | "the laptop cannot create a touchpad: /dev/uinput …" in red | run `./packaging/install-touchpad.sh` again; `ls -l /dev/uinput` must say `root phonelink-touchpad` |

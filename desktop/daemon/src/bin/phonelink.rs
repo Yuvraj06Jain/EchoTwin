@@ -148,13 +148,22 @@ enum TouchpadCmd {
     Unpair { device: String },
 }
 
-/// `phonelink-touchpad`, next to this program or else on the PATH.
-fn touchpad_program() -> std::path::PathBuf {
-    std::env::current_exe()
+/// Where `install-touchpad.sh` puts the touchpad service.
+const TOUCHPAD_INSTALLED: &str = "/usr/local/bin/phonelink-touchpad";
+
+/// `phonelink-touchpad`: next to this program, where the installer puts it, or on the PATH.
+fn touchpad_program() -> Option<std::path::PathBuf> {
+    let beside = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|d| d.join("phonelink-touchpad")))
-        .filter(|p| p.is_file())
-        .unwrap_or_else(|| "phonelink-touchpad".into())
+        .and_then(|exe| exe.parent().map(|d| d.join("phonelink-touchpad")));
+    let on_path = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).map(|d| d.join("phonelink-touchpad")).collect::<Vec<_>>())
+        .unwrap_or_default();
+    beside
+        .into_iter()
+        .chain([std::path::PathBuf::from(TOUCHPAD_INSTALLED)])
+        .chain(on_path)
+        .find(|p| p.is_file())
 }
 
 /// Run the touchpad service's own command (it talks to its own socket, not phonelinkd).
@@ -170,13 +179,17 @@ fn touchpad(cmd: TouchpadCmd) -> anyhow::Result<()> {
         TouchpadCmd::Devices => vec!["devices".into()],
         TouchpadCmd::Unpair { device } => vec!["unpair".into(), device],
     };
-    let program = touchpad_program();
-    let status = std::process::Command::new(&program).args(&args).status().map_err(|e| {
-        anyhow::anyhow!(
-            "could not run {} ({e}). Install the touchpad with packaging/install-touchpad.sh",
-            program.display()
-        )
-    })?;
+    let Some(program) = touchpad_program() else {
+        bail!(
+            "the touchpad isn't installed on this laptop yet ({TOUCHPAD_INSTALLED} is missing).\n\
+             From your EchoTwin folder run:  ./packaging/install-touchpad.sh\n\
+             (if it stops early, its last lines say why)"
+        );
+    };
+    let status = std::process::Command::new(&program)
+        .args(&args)
+        .status()
+        .map_err(|e| anyhow::anyhow!("could not run {}: {e}", program.display()))?;
     if !status.success() {
         // It already said why.
         std::process::exit(status.code().unwrap_or(1));

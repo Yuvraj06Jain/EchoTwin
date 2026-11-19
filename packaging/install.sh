@@ -134,6 +134,7 @@ if grep -qF echotwin-sudo-approve /etc/pam.d/sudo 2>/dev/null; then
     echo "  sudo sed -i '/echotwin-sudo-approve/d' /etc/pam.d/sudo; sudo rm -f /usr/local/libexec/echotwin-sudo-approve; sudo rm -rf /etc/echotwin"
 fi
 echo "EchoTwin is running."
+echo "Touchpad tab (optional, asks for sudo once): ./packaging/install-touchpad.sh"
 if [ "$APP_OK" = 1 ]; then
   echo "Open \"EchoTwin\" from your application menu to pair your phone."
 else

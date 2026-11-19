@@ -1,0 +1,13 @@
+[Unit]
+Description=EchoTwin: give the phone's touchpad the same settings as the real one
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+# No privileges: it only reads and writes touchpad settings through KWin's D-Bus.
+ExecStart=/usr/local/bin/phonelink-touchpad mirror
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

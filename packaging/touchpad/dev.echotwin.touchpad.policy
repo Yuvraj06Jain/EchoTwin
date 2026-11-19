@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>EchoTwin</vendor>
+  <action id="dev.echotwin.touchpad.manage-phones">
+    <description>Pair or forget a phone that can control this computer's pointer</description>
+    <message>Authentication is required to let a phone control this computer's touchpad</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <!-- The service runs as `phonelink-touchpad`, not root; polkit lets only root or the
+         action's owner ask about another user's process (the `phonelink touchpad pair`
+         you run). Without this, polkit refuses the service's question. -->
+    <annotate key="org.freedesktop.policykit.owner">unix-user:phonelink-touchpad</annotate>
+  </action>
+</policyconfig>

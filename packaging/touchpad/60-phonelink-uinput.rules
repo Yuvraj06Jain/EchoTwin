@@ -1,0 +1,3 @@
+# EchoTwin touchpad: only the phonelink-touchpad group (the touchpad service, nobody else)
+# may create input devices. /dev/uinput stays closed to every program you run yourself.
+KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="phonelink-touchpad", MODE="0660", OPTIONS+="static_node=uinput"

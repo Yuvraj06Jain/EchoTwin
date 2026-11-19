@@ -1,0 +1,3 @@
+# The user EchoTwin's touchpad service runs as. Its group is the only one allowed to open
+# /dev/uinput (see 60-phonelink-uinput.rules). No login, no home directory.
+u phonelink-touchpad - "EchoTwin touchpad service" /var/lib/phonelink-touchpad /usr/sbin/nologin

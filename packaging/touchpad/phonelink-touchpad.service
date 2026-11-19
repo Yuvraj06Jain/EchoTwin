@@ -1,0 +1,45 @@
+[Unit]
+Description=EchoTwin: the phone's Touchpad tab drives this laptop's pointer
+Documentation=https://github.com/Yuvraj06Jain/EchoTwin/blob/main/docs/FEATURES.md
+After=network.target systemd-udevd.service
+Wants=network.target
+
+[Service]
+ExecStart=/usr/local/bin/phonelink-touchpad run
+User=phonelink-touchpad
+Group=phonelink-touchpad
+# Keys and paired phones: /var/lib/phonelink-touchpad, owned by phonelink-touchpad, unreadable by you.
+StateDirectory=phonelink-touchpad
+StateDirectoryMode=0700
+# Control socket: /run/phonelink-touchpad/control.sock.
+RuntimeDirectory=phonelink-touchpad
+RuntimeDirectoryMode=0755
+Restart=on-failure
+RestartSec=3
+
+# It needs the network, /dev/uinput and D-Bus (polkit). Nothing else.
+DevicePolicy=closed
+DeviceAllow=/dev/uinput rw
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

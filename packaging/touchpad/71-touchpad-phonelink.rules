@@ -1,0 +1,6 @@
+# EchoTwin touchpad, step 1 of 2. Sorts just before InputActions' 71-touchpad.rules, which
+# gives every touchpad (ID_INPUT_TOUCHPAD=1) read-WRITE access for the logged-in user
+# through `uaccess`. Hide the touchpad flag from it for the virtual touchpad only; step 2
+# (72-phonelink-pad.rules) puts it back, so libinput still sees a touchpad.
+# (Removing the uaccess tag afterwards does not work: udev keeps tags once added.)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="EchoTwin Touchpad", ENV{ID_INPUT_TOUCHPAD}="", ENV{PHONELINK_PAD}="1"

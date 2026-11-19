@@ -47,6 +47,8 @@ pub struct TouchpadStatus {
     installed: bool,
     running: bool,
     enabled: bool,
+    /// Typing from the phone allowed.
+    typing: bool,
     devices: Vec<TouchpadDevice>,
 }
 
@@ -102,13 +104,14 @@ fn unexpected(r: Reply) -> String {
 #[tauri::command]
 pub async fn touchpad_status() -> Result<TouchpadStatus, String> {
     let installed = Path::new(INSTALLED_AT).exists() || socket_path().exists();
-    let not_running = TouchpadStatus { installed, running: false, enabled: false, devices: vec![] };
+    let not_running = TouchpadStatus { installed, running: false, enabled: false, typing: false, devices: vec![] };
     let Ok(mut c) = request(&Request::Status).await else { return Ok(not_running) };
     match next(&mut c).await? {
-        Reply::Status { enabled, devices } => Ok(TouchpadStatus {
+        Reply::Status { enabled, typing, devices } => Ok(TouchpadStatus {
             installed: true,
             running: true,
             enabled,
+            typing,
             devices: devices
                 .into_iter()
                 .map(|d| TouchpadDevice {
@@ -128,6 +131,15 @@ pub async fn touchpad_set_enabled(on: bool) -> Result<bool, String> {
     let mut c = request(&Request::SetEnabled { on }).await?;
     match next(&mut c).await? {
         Reply::Enabled { on } => Ok(on),
+        r => Err(unexpected(r)),
+    }
+}
+
+#[tauri::command]
+pub async fn touchpad_set_typing(on: bool) -> Result<bool, String> {
+    let mut c = request(&Request::SetTyping { on }).await?;
+    match next(&mut c).await? {
+        Reply::Typing { on } => Ok(on),
         r => Err(unexpected(r)),
     }
 }

@@ -1060,6 +1060,7 @@ fn main() {
             cancel_pairing,
             touchpad::touchpad_status,
             touchpad::touchpad_set_enabled,
+            touchpad::touchpad_set_typing,
             touchpad::touchpad_unpair,
             touchpad::touchpad_start_pairing,
             touchpad::touchpad_cancel_pairing,

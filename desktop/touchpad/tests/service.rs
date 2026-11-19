@@ -289,3 +289,37 @@ fn switching_needs_polkit_and_a_leaving_client_cancels_pairing() {
     let (_, text) = out(&svc, &["devices"]);
     assert!(!text.contains("Late phone"), "{text}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn typing_follows_its_switch() {
+    use phonelink_core::touchpad::{mods, Key};
+    let svc = start_with(&[("PHONELINK_TOUCHPAD_DEV_NO_AUTH", "1")]);
+    let (phone, mut prx, laptop) = paired_phone(&svc).await;
+    phone
+        .send_fleeting(&laptop, Msg::PadInfo(PadInfo { width_dmm: 700, height_dmm: 1500 }).encode())
+        .unwrap();
+    assert!(matches!(next_msg(&mut prx).await, Msg::PadStatus { .. }));
+
+    // On (the default): typing is taken (no /dev/uinput here, so nothing is typed, but the
+    // service carries on and says nothing).
+    let (_, text) = out(&svc, &["status"]);
+    assert!(text.contains("Typing:   on"), "{text}");
+    for m in Msg::texts("Hello, world!") {
+        assert!(phone.send_fleeting(&laptop, m.encode()).unwrap());
+    }
+    assert!(phone.send_fleeting(&laptop, Msg::Key { key: Key::Char('c'), mods: mods::CTRL }.encode()).unwrap());
+
+    // Off: the phone is told, for text and for keys.
+    let (ok, text) = out(&svc, &["typing", "off"]);
+    assert!(ok && text.contains("Typing from the phone off"), "{text}");
+    assert!(phone.send_fleeting(&laptop, Msg::Text { text: "x".into() }.encode()).unwrap());
+    assert_eq!(next_msg(&mut prx).await, Msg::KeyboardOff);
+    assert!(phone.send_fleeting(&laptop, Msg::Key { key: Key::Enter, mods: 0 }.encode()).unwrap());
+    assert_eq!(next_msg(&mut prx).await, Msg::KeyboardOff);
+    let saved = std::fs::read_to_string(svc.dir.path().join("state/settings.json")).unwrap();
+    assert!(saved.contains("\"typing\":false") && saved.contains("\"enabled\":true"), "{saved}");
+    let (_, text) = out(&svc, &["status"]);
+    assert!(text.contains("Touchpad: on") && text.contains("Typing:   off"), "the touchpad itself stays on: {text}");
+    assert!(phone.is_connected(&laptop));
+    phone.shutdown().await;
+}

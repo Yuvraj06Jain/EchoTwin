@@ -362,6 +362,9 @@
     async touchpadSetEnabled(on) {
       return invoke('touchpad_set_enabled', { on });
     },
+    async touchpadSetTyping(on) {
+      return invoke('touchpad_set_typing', { on });
+    },
     async touchpadUnpair(fingerprint) {
       return invoke('touchpad_unpair', { device: fingerprint });
     },

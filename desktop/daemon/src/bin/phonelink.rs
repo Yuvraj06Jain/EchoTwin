@@ -152,6 +152,11 @@ enum TouchpadCmd {
     On,
     /// Refuse the phone's Touchpad tab until switched on again.
     Off,
+    /// Allow (on, the default) or refuse (off) typing from the phone's keyboard button.
+    Typing {
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
+    },
 }
 
 /// Where `install-touchpad.sh` puts the touchpad service.
@@ -187,6 +192,7 @@ fn touchpad(cmd: TouchpadCmd) -> anyhow::Result<()> {
         TouchpadCmd::Status => vec!["status".into()],
         TouchpadCmd::On => vec!["on".into()],
         TouchpadCmd::Off => vec!["off".into()],
+        TouchpadCmd::Typing { state } => vec!["typing".into(), state],
     };
     let Some(program) = touchpad_program() else {
         bail!(

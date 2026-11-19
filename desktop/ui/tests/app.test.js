@@ -51,7 +51,7 @@ function fakeTauri() {
     notifs: [],
     apps: [],
     muted: [],
-    touchpad: { installed: true, running: true, enabled: true, devices: [{ name: 'Galaxy S24 FE', id: 'A914-D7AB-078D-25BD', fingerprint: 'a914d7ab078d25bd', connected: true }] },
+    touchpad: { installed: true, running: true, enabled: true, typing: true, devices: [{ name: 'Galaxy S24 FE', id: 'A914-D7AB-078D-25BD', fingerprint: 'a914d7ab078d25bd', connected: true }] },
   };
   const win = {};
   for (const m of ['minimize', 'toggleMaximize', 'close', 'startDragging', 'startResizeDragging']) {
@@ -82,6 +82,9 @@ function fakeTauri() {
             return JSON.parse(JSON.stringify(tp));
           case 'touchpad_set_enabled':
             tp.enabled = args.on;
+            return args.on;
+          case 'touchpad_set_typing':
+            tp.typing = args.on;
             return args.on;
           case 'touchpad_unpair': {
             const d = tp.devices.find((x) => x.fingerprint === args.device);
@@ -604,6 +607,13 @@ function fakeTauri() {
   check((await lastCall('touchpad_set_enabled'))[1].on === false, 'the switch calls touchpad_set_enabled(false)');
   check((await page.getAttribute(`${tpSection} [data-action="toggle-touchpad"]`, 'aria-checked')) === 'false', 'and shows off');
   await page.click(`${tpSection} [data-action="toggle-touchpad"]`);
+  await page.waitForTimeout(150);
+  check((await txt(tpSection)).includes('Let your phone type here'), 'the typing switch is there');
+  check((await page.getAttribute(`${tpSection} [data-action="toggle-touchpad-typing"]`, 'aria-checked')) === 'true', 'typing is on by default');
+  await page.click(`${tpSection} [data-action="toggle-touchpad-typing"]`);
+  await page.waitForTimeout(150);
+  check((await lastCall('touchpad_set_typing'))[1].on === false, 'the typing switch calls touchpad_set_typing(false)');
+  await page.click(`${tpSection} [data-action="toggle-touchpad-typing"]`);
   await page.waitForTimeout(150);
   await page.click(`${tpSection} [data-action="touchpad-pair"]`);
   await page.waitForTimeout(250);

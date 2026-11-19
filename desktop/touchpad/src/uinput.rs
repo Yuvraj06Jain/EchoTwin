@@ -26,6 +26,8 @@ use crate::pad::{Geometry, Report, UNITS_PER_MM};
 pub const DEVICE_NAME: &str = "EchoTwin Touchpad";
 /// The scroll strip's wheel: a device of its own, so the touchpad stays a plain touchpad.
 pub const WHEEL_NAME: &str = "EchoTwin Touchpad Scroll";
+/// Typing from the phone (US layout).
+pub const KEYBOARD_NAME: &str = "EchoTwin Keyboard";
 const VENDOR: u16 = 0x7470; // "tp"
 const PRODUCT: u16 = 0x6574; // "et"
 
@@ -135,5 +137,37 @@ impl VirtualWheel {
             return Ok(());
         }
         self.dev.emit(report)
+    }
+}
+
+/// The phone's keyboard: a plain keyboard with the keys the US layout types, the modifiers
+/// and the special keys. KWin applies the laptop's own layout to it.
+pub struct VirtualKeyboard {
+    dev: VirtualDevice,
+}
+
+impl VirtualKeyboard {
+    pub fn create() -> anyhow::Result<Self> {
+        let mut keys = AttributeSet::<Key>::new();
+        for c in phonelink_core::touchpad::keymap::all_codes() {
+            keys.insert(Key(c));
+        }
+        let dev = VirtualDevice::builder()
+            .map_err(|e| anyhow::anyhow!("the laptop cannot create the keyboard: /dev/uinput: {e}"))?
+            .name(KEYBOARD_NAME)
+            .input_id(InputId::new(BusType::BUS_VIRTUAL, VENDOR, PRODUCT + 2, 1))
+            .with_keys(&keys)?
+            .build()
+            .context("creating the keyboard")?;
+        tracing::info!("virtual keyboard created");
+        Ok(Self { dev })
+    }
+
+    /// Write the reports, each followed by SYN_REPORT.
+    pub fn send(&mut self, reports: &[Report]) -> std::io::Result<()> {
+        for r in reports {
+            self.dev.emit(r)?;
+        }
+        Ok(())
     }
 }

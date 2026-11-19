@@ -1454,6 +1454,7 @@
             <button type="button" class="btn btn-sm" data-action="touchpad-cancel">Cancel</button></div></div>`;
       }
       body = `${switchRow("Let your phone be this laptop's touchpad", "Your phone's Touchpad tab moves the pointer here, clicks and scrolls. Your own touchpad always wins: while you use it, the phone is ignored.", 'toggle-touchpad', !!t.enabled)}
+        ${switchRow('Let your phone type here', 'The keyboard button on the Touchpad tab types here as if on this keyboard (US layout). Emoji and other scripts are pasted through the clipboard.', 'toggle-touchpad-typing', t.typing !== false)}
         ${devices || '<div class="row faint">No phone paired with the touchpad yet.</div>'}
         ${pairing}`;
     }
@@ -1979,6 +1980,19 @@
           await api.touchpadSetEnabled(on);
         } catch (err) {
           state.touchpad.enabled = !on;
+          setSwitch(a, !on);
+          throw err;
+        }
+        return undefined;
+      }
+      case 'toggle-touchpad-typing': {
+        const on = state.touchpad.typing === false;
+        state.touchpad.typing = on;
+        setSwitch(a, on);
+        try {
+          await api.touchpadSetTyping(on);
+        } catch (err) {
+          state.touchpad.typing = !on;
           setSwitch(a, !on);
           throw err;
         }

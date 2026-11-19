@@ -22,6 +22,7 @@
 //! phonelink-touchpad unpair N   forget a paired phone (name or fingerprint prefix)
 //! phonelink-touchpad status     on or off, and the paired phones
 //! phonelink-touchpad on|off     switch the touchpad on or off (your desktop session only)
+//! phonelink-touchpad typing on|off   allow or refuse typing from the phone
 //! phonelink-touchpad demo       play scripted gestures (needs the phonelink-touchpad group)
 //! ```
 //! `phonelink touchpad …` runs the same commands; the EchoTwin window uses the same socket.
@@ -33,6 +34,7 @@
 //! and `realpad` are new.
 
 mod control;
+mod keyboard;
 mod kwin;
 #[allow(dead_code)] // phonelinkd's own file; NetWatch is unused here
 #[path = "../../daemon/src/netaddrs.rs"]
@@ -61,7 +63,7 @@ use tracing::{debug, info, warn};
 use crate::{
     pad::{Buttons, Geometry, PadState, Wheel},
     realpad::{Busy, Seen},
-    uinput::{VirtualPad, VirtualWheel},
+    uinput::{VirtualKeyboard, VirtualPad, VirtualWheel},
 };
 
 /// What the phone is told while the touchpad is switched off on the laptop.
@@ -99,7 +101,7 @@ fn device_name() -> String {
 }
 
 const USAGE: &str =
-    "usage: phonelink-touchpad pair [--uri] | devices | unpair <name> | status | on | off | run | mirror | demo";
+    "usage: phonelink-touchpad pair [--uri] | devices | unpair <name> | status | on | off | typing on|off | run | mirror | demo";
 
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
@@ -132,6 +134,11 @@ async fn real_main() -> anyhow::Result<()> {
         Some("status") => control::client_status().await,
         Some("on") => control::client_set_enabled(true).await,
         Some("off") => control::client_set_enabled(false).await,
+        Some("typing") => match args.get(1).map(String::as_str) {
+            Some("on") => control::client_set_typing(true).await,
+            Some("off") => control::client_set_typing(false).await,
+            _ => anyhow::bail!("usage: phonelink touchpad typing on|off"),
+        },
         Some("demo") => demo().await,
         None | Some("-h" | "--help" | "help") => {
             println!("{USAGE}");
@@ -236,6 +243,9 @@ async fn run() -> anyhow::Result<()> {
 
     let mut pad: Option<Pad> = None;
     let mut wheel: Option<(VirtualWheel, Wheel)> = None;
+    let mut keys: Option<VirtualKeyboard> = None;
+    let mut rate = keyboard::RateLimit::new(Instant::now());
+    let mut was_on = shared.switch.on();
     let mut active: Option<Active> = None;
     let mut watchdog = tokio::time::interval(Duration::from_millis(50));
     watchdog.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -310,6 +320,35 @@ async fn run() -> anyhow::Result<()> {
                                 }
                             }
                         }
+                        Some(m @ (Msg::Text { .. } | Msg::Key { .. })) => {
+                            // Typing isn't held back by the laptop's touchpad: that rule is about the pointer.
+                            if active.as_ref().is_none_or(|a| a.peer != peer) { continue }
+                            if !(shared.switch.on() && shared.switch.typing()) {
+                                let _ = node.send_fleeting(&peer, Msg::KeyboardOff.encode());
+                                continue;
+                            }
+                            let reports = match m {
+                                Msg::Text { text } => keyboard::text_reports(&text),
+                                Msg::Key { key, mods } => keyboard::key_reports(key, mods),
+                                _ => unreachable!(),
+                            };
+                            if reports.is_empty() { continue }
+                            if !rate.allow((reports.len() / 2) as u32, Instant::now()) {
+                                warn!("the phone types faster than {} keys a second; dropping", keyboard::MAX_PER_SECOND);
+                                continue;
+                            }
+                            if keys.is_none() {
+                                match VirtualKeyboard::create() {
+                                    Ok(k) => keys = Some(k),
+                                    Err(e) => { warn!("{e:#}"); continue }
+                                }
+                            }
+                            if let Some(k) = keys.as_mut() {
+                                if let Err(e) = k.send(&reports) {
+                                    warn!("writing to the keyboard failed: {e}");
+                                }
+                            }
+                        }
                         Some(other) => debug!("ignoring {other:?}"),
                         None => debug!("undecodable message"),
                     },
@@ -346,6 +385,11 @@ async fn run() -> anyhow::Result<()> {
             changed = switch.changed() => {
                 if changed.is_err() { continue }
                 let on = *switch.borrow_and_update();
+                if !(on && shared.switch.typing()) {
+                    keys = None; // typing off: the keyboard goes away
+                }
+                if on == was_on { continue } // only the typing switch moved
+                was_on = on;
                 if on {
                     if let Some(a) = &active {
                         let reply = match use_pad(&mut pad, a.info) {

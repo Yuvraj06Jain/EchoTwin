@@ -33,6 +33,7 @@
     installed: true,
     running: true,
     enabled: true,
+    typing: true,
     devices: [{ name: 'Galaxy S24 FE', id: 'A914-D7AB-078D-25BD', fingerprint: 'a914d7ab078d25bd', connected: true }],
   };
   let paired = true;
@@ -235,6 +236,11 @@
     async touchpadSetEnabled(on) {
       await wait(60);
       touchpad.enabled = on;
+      return on;
+    },
+    async touchpadSetTyping(on) {
+      await wait(60);
+      touchpad.typing = on;
       return on;
     },
     async touchpadUnpair(fingerprint) {

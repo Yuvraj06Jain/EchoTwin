@@ -38,26 +38,40 @@ use crate::{netaddrs, polkit};
 /// How long a pairing QR code works.
 const PAIRING_TTL: Duration = Duration::from_secs(120);
 
-/// The touchpad's on/off switch, saved in the state directory (`settings.json`).
+/// The touchpad's on/off switch and the typing switch, saved in the state directory
+/// (`settings.json`).
 pub struct Switch {
     path: PathBuf,
     tx: watch::Sender<bool>,
+    typing: std::sync::atomic::AtomicBool,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Settings {
     enabled: bool,
+    #[serde(default = "yes")]
+    typing: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Switch {
     /// Load it (on when there is no file yet, or it can't be read).
     pub fn load(dir: &std::path::Path) -> Self {
         let path = dir.join("settings.json");
-        let enabled = std::fs::read_to_string(&path)
+        let saved = std::fs::read_to_string(&path)
             .ok()
-            .and_then(|s| serde_json::from_str::<Settings>(&s).ok())
-            .is_none_or(|s| s.enabled);
-        Self { path, tx: watch::channel(enabled).0 }
+            .and_then(|s| serde_json::from_str::<Settings>(&s).ok());
+        let enabled = saved.as_ref().is_none_or(|s| s.enabled);
+        let typing = saved.as_ref().is_none_or(|s| s.typing);
+        Self { path, tx: watch::channel(enabled).0, typing: typing.into() }
+    }
+
+    /// Typing from the phone allowed?
+    pub fn typing(&self) -> bool {
+        self.typing.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn on(&self) -> bool {
@@ -68,11 +82,24 @@ impl Switch {
         self.tx.subscribe()
     }
 
-    fn set(&self, on: bool) -> anyhow::Result<()> {
+    fn save(&self, s: &Settings) -> anyhow::Result<()> {
         let tmp = self.path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec(&Settings { enabled: on })?)?;
+        std::fs::write(&tmp, serde_json::to_vec(s)?)?;
         std::fs::rename(&tmp, &self.path)?;
+        Ok(())
+    }
+
+    fn set(&self, on: bool) -> anyhow::Result<()> {
+        self.save(&Settings { enabled: on, typing: self.typing() })?;
         self.tx.send_replace(on);
+        Ok(())
+    }
+
+    fn set_typing(&self, on: bool) -> anyhow::Result<()> {
+        self.save(&Settings { enabled: self.on(), typing: on })?;
+        self.typing.store(on, std::sync::atomic::Ordering::Relaxed);
+        // Wake the service so it can drop (or not) its keyboard.
+        self.tx.send_modify(|_| {});
         Ok(())
     }
 }
@@ -160,7 +187,7 @@ async fn handle(stream: UnixStream, shared: Arc<Shared>) -> anyhow::Result<()> {
 
     let action = match req {
         Request::Pair | Request::Unpair { .. } => Some(polkit::MANAGE),
-        Request::SetEnabled { .. } => Some(polkit::SWITCH),
+        Request::SetEnabled { .. } | Request::SetTyping { .. } => Some(polkit::SWITCH),
         Request::Devices | Request::Status => None,
     };
     if let Some(action) = action {
@@ -216,13 +243,28 @@ async fn handle(stream: UnixStream, shared: Arc<Shared>) -> anyhow::Result<()> {
         }
         Request::Devices => send(&mut w, &Reply::Devices { devices: devices(node) }).await,
         Request::Status => {
-            send(&mut w, &Reply::Status { enabled: shared.switch.on(), devices: devices(node) }).await
+            send(&mut w, &Reply::Status {
+                enabled: shared.switch.on(),
+                typing: shared.switch.typing(),
+                devices: devices(node),
+            })
+            .await
         }
         Request::SetEnabled { on } => {
             let reply = match shared.switch.set(on) {
                 Ok(()) => {
                     info!(on, "touchpad switched");
                     Reply::Enabled { on }
+                }
+                Err(e) => Reply::Error { message: format!("could not save the setting: {e}") },
+            };
+            send(&mut w, &reply).await
+        }
+        Request::SetTyping { on } => {
+            let reply = match shared.switch.set_typing(on) {
+                Ok(()) => {
+                    info!(on, "typing switched");
+                    Reply::Typing { on }
                 }
                 Err(e) => Reply::Error { message: format!("could not save the setting: {e}") },
             };
@@ -333,8 +375,9 @@ pub async fn client_devices() -> anyhow::Result<()> {
 pub async fn client_status() -> anyhow::Result<()> {
     let (mut lines, _w) = request(&Request::Status).await?;
     match next(&mut lines).await? {
-        Reply::Status { enabled, devices } => {
+        Reply::Status { enabled, typing, devices } => {
             println!("Touchpad: {}", if enabled { "on" } else { "off (the phone's Touchpad tab is refused)" });
+            println!("Typing:   {}", if typing { "on" } else { "off (the phone's keyboard is refused)" });
             print_devices(&devices)
         }
         Reply::Error { message } => bail!("{message}"),
@@ -347,6 +390,18 @@ pub async fn client_set_enabled(on: bool) -> anyhow::Result<()> {
     match next(&mut lines).await? {
         Reply::Enabled { on } => {
             println!("Touchpad {}.", if on { "on" } else { "off" });
+            Ok(())
+        }
+        Reply::Error { message } => bail!("{message}"),
+        _ => bail!("unexpected reply"),
+    }
+}
+
+pub async fn client_set_typing(on: bool) -> anyhow::Result<()> {
+    let (mut lines, _w) = request(&Request::SetTyping { on }).await?;
+    match next(&mut lines).await? {
+        Reply::Typing { on } => {
+            println!("Typing from the phone {}.", if on { "on" } else { "off" });
             Ok(())
         }
         Reply::Error { message } => bail!("{message}"),

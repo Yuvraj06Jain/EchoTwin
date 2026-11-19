@@ -93,12 +93,20 @@ impl FakeKlipper {
     }
 }
 
-struct FakeScreenSaver(Shared);
+/// KDE's screen locker: `Lock` counts and turns it active (with `ActiveChanged`, as KDE
+/// does); `GetActive` says whether it is.
+struct FakeScreenSaver(Shared, Arc<std::sync::atomic::AtomicBool>);
 
 #[zbus::interface(name = "org.freedesktop.ScreenSaver")]
 impl FakeScreenSaver {
-    fn lock(&self) {
+    async fn lock(&self, #[zbus(connection)] conn: &zbus::Connection) {
         self.0 .0.lock().unwrap().1 += 1;
+        self.1.store(true, std::sync::atomic::Ordering::SeqCst);
+        let _ = conn.emit_signal(None::<&str>, "/ScreenSaver", "org.freedesktop.ScreenSaver", "ActiveChanged", &(true,)).await;
+    }
+
+    fn get_active(&self) -> bool {
+        self.1.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -110,6 +118,8 @@ struct Rig {
     klipper: zbus::blocking::Connection,
     clip: Shared,
     screen: Shared,
+    /// The stand-in screen locker is active (locked).
+    screen_active: Arc<std::sync::atomic::AtomicBool>,
     socket: std::path::PathBuf,
     _dir: tempfile::TempDir,
     phone: Node,
@@ -137,12 +147,13 @@ async fn setup_with(system: Option<String>) -> Option<Rig> {
     let clip = Shared::default();
     clip.0.lock().unwrap().0 = "copied before the service started".into();
     let screen = Shared::default();
+    let screen_active = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let klipper = serve(&bus.address, "org.kde.klipper", "/klipper", FakeKlipper(clip.clone()));
     let saver = serve(
         &bus.address,
         "org.freedesktop.ScreenSaver",
         "/ScreenSaver",
-        FakeScreenSaver(screen.clone()),
+        FakeScreenSaver(screen.clone(), screen_active.clone()),
     );
 
     let dir = tempfile::tempdir().unwrap();
@@ -187,7 +198,7 @@ async fn setup_with(system: Option<String>) -> Option<Rig> {
     offer.addrs = vec![SocketAddr::from(([127, 0, 0, 1], offer.addrs[0].port()))];
     let mut cfg = NodeConfig::new("Galaxy S24 FE", None, "127.0.0.1:0".parse().unwrap());
     cfg.capabilities
-        .extend([CAP_LOCK, phonelink_core::CAP_UNLOCK, CAP_CLIPBOARD, CAP_CLIPBOARD_IMAGE, CAP_FILES].map(String::from));
+        .extend([CAP_LOCK, phonelink_core::CAP_UNLOCK, phonelink_core::CAP_LOCKSTATE, CAP_CLIPBOARD, CAP_CLIPBOARD_IMAGE, CAP_FILES].map(String::from));
     let (phone, mut phone_rx) = Node::start(cfg).await.unwrap();
     phone.pair_with(&offer).await.unwrap();
     timeout(WAIT, async {
@@ -204,6 +215,7 @@ async fn setup_with(system: Option<String>) -> Option<Rig> {
         klipper,
         clip,
         screen,
+        screen_active,
         socket,
         _dir: dir,
         phone,
@@ -216,6 +228,20 @@ async fn setup_with(system: Option<String>) -> Option<Rig> {
 }
 
 impl Rig {
+    /// The laptop's screen gets locked (Meta+L): the stand-in locker turns active and says so.
+    async fn lock_screen_locally(&self) {
+        self.set_screen_active(true);
+        tokio::time::sleep(Duration::from_millis(400)).await;
+    }
+
+    /// The stand-in locker becomes active or not, with `ActiveChanged` as KDE sends it.
+    fn set_screen_active(&self, on: bool) {
+        self.screen_active.store(on, std::sync::atomic::Ordering::SeqCst);
+        self._services[0]
+            .emit_signal(None::<&str>, "/ScreenSaver", "org.freedesktop.ScreenSaver", "ActiveChanged", &(on,))
+            .unwrap();
+    }
+
     fn phone_sends(&self, m: AppMessage) {
         self.phone.send(&self.laptop, m.encode().unwrap()).unwrap();
     }
@@ -488,6 +514,8 @@ struct FakeSession {
     kind: &'static str,
     locked: Arc<Mutex<Vec<String>>>,
     id: &'static str,
+    /// On screen now (false: another session or the login screen shows).
+    active: bool,
 }
 
 #[zbus::interface(name = "org.freedesktop.login1.Session")]
@@ -504,6 +532,15 @@ impl FakeSession {
     fn unlock(&self) {
         self.locked.lock().unwrap().push(format!("unlock {}", self.id));
     }
+
+    #[zbus(property)]
+    fn active(&self) -> bool {
+        self.active
+    }
+
+    fn activate(&self) {
+        self.locked.lock().unwrap().push(format!("activate {}", self.id));
+    }
 }
 
 #[test]
@@ -519,6 +556,7 @@ fn without_a_screen_saver_logind_locks_only_this_users_graphical_session() {
         kind,
         locked: locked.clone(),
         id,
+        active: true,
     };
     let _logind = zbus::blocking::connection::Builder::address(system.address.as_str())
         .unwrap()
@@ -572,10 +610,11 @@ async fn copying_a_code_puts_it_on_the_clipboard_without_sending_it_back() {
 }
 
 /// A stand-in logind (sessions as in the test above) on its own private system bus.
-fn fake_logind(system: &Bus, locked: Arc<Mutex<Vec<String>>>) -> zbus::blocking::Connection {
+/// `mine_active`: this user's graphical session is the one on screen.
+fn fake_logind(system: &Bus, locked: Arc<Mutex<Vec<String>>>, mine_active: bool) -> zbus::blocking::Connection {
     use std::os::unix::fs::MetadataExt;
     let uid = std::fs::metadata("/proc/self").unwrap().uid();
-    let s = |id, kind| FakeSession { kind, locked: locked.clone(), id };
+    let s = |id, kind| FakeSession { kind, locked: locked.clone(), id, active: id != "mine-wayland" || mine_active };
     zbus::blocking::connection::Builder::address(system.address.as_str())
         .unwrap()
         .name("org.freedesktop.login1")
@@ -599,8 +638,9 @@ async fn the_phone_unlocks_only_when_allowed_fresh_and_it_is_announced() {
         return;
     };
     let locked = Arc::new(Mutex::new(vec![]));
-    let _logind = fake_logind(&system, locked.clone());
+    let _logind = fake_logind(&system, locked.clone(), true);
     let Some(mut r) = setup_with(Some(system.address.clone())).await else { return };
+    r.lock_screen_locally().await;
     let unlock_result = |m: &AppMessage| matches!(m, AppMessage::ActionResult { key, .. } if key == "unlock");
     let answer = |m: AppMessage| match m {
         AppMessage::ActionResult { ok, message, .. } => (ok, message),
@@ -638,4 +678,59 @@ async fn the_phone_unlocks_only_when_allowed_fresh_and_it_is_announced() {
     let (ok, msg) = answer(r.phone_waits_for("late", unlock_result).await);
     assert!(!ok && msg.contains("too late"), "{msg}");
     assert_eq!(locked.lock().unwrap().len(), 1);
+}
+
+fn lock_state(m: &AppMessage) -> Option<(bool, bool)> {
+    match m {
+        AppMessage::LockState { locked, unlock_allowed } => Some((*locked, *unlock_allowed)),
+        _ => None,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_phone_follows_the_lock_state_and_unlocks_only_when_locked() {
+    let Some(system) = private_bus() else {
+        eprintln!("dbus-daemon not installed; skipping");
+        return;
+    };
+    let locked = Arc::new(Mutex::new(vec![]));
+    // This user's session is NOT the one on screen (Switch user: the login screen shows).
+    let _logind = fake_logind(&system, locked.clone(), false);
+    let Some(mut r) = setup_with(Some(system.address.clone())).await else { return };
+    let state = |m: &AppMessage| lock_state(m).is_some();
+
+    // The current state arrives on connect: unlocked; unlocking is off.
+    let m = r.phone_waits_for("state on connect", state).await;
+    assert_eq!(lock_state(&m), Some((false, false)));
+
+    // Unlocking is turned on: the phone hears it at once.
+    assert_eq!(r.request(Request::SetSwitch { name: "allow_unlock".into(), on: true }).await, Reply::Done);
+    assert_eq!(lock_state(&r.phone_waits_for("switch", state).await), Some((false, true)));
+
+    // Unlock while it isn't locked: "Already unlocked", logind isn't asked, no popup.
+    r.popups.try_iter().for_each(drop);
+    r.phone_sends(AppMessage::UnlockComputer { sent_ms: now_ms() });
+    let m = r.phone_waits_for("already", |m| matches!(m, AppMessage::ActionResult { key, .. } if key == "unlock")).await;
+    assert!(matches!(&m, AppMessage::ActionResult { ok: true, message, .. } if message == "Already unlocked"), "{m:?}");
+    assert!(locked.lock().unwrap().is_empty());
+
+    // Locked from the phone: the locker says so, the phone's tile turns into Unlock.
+    r.phone_sends(AppMessage::LockComputer { sent_ms: now_ms() });
+    let m = r.phone_waits_for("locked", |m| matches!(lock_state(m), Some((true, _)))).await;
+    assert_eq!(lock_state(&m), Some((true, true)));
+
+    // Unlock: the session is unlocked and, as it wasn't on screen, brought back.
+    r.phone_sends(AppMessage::UnlockComputer { sent_ms: now_ms() });
+    let m = r.phone_waits_for("unlocked", |m| matches!(m, AppMessage::ActionResult { key, .. } if key == "unlock")).await;
+    assert!(matches!(&m, AppMessage::ActionResult { ok: true, .. }), "{m:?}");
+    assert_eq!(*locked.lock().unwrap(), vec!["unlock mine-wayland".to_string(), "activate mine-wayland".to_string()]);
+
+    // The locker lets go (as KDE does after logind's Unlock): the tile turns back into Lock.
+    r.set_screen_active(false);
+    assert_eq!(lock_state(&r.phone_waits_for("unlocked state", state).await), Some((false, true)));
+    // A burst of the same signal sends nothing more.
+    r.set_screen_active(false);
+    r.set_screen_active(false);
+    let more = r.phone_gets(Duration::from_millis(600)).await;
+    assert!(!more.iter().any(|m| lock_state(m).is_some()), "no repeats: {more:?}");
 }

@@ -241,6 +241,9 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 101 | Laptop window → Settings → turn on **Let your phone unlock this computer**; lock the laptop (Meta+L) | — |
 | 102 | Phone Home → **Unlock** → fingerprint (or PIN) | the laptop unlocks within a few seconds (Plasma 6.4 may take ~5 s); a popup "Unlocked by Galaxy S24 FE"; the phone says "Computer unlocked" |
 | 103 | Turn the switch off, lock again, press **Unlock** on the phone | the phone shows "Unlocking from the phone is switched off…"; the laptop stays locked |
+| 104 | Phone Home, laptop unlocked: the first tile reads **Lock**. Lock the laptop with Meta+L | within a second the tile turns into **Unlock** (open padlock) |
+| 105 | Press **Unlock** → fingerprint | "Unlocking…", then the laptop unlocks and the tile reads **Lock** again; with the laptop switch off the tile reads **Locked** and a tap explains |
+| 106 | Laptop: Switch user (the login screen shows); phone: **Unlock** | your session comes back unlocked |
 
 When something fails, include:
 - the step number

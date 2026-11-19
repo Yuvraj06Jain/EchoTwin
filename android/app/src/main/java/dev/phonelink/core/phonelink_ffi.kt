@@ -4338,6 +4338,17 @@ data class Device (
     var `canUnlock`: kotlin.Boolean
     , 
     /**
+     * Its screen is locked (`None`: it hasn't said: an older version, or its desktop
+     * doesn't tell). Cleared when it disconnects.
+     */
+    var `locked`: kotlin.Boolean?
+    , 
+    /**
+     * It lets this phone unlock it right now (its "Let your phone unlock" switch).
+     */
+    var `unlockAllowed`: kotlin.Boolean
+    , 
+    /**
      * "wifi" or "bluetooth" while connected; empty when offline.
      */
     var `via`: kotlin.String
@@ -4387,6 +4398,8 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalUByte.read(buf),
@@ -4409,6 +4422,8 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.allocationSize(value.`canMute`) +
             FfiConverterBoolean.allocationSize(value.`canPoint`) +
             FfiConverterBoolean.allocationSize(value.`canUnlock`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`locked`) +
+            FfiConverterBoolean.allocationSize(value.`unlockAllowed`) +
             FfiConverterString.allocationSize(value.`via`) +
             FfiConverterOptionalString.allocationSize(value.`bluetooth`) +
             FfiConverterOptionalUByte.allocationSize(value.`battery`) +
@@ -4430,6 +4445,8 @@ public object FfiConverterTypeDevice: FfiConverterRustBuffer<Device> {
             FfiConverterBoolean.write(value.`canMute`, buf)
             FfiConverterBoolean.write(value.`canPoint`, buf)
             FfiConverterBoolean.write(value.`canUnlock`, buf)
+            FfiConverterOptionalBoolean.write(value.`locked`, buf)
+            FfiConverterBoolean.write(value.`unlockAllowed`, buf)
             FfiConverterString.write(value.`via`, buf)
             FfiConverterOptionalString.write(value.`bluetooth`, buf)
             FfiConverterOptionalUByte.write(value.`battery`, buf)
@@ -5260,6 +5277,21 @@ sealed class LinkEvent {
     }
     
     /**
+     * The computer's screen was locked or unlocked, or its unlock switch changed; read
+     * `devices()` again for the Lock / Unlock tile.
+     */
+    data class ComputerLockChanged(
+        val `id`: kotlin.String, 
+        val `locked`: kotlin.Boolean, 
+        val `unlockAllowed`: kotlin.Boolean) : LinkEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
      * The computer's album art (a small JPEG or PNG), for `ComputerMedia` whose `art_key`
      * is `key`. Arrives before that `ComputerMedia`.
      */
@@ -5493,54 +5525,59 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterString.read(buf),
                 FfiConverterOptionalTypePhoneMedia.read(buf),
                 )
-            14 -> LinkEvent.ComputerMediaArt(
+            14 -> LinkEvent.ComputerLockChanged(
+                FfiConverterString.read(buf),
+                FfiConverterBoolean.read(buf),
+                FfiConverterBoolean.read(buf),
+                )
+            15 -> LinkEvent.ComputerMediaArt(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterByteArray.read(buf),
                 )
-            15 -> LinkEvent.RemoteCommands(
+            16 -> LinkEvent.RemoteCommands(
                 FfiConverterString.read(buf),
                 FfiConverterSequenceTypeRemoteButton.read(buf),
                 )
-            16 -> LinkEvent.CallDeclineRequested(
+            17 -> LinkEvent.CallDeclineRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            17 -> LinkEvent.CallActionRequested(
+            18 -> LinkEvent.CallActionRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterTypeCallActionFfi.read(buf),
                 )
-            18 -> LinkEvent.RingRequested(
+            19 -> LinkEvent.RingRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterBoolean.read(buf),
                 )
-            19 -> LinkEvent.ClipboardReceived(
+            20 -> LinkEvent.ClipboardReceived(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            20 -> LinkEvent.MediaControlRequested(
+            21 -> LinkEvent.MediaControlRequested(
                 FfiConverterString.read(buf),
                 FfiConverterTypeMediaCommand.read(buf),
                 )
-            21 -> LinkEvent.SmsSendRequested(
+            22 -> LinkEvent.SmsSendRequested(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            22 -> LinkEvent.SmsOlderRequested(
+            23 -> LinkEvent.SmsOlderRequested(
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 FfiConverterULong.read(buf),
                 )
-            23 -> LinkEvent.TransferChanged(
+            24 -> LinkEvent.TransferChanged(
                 FfiConverterTypeFileTransfer.read(buf),
                 )
-            24 -> LinkEvent.RequestResult(
+            25 -> LinkEvent.RequestResult(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
@@ -5663,6 +5700,15 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 4UL
                 + FfiConverterString.allocationSize(value.`id`)
                 + FfiConverterOptionalTypePhoneMedia.allocationSize(value.`media`)
+            )
+        }
+        is LinkEvent.ComputerLockChanged -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`id`)
+                + FfiConverterBoolean.allocationSize(value.`locked`)
+                + FfiConverterBoolean.allocationSize(value.`unlockAllowed`)
             )
         }
         is LinkEvent.ComputerMediaArt -> {
@@ -5854,54 +5900,61 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 FfiConverterOptionalTypePhoneMedia.write(value.`media`, buf)
                 Unit
             }
-            is LinkEvent.ComputerMediaArt -> {
+            is LinkEvent.ComputerLockChanged -> {
                 buf.putInt(14)
+                FfiConverterString.write(value.`id`, buf)
+                FfiConverterBoolean.write(value.`locked`, buf)
+                FfiConverterBoolean.write(value.`unlockAllowed`, buf)
+                Unit
+            }
+            is LinkEvent.ComputerMediaArt -> {
+                buf.putInt(15)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`key`, buf)
                 FfiConverterByteArray.write(value.`image`, buf)
                 Unit
             }
             is LinkEvent.RemoteCommands -> {
-                buf.putInt(15)
+                buf.putInt(16)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterSequenceTypeRemoteButton.write(value.`items`, buf)
                 Unit
             }
             is LinkEvent.CallDeclineRequested -> {
-                buf.putInt(16)
+                buf.putInt(17)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`key`, buf)
                 Unit
             }
             is LinkEvent.CallActionRequested -> {
-                buf.putInt(17)
+                buf.putInt(18)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`key`, buf)
                 FfiConverterTypeCallActionFfi.write(value.`action`, buf)
                 Unit
             }
             is LinkEvent.RingRequested -> {
-                buf.putInt(18)
+                buf.putInt(19)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterBoolean.write(value.`on`, buf)
                 Unit
             }
             is LinkEvent.ClipboardReceived -> {
-                buf.putInt(19)
+                buf.putInt(20)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`text`, buf)
                 Unit
             }
             is LinkEvent.MediaControlRequested -> {
-                buf.putInt(20)
+                buf.putInt(21)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterTypeMediaCommand.write(value.`command`, buf)
                 Unit
             }
             is LinkEvent.SmsSendRequested -> {
-                buf.putInt(21)
+                buf.putInt(22)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`clientId`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
@@ -5910,19 +5963,19 @@ public object FfiConverterTypeLinkEvent : FfiConverterRustBuffer<LinkEvent>{
                 Unit
             }
             is LinkEvent.SmsOlderRequested -> {
-                buf.putInt(22)
+                buf.putInt(23)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterULong.write(value.`thread`, buf)
                 FfiConverterULong.write(value.`beforeMs`, buf)
                 Unit
             }
             is LinkEvent.TransferChanged -> {
-                buf.putInt(23)
+                buf.putInt(24)
                 FfiConverterTypeFileTransfer.write(value.`transfer`, buf)
                 Unit
             }
             is LinkEvent.RequestResult -> {
-                buf.putInt(24)
+                buf.putInt(25)
                 FfiConverterString.write(value.`id`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterString.write(value.`key`, buf)
@@ -6232,6 +6285,38 @@ public object FfiConverterOptionalULong: FfiConverterRustBuffer<kotlin.ULong?> {
         } else {
             buf.put(1)
             FfiConverterULong.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalBoolean: FfiConverterRustBuffer<kotlin.Boolean?> {
+    override fun read(buf: ByteBuffer): kotlin.Boolean? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterBoolean.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Boolean?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterBoolean.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Boolean?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterBoolean.write(value, buf)
         }
     }
 }

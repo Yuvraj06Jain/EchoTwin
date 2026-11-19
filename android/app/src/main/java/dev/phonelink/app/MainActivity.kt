@@ -163,6 +163,7 @@ class MainActivity : ComponentActivity() {
                 val commands by LinkManager.commands.collectAsStateWithLifecycle()
                 val computerArt by LinkManager.computerArt.collectAsStateWithLifecycle()
                 val computerPlayedMs by LinkManager.computerPlayedMs.collectAsStateWithLifecycle()
+                val lockFailedMs by LinkManager.lockFailedMs.collectAsStateWithLifecycle()
                 val state = UiState(
                     myId = myId,
                     devices = devices,
@@ -180,6 +181,7 @@ class MainActivity : ComponentActivity() {
                     computerArt = computerArt?.takeIf { it.first == computerMedia?.artKey }?.second,
                     computerPlayedMs = computerPlayedMs,
                     presentApp = presentApp,
+                    lockFailedMs = lockFailedMs,
                     receiveFolder = FileShare.folderName(receiveFolder),
                     receiveFolderChosen = receiveFolder != null,
                     pointerShape = pointerStyle.first,
@@ -246,9 +248,15 @@ class MainActivity : ComponentActivity() {
             notice = "Looking for your computer on this network…"
         }
         override fun lock() = LinkManager.lockComputer()
-        override fun unlock() {
+        override fun unlock(onSent: () -> Unit) {
             val name = LinkManager.devices.value.firstOrNull { it.connected }?.name ?: "your computer"
-            UnlockPrompt.confirm(this@MainActivity, name, onOk = { LinkManager.unlockComputer() }, onProblem = { notice = it })
+            UnlockPrompt.confirm(this@MainActivity, name, onOk = {
+                onSent() // first: a fast failure must find the tile already waiting
+                LinkManager.unlockComputer()
+            }, onProblem = { notice = it })
+        }
+        override fun explainUnlock() {
+            notice = "Unlocking from the phone is off: turn on \"Let your phone unlock this computer\" in EchoTwin on the laptop"
         }
         override fun ring(on: Boolean) = LinkManager.ringComputer(on)
         override fun openButtons() { buttonsOpen = true }

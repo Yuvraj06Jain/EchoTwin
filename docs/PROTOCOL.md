@@ -97,6 +97,7 @@ Carried inside `Deliver.body`, postcard-encoded. Anything this build doesn't kno
 | 40 | `CallAction { key, action: CallActionKind }` | C→P | `calls/2` | `State::call_action` (`Request::CallAction`, the card, popup buttons) | `LinkEvent::CallActionRequested` → `CallWatcher.act` |
 | 41 | `Pointer { x, y, visible, shape: PointerShape, color, size }` | P→C | `pointer/1` | fleeting only; clamped (x, y ≤ 10000, size ≤ 2, color & 0xFFFFFF), needs `presentation_remote`; → `WatchEvent::Pointer` for the app's overlay | `pointer` (the Presentation screen's touchpad) |
 | 42 | `UnlockComputer { sent_ms }` | P→C | `unlock/1` | `State::unlock_requested`: needs `allow_unlock` (default off) and < 30 s; logind `Session.Unlock`; popup; `ActionResult` `unlock` | `unlock_computer` (fleeting, after the fingerprint prompt) |
+| 43 | `LockState { locked, unlock_allowed }` | C→P | `lockstate/1` | `send_lock_state` (fleeting: on connect, on every lock change, when `allow_unlock` changes) | `LinkEvent::ComputerLockChanged`, `Device.locked` / `unlock_allowed` (cleared on disconnect) |
 
 Payload types (`message.rs`): `PhoneNotification { key, package, app, title, text,
 posted_ms, can_reply, actions }`, `NowPlaying { app, package, title, artist, album,
@@ -118,6 +119,7 @@ hide what's missing. That is how an older phone app keeps working with a newer l
 | `messages/1` | `node::CAP_MESSAGES` | Notes (Text), always present |
 | `notifications/1` | `CAP_NOTIFICATIONS` | Notification mirroring + reply/action/dismiss |
 | `lock/1` | `CAP_LOCK` | Lock the computer from the phone |
+| `lockstate/1` | `CAP_LOCKSTATE` | The computer says whether its screen is locked (the phone's Lock / Unlock tile) |
 | `unlock/1` | `CAP_UNLOCK` | Unlock the computer from the phone (after the phone's fingerprint or screen lock) |
 | `clipboard/1` | `CAP_CLIPBOARD` | Clipboard both ways |
 | `media/1` | `CAP_MEDIA` | Now playing + controls |

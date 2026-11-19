@@ -223,9 +223,15 @@ UI suite ("Copy puts the note on the clipboard").
 
 ## 6. Lock and unlock the laptop from the phone
 
-**What:** Lock button (phone Home, Quick Settings tile, status notification). **Unlock**
-tile on phone Home: Android's own prompt asks for the phone's fingerprint or screen lock,
-then the laptop unlocks. Unlocking is off until you turn on laptop Settings → "Let your
+**What:** one tile on phone Home that follows the laptop: **Lock** while it is unlocked,
+**Unlock** (green open padlock) while it is locked (its lock screen, or the login screen after
+"Switch user"). Unlock asks for the phone's fingerprint or screen lock (Android's own prompt),
+then the laptop unlocks and, if another session or the login screen was showing, switches back
+to yours. After a press the tile waits ("Locking…" / "Unlocking…") until the laptop reports the
+new state, the request fails, or 6 s / 15 s pass. If unlocking isn't allowed on the laptop the
+tile reads **Locked** and a tap says how to allow it. The Quick Settings tile and the status
+notification only lock. When nobody is logged in (SDDM right after boot or after logging out)
+EchoTwin's laptop service isn't running, so there is nothing to connect to. Unlocking is off until you turn on laptop Settings → "Let your
 phone unlock this computer", and the laptop shows a popup "Unlocked by <phone>" every time
 (even with notifications off). Honest risk: anyone who can unlock your phone could then
 unlock the laptop while that switch is on.
@@ -234,11 +240,19 @@ unlock the laptop while that switch is on.
 refuses stale requests (> 2 min) or when the setting is off, locks via the ScreenSaver
 D-Bus API (logind fallback), and answers with `ActionResult { key: "lock" }`.
 
+Lock state: the laptop follows the screen saver's `ActiveChanged` signal (KDE: active ==
+locked; `GetActive` for the current value), else logind's `LockedHint`, signals only, and sends
+`LockState { locked, unlock_allowed }` (`lockstate/1`, fleeting) on connect, on every change and
+when the `allow_unlock` switch changes. Unknown state (older laptop, a desktop that doesn't say):
+the tile is a plain Lock.
+
 Unlock: after the prompt (platform `BiometricPrompt`, BIOMETRIC_STRONG or the screen lock;
 refused if the phone has no screen lock) the phone sends `UnlockComputer { sent_ms }` as a
 fleeting message (only while connected, never queued). The laptop needs `unlock/1`, the
 `allow_unlock` switch (default off) and a request under 30 s old, then calls logind
-`Session.Unlock` on this user's graphical sessions (what `loginctl unlock-session` does; no
+`Session.Unlock` on this user's graphical sessions, then `Session.Activate` if that session
+isn't the one on screen ("Switch user"); if the laptop believes it is unlocked it re-reads the
+state first and answers "Already unlocked" without touching logind; (what `loginctl unlock-session` does; no
 root, polkit lets you unlock your own active session; KDE's lock screen obeys it, as KDE
 Connect users rely on). KDE bug 506343 reports it can take ~5 s on Plasma 6.4. It can't work
 where logind is missing (non-systemd) or polkit forbids it. Answer: `ActionResult { key:
@@ -249,11 +263,15 @@ where logind is missing (non-systemd) or polkit forbids it. Answer: `ActionResul
 | Phone | `android/…/LinkManager.kt` `lockComputer`, `unlockComputer`; `UnlockPrompt.kt`; `Tiles.kt` `LockTileService`; `LockReceiver.kt`; `HomeScreen` Lock and Unlock tiles | |
 | FFI | `core-ffi/src/lib.rs` | `lock_computer` (uses `connected_one`), `unlock_computer` (fleeting), `Device.can_unlock` |
 | Laptop | `desktop/daemon/src/daemon.rs` | `State::lock_requested`, `State::unlock_requested`, `Request::SetAllowLock` |
-| Laptop | `desktop/daemon/src/lock.rs` | `lock_screen`, `lock_with_logind`, `unlock_screen`, `session_call` |
+| Laptop | `desktop/daemon/src/lock.rs` | `lock_screen`, `lock_with_logind`, `unlock_screen` (`Unlocked`), `screen_locked`, `watch_lock_state`, `my_graphical_sessions` |
+| Laptop | `desktop/daemon/src/daemon.rs` | `lock_state_changes`, `send_lock_state`, `send_lock_state_to_all`, `WatchEvent::ScreenLockChanged` |
+| Phone | `ui/Model.kt` `lockTile` (the state table), `ui/HomeScreen.kt` `LockUnlockTile`, `ui/Glyphs.kt` (`LockOpen`, `VolumeOff`) | |
 
 **Settings:** laptop `allow_lock`, `allow_unlock` (off). **Permission:** `USE_BIOMETRIC` (no
 prompt). **Tests:** `desktop/daemon/tests/lock_clipboard.rs` (incl.
-`the_phone_unlocks_only_when_allowed_fresh_and_it_is_announced`, stand-in logind), FFI test,
+`the_phone_unlocks_only_when_allowed_fresh_and_it_is_announced`,
+`the_phone_follows_the_lock_state_and_unlocks_only_when_locked`, stand-in screen locker and
+logind), FFI test,
 UI suite (the switch, off by default).
 
 ## 7. Clipboard

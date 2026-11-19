@@ -140,6 +140,8 @@ struct State {
     media_keys: crate::mpris::Controls,
     /// Phones with a call going on: (phase, caller, call notification key).
     calls: Mutex<HashMap<Fingerprint, CallNow>>,
+    /// The screen is locked (`None`: this desktop doesn't say).
+    screen_locked: Mutex<Option<bool>>,
     /// Phones told that the pointer can't be shown here (once per connection).
     pointer_warned: Mutex<HashSet<Fingerprint>>,
     /// A pointer is on screen (so a phone leaving hides it).
@@ -160,6 +162,16 @@ struct State {
     /// Your own buttons (`config.commands`, changed with `SetCommands`).
     commands: Mutex<Vec<crate::config::CommandEntry>>,
     call_pause: crate::mpris::CallPause,
+}
+
+/// The screen was locked or unlocked: tell phones (their Lock tile turns into Unlock).
+async fn lock_state_changes(state: Arc<State>, mut rx: tokio::sync::mpsc::UnboundedReceiver<bool>) {
+    while let Some(locked) = rx.recv().await {
+        *lock(&state.screen_locked) = Some(locked);
+        info!(locked, "screen lock state");
+        state.send_lock_state_to_all();
+        state.broadcast(WatchEvent::ScreenLockChanged { locked });
+    }
 }
 
 /// What plays on this computer changed: tell phones that use the Remote screen.
@@ -298,6 +310,7 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
         status_sent: Mutex::new(HashMap::new()),
         battery_alerts: Mutex::new(HashMap::new()),
         calls: Mutex::new(HashMap::new()),
+        screen_locked: Mutex::new(None),
         app_started: Mutex::new(None),
         pointer_warned: Mutex::new(HashSet::new()),
         pointer_shown: std::sync::atomic::AtomicBool::new(false),
@@ -351,6 +364,9 @@ pub async fn run(opts: DaemonOptions, shutdown: impl Future<Output = ()>) -> any
     let (media_tx, media_rx) = tokio::sync::mpsc::unbounded_channel();
     crate::mpris::watch(opts.buses.session.clone(), media_tx);
     tokio::spawn(computer_media(state.clone(), media_rx));
+    let (lock_tx, lock_rx) = tokio::sync::mpsc::unbounded_channel();
+    crate::lock::watch_lock_state(opts.buses.clone(), lock_tx);
+    tokio::spawn(lock_state_changes(state.clone(), lock_rx));
     let server = tokio::spawn(serve(state.clone(), listener));
 
     shutdown.await;
@@ -378,7 +394,7 @@ async fn start_node(
         let mut cfg = NodeConfig::new(name.clone(), Some(opts.data_dir.clone()), bind);
         cfg.timings = timings(opts.config.battery_saver);
         cfg.capabilities.extend(
-            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS, phonelink_core::CAP_REMOTE, phonelink_core::CAP_CONTACTS, phonelink_core::CAP_PRESENT, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_MUTE, phonelink_core::CAP_REMOTE_ART, phonelink_core::CAP_CALLS2, phonelink_core::CAP_POINTER, phonelink_core::CAP_UNLOCK]
+            [CAP_NOTIFICATIONS, CAP_LOCK, CAP_CLIPBOARD, phonelink_core::CAP_CLIPBOARD_IMAGE, CAP_MEDIA, CAP_FILES, CAP_SMS, CAP_STATUS, phonelink_core::CAP_LINKS, phonelink_core::CAP_RING, phonelink_core::CAP_CALLS, phonelink_core::CAP_REMOTE, phonelink_core::CAP_CONTACTS, phonelink_core::CAP_PRESENT, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_MUTE, phonelink_core::CAP_REMOTE_ART, phonelink_core::CAP_CALLS2, phonelink_core::CAP_POINTER, phonelink_core::CAP_UNLOCK, phonelink_core::CAP_LOCKSTATE]
                 .map(String::from),
         );
         match Node::start(cfg).await {
@@ -1115,7 +1131,25 @@ impl State {
             .collect()
     }
 
-    /// The phone asked to lock this computer.
+    /// Tell `peer` whether this screen is locked and whether it may unlock it (fleeting: only
+    /// if connected now; sent again on every connect). Nothing if the state is unknown.
+    fn send_lock_state(&self, peer: &Fingerprint) {
+        let Some(locked) = *lock(&self.screen_locked) else { return };
+        if !self.has_cap(peer, phonelink_core::CAP_LOCKSTATE) {
+            return;
+        }
+        let unlock_allowed = self.switch_on("allow_unlock") && self.has_cap(peer, phonelink_core::CAP_UNLOCK);
+        if let Ok(body) = (AppMessage::LockState { locked, unlock_allowed }).encode() {
+            let _ = self.node.send_fleeting(peer, body);
+        }
+    }
+
+    fn send_lock_state_to_all(&self) {
+        for peer in self.connected_with(phonelink_core::CAP_LOCKSTATE) {
+            self.send_lock_state(&peer);
+        }
+    }
+
     /// The phone asks to unlock this computer (its owner confirmed with fingerprint or PIN).
     /// Only with `allow_unlock` on and a fresh request; always announced with a popup.
     async fn unlock_requested(self: &Arc<Self>, peer: Fingerprint, sent_ms: u64) {
@@ -1125,9 +1159,21 @@ impl State {
             (false, "Unlocking from the phone is switched off on this computer: turn it on in EchoTwin Settings".to_string())
         } else if !is_fresh(sent_ms, now_ms(), UNLOCK_MAX_AGE_MS) {
             (false, "The request arrived too late, so the computer was not unlocked".to_string())
+        } else if *lock(&self.screen_locked) == Some(false) && {
+            // Believed unlocked: read it afresh, so a missed signal can't block a real unlock.
+            let buses = self.buses.clone();
+            tokio::task::spawn_blocking(move || crate::lock::screen_locked(&buses)).await.ok().flatten() == Some(false)
+        } {
+            // The phone's state was stale: nothing to do (and no popup).
+            let _ = self.to_phone(&peer, AppMessage::ActionResult { key: UNLOCK_RESULT_KEY.into(), ok: true, message: "Already unlocked".into() });
+            self.send_lock_state(&peer);
+            return;
         } else {
             let buses = self.buses.clone();
             match tokio::task::spawn_blocking(move || crate::lock::unlock_screen(&buses)).await {
+                Ok(Ok(u)) if u.reactivated == Some(false) => {
+                    (true, "Unlocked; switch back to your session on the laptop".to_string())
+                }
                 Ok(Ok(_)) => (true, "Computer unlocked".to_string()),
                 Ok(Err(e)) => {
                     warn!("could not unlock the screen: {e}");
@@ -1151,6 +1197,7 @@ impl State {
         let _ = self.to_phone(&peer, AppMessage::ActionResult { key: UNLOCK_RESULT_KEY.into(), ok, message });
     }
 
+    /// The phone asked to lock this computer.
     async fn lock_requested(self: &Arc<Self>, peer: Fingerprint, sent_ms: u64) -> WatchEvent {
         let name = self.name_of(&peer);
         let (ok, message) = if !lock(&self.settings).allow_lock {
@@ -1504,6 +1551,7 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                 if wants_status {
                     state.send_battery(&peer, crate::battery::read(&state.battery_root));
                 }
+                state.send_lock_state(&peer);
                 state.transfers.nudge(); // files waiting for this phone go now
                 let blip = last_disconnect
                     .get(&peer)
@@ -1768,6 +1816,8 @@ async fn event_pump(state: Arc<State>, mut events: tokio::sync::mpsc::UnboundedR
                     }
                     continue;
                 }
+                // Only ever computer → phone.
+                AppMessage::LockState { .. } => continue,
                 // Retired in v3 (sudo approval removed): never acted on.
                 AppMessage::ApproveRequest { .. } | AppMessage::ApproveResponse { .. } | AppMessage::ApproveEnroll { .. } => continue,
                 AppMessage::PresentKey { key, sent_ms } => {
@@ -2150,6 +2200,9 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
             }
             Request::SetSwitch { name, on } => {
                 let known = lock(&state.settings).switches.set_switch(&name, on);
+                if known && name == "allow_unlock" {
+                    state.send_lock_state_to_all(); // the phone's tile follows
+                }
                 let reply = if known {
                     state.persist(|c| {
                         c.set_switch(&name, on);

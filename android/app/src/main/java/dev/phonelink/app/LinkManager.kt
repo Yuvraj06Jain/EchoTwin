@@ -142,6 +142,9 @@ object LinkManager {
     private val _computerArt = MutableStateFlow<Pair<String, android.graphics.Bitmap>?>(null)
     val computerArt: StateFlow<Pair<String, android.graphics.Bitmap>?> = _computerArt
     /** When something last played on the computer (ms), so a paused player hides after a while. */
+    /** When a lock / unlock request last failed (ms), for the Lock / Unlock tile. */
+    private val _lockFailedMs = MutableStateFlow(0L)
+    val lockFailedMs: StateFlow<Long> = _lockFailedMs
     private val _computerPlayedMs = MutableStateFlow(0L)
     val computerPlayedMs: StateFlow<Long> = _computerPlayedMs
     private val _commands = MutableStateFlow<List<dev.phonelink.core.RemoteButton>>(emptyList())
@@ -213,7 +216,7 @@ object LinkManager {
      * Run a "right now" request. If EchoTwin was just started (from a tile or the
      * notification), give the connection a few seconds to come up before giving up.
      */
-    private fun whenConnected(block: (PhoneLink) -> String) {
+    private fun whenConnected(onFail: () -> Unit = {}, block: (PhoneLink) -> String) {
         io.execute {
             val message = try {
                 val link = link()
@@ -227,8 +230,10 @@ object LinkManager {
                     if (link.devices().any { it.connected }) result = runCatching { block(link) }
                 }
                 refresh()
+                if (result.isFailure) onFail()
                 result.fold({ it }, { it.message ?: "Failed" })
             } catch (e: Exception) {
+                onFail()
                 e.message ?: "Failed"
             }
             toast(message.replaceFirstChar { it.uppercase() })
@@ -236,13 +241,13 @@ object LinkManager {
     }
 
     /** Lock the computer's screen (tile, notification button, app). */
-    fun lockComputer() = whenConnected { link ->
+    fun lockComputer() = whenConnected(onFail = { _lockFailedMs.value = System.currentTimeMillis() }) { link ->
         val name = link.lockComputer(null)
         "Locking $name…"
     }
 
     /** Unlock the computer (after the fingerprint prompt). Its answer arrives as a result. */
-    fun unlockComputer() = whenConnected { link ->
+    fun unlockComputer() = whenConnected(onFail = { _lockFailedMs.value = System.currentTimeMillis() }) { link ->
         val name = link.unlockComputer(null)
         "Unlocking $name…"
     }
@@ -388,7 +393,10 @@ object LinkManager {
                     }
                 }
                 is LinkEvent.RequestResult -> when {
-                    event.key == "lock" -> toast(if (event.ok) "${event.name} is locked" else "${event.name}: ${event.message}")
+                    event.key == "lock" || event.key == "unlock" -> {
+                        if (!event.ok) _lockFailedMs.value = System.currentTimeMillis()
+                        toast(if (event.ok) event.message.ifBlank { "${event.name} is locked" } else "${event.name}: ${event.message}")
+                    }
                     event.key.startsWith("cmd:") -> toast(if (event.ok) event.message else "${event.name}: ${event.message}")
                     !event.ok && (event.key == "media" || event.key == "present") -> toast("${event.name}: ${event.message}")
                 }

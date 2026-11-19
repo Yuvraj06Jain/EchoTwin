@@ -15,6 +15,8 @@ pub const CAP_NOTIFICATIONS: &str = "notifications/1";
 pub const CAP_LOCK: &str = "lock/1";
 /// Unlock the computer's screen from the phone (after the phone's fingerprint or PIN).
 pub const CAP_UNLOCK: &str = "unlock/1";
+/// The computer tells the phone whether its screen is locked (`LockState`).
+pub const CAP_LOCKSTATE: &str = "lockstate/1";
 /// Clipboard text in both directions.
 pub const CAP_CLIPBOARD: &str = "clipboard/1";
 
@@ -474,6 +476,9 @@ pub enum AppMessage {
     /// the phone's fingerprint or screen lock; refused unless the computer allows it and
     /// fresh within [`UNLOCK_MAX_AGE_MS`]). Answered with `ActionResult` `unlock`.
     UnlockComputer { sent_ms: u64 },
+    /// Computer → phone: its screen is locked or not, and whether it lets this phone unlock
+    /// it (`CAP_LOCKSTATE`; fleeting, sent on connect and on every change).
+    LockState { locked: bool, unlock_allowed: bool },
 }
 
 /// Album art must be a small JPEG or PNG.
@@ -564,6 +569,7 @@ mod tests {
             AppMessage::CallAction { key: "0|incallui|1".into(), action: CallActionKind::Hold },
             AppMessage::Pointer { x: 10_000, y: 0, visible: true, shape: PointerShape::Spotlight, color: 0xFF3B30, size: 2 },
             AppMessage::UnlockComputer { sent_ms: 14 },
+            AppMessage::LockState { locked: true, unlock_allowed: false },
             AppMessage::OpenUrl {
                 url: "https://example.org/a?b=1".into(),
                 sent_ms: 9,
@@ -700,6 +706,7 @@ mod tests {
         let p = AppMessage::Pointer { x: 0, y: 0, visible: false, shape: PointerShape::Dot, color: 0, size: 0 };
         assert_eq!(pos(&p), 41);
         assert_eq!(pos(&AppMessage::UnlockComputer { sent_ms: 0 }), 42);
+        assert_eq!(pos(&AppMessage::LockState { locked: false, unlock_allowed: false }), 43);
         assert!(p.encode().unwrap().len() < 32, "small enough to send 30 times a second");
         assert_eq!([PointerShape::Dot, PointerShape::Ring, PointerShape::Spotlight].map(|s| pos(&s)), [0, 1, 2]);
         assert_eq!(CallActionKind::ALL.map(|a| CallActionKind::parse(a.as_str())), CallActionKind::ALL.map(Some));

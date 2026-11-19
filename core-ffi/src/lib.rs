@@ -71,6 +71,11 @@ pub struct Device {
     pub can_point: bool,
     /// Connected, and can be unlocked from here (if its owner allows it there).
     pub can_unlock: bool,
+    /// Its screen is locked (`None`: it hasn't said: an older version, or its desktop
+    /// doesn't tell). Cleared when it disconnects.
+    pub locked: Option<bool>,
+    /// It lets this phone unlock it right now (its "Let your phone unlock" switch).
+    pub unlock_allowed: bool,
     /// "wifi" or "bluetooth" while connected; empty when offline.
     pub via: String,
     /// The computer's Bluetooth address for the backup link (it tells us), if it has one.
@@ -166,6 +171,13 @@ pub enum LinkEvent {
     ComputerMedia {
         id: String,
         media: Option<PhoneMedia>,
+    },
+    /// The computer's screen was locked or unlocked, or its unlock switch changed; read
+    /// `devices()` again for the Lock / Unlock tile.
+    ComputerLockChanged {
+        id: String,
+        locked: bool,
+        unlock_allowed: bool,
     },
     /// The computer's album art (a small JPEG or PNG), for `ComputerMedia` whose `art_key`
     /// is `key`. Arrives before that `ComputerMedia`.
@@ -610,8 +622,16 @@ pub struct PhoneLink {
 /// What each connected computer supports (from its Hello).
 type Caps = Arc<Mutex<HashMap<Fingerprint, Vec<String>>>>;
 
-/// Each connected computer's battery (level, charging), as it last reported.
-type Power = Arc<Mutex<HashMap<Fingerprint, (Option<u8>, bool)>>>;
+/// What each connected computer last reported about itself.
+#[derive(Debug, Clone, Copy, Default)]
+struct PeerLive {
+    battery: Option<u8>,
+    charging: bool,
+    /// (screen locked, may this phone unlock it), once it said.
+    lock: Option<(bool, bool)>,
+}
+
+type Power = Arc<Mutex<HashMap<Fingerprint, PeerLive>>>;
 
 fn has_cap(caps: &Caps, fp: &Fingerprint, cap: &str) -> bool {
     caps.lock()
@@ -641,13 +661,14 @@ fn keep_connected(
 
 fn device(node: &Node, caps: &Caps, power: &Power, p: &PeerRecord) -> Device {
     let connected = node.is_connected(&p.fingerprint);
-    let (battery, charging) = power
+    let live = power
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get(&p.fingerprint)
         .copied()
         .filter(|_| connected)
-        .unwrap_or((None, false));
+        .unwrap_or_default();
+    let (battery, charging) = (live.battery, live.charging);
     Device {
         id: p.fingerprint.short(),
         name: p.name.clone(),
@@ -662,6 +683,8 @@ fn device(node: &Node, caps: &Caps, power: &Power, p: &PeerRecord) -> Device {
         can_mute: connected && has_cap(caps, &p.fingerprint, phonelink_core::CAP_MUTE),
         can_point: connected && has_cap(caps, &p.fingerprint, phonelink_core::CAP_POINTER),
         can_unlock: connected && has_cap(caps, &p.fingerprint, phonelink_core::CAP_UNLOCK),
+        locked: live.lock.map(|l| l.0),
+        unlock_allowed: live.lock.is_some_and(|l| l.1),
         via: via(node.transport(&p.fingerprint)),
         bluetooth: p.bluetooth.clone(),
         battery,
@@ -780,6 +803,7 @@ impl PhoneLink {
                             phonelink_core::CAP_CALLS2,
                             phonelink_core::CAP_POINTER,
                             phonelink_core::CAP_UNLOCK,
+                            phonelink_core::CAP_LOCKSTATE,
                         ]
                         .map(String::from),
                     );
@@ -1020,10 +1044,12 @@ impl PhoneLink {
                         },
                         AppMessage::ComputerStatus { battery, charging } => {
                             let battery = battery.filter(|b| *b <= 100);
-                            pump_power
-                                .lock()
-                                .unwrap_or_else(|e| e.into_inner())
-                                .insert(peer, (battery, charging));
+                            {
+                                let mut p = pump_power.lock().unwrap_or_else(|e| e.into_inner());
+                                let live = p.entry(peer).or_default();
+                                live.battery = battery;
+                                live.charging = charging;
+                            }
                             let alert = alerts.entry(peer).or_default().update(battery, charging).map(|a| match a {
                                 phonelink_core::alerts::BatteryAlert::Low(_) => BatteryAlertKind::Low,
                                 phonelink_core::alerts::BatteryAlert::Full => BatteryAlertKind::Full,
@@ -1035,6 +1061,11 @@ impl PhoneLink {
                                 charging,
                                 alert,
                             }
+                        }
+                        AppMessage::LockState { locked, unlock_allowed } => {
+                            pump_power.lock().unwrap_or_else(|e| e.into_inner()).entry(peer).or_default().lock =
+                                Some((locked, unlock_allowed));
+                            LinkEvent::ComputerLockChanged { id: peer.short(), locked, unlock_allowed }
                         }
                         AppMessage::MediaControl { action } => LinkEvent::MediaControlRequested {
                             id: peer.short(),
@@ -2159,7 +2190,7 @@ mod tests {
             cfg.capabilities.extend(caps.iter().map(|c| c.to_string()));
             rt.block_on(Node::start(cfg)).unwrap()
         };
-        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS, CAP_RING, CAP_CALLS, CAP_REMOTE, CAP_PRESENT, phonelink_core::CAP_MUTE, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_REMOTE_ART, phonelink_core::CAP_CALLS2, phonelink_core::CAP_POINTER, phonelink_core::CAP_UNLOCK]);
+        let (laptop, mut lrx) = start_laptop(&[CAP_LOCK, CAP_CLIPBOARD, CAP_LINKS, CAP_RING, CAP_CALLS, CAP_REMOTE, CAP_PRESENT, phonelink_core::CAP_MUTE, phonelink_core::CAP_PRESENT2, phonelink_core::CAP_REMOTE_ART, phonelink_core::CAP_CALLS2, phonelink_core::CAP_POINTER, phonelink_core::CAP_UNLOCK, phonelink_core::CAP_LOCKSTATE]);
         let uri = laptop
             .start_pairing(Duration::from_secs(60), vec![laptop.local_addr().unwrap()])
             .to_uri();
@@ -2243,6 +2274,12 @@ mod tests {
         assert!(phone.devices()[0].can_remote && phone.devices()[0].can_present);
         let d = &phone.devices()[0];
         assert!(d.can_mute && d.can_present_apps && d.can_point && d.can_unlock);
+        assert_eq!(phone.devices()[0].locked, None, "not said yet");
+        to_phone(AppMessage::LockState { locked: true, unlock_allowed: true });
+        let ev = wait(&rx, |e| matches!(e, LinkEvent::ComputerLockChanged { .. }));
+        assert!(matches!(ev, LinkEvent::ComputerLockChanged { locked: true, unlock_allowed: true, .. }));
+        let d2 = &phone.devices()[0];
+        assert_eq!((d2.locked, d2.unlock_allowed), (Some(true), true));
         assert_eq!(phone.unlock_computer(None).unwrap(), "Kubuntu");
         assert!(matches!(next_from_phone(&mut lrx), AppMessage::UnlockComputer { sent_ms } if sent_ms.abs_diff(now_ms()) < 10_000));
         // The pointer: clamped, masked, not queued.

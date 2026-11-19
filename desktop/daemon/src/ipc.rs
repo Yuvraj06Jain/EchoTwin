@@ -321,6 +321,10 @@ pub enum WatchEvent {
         name: String,
     },
     /// The phone locked this computer.
+    /// This screen was locked or unlocked.
+    ScreenLockChanged {
+        locked: bool,
+    },
     /// The phone unlocked this computer (allowed, confirmed on the phone).
     UnlockedByPhone {
         id: String,

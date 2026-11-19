@@ -129,7 +129,7 @@ or files, write a note, ring the laptop to find it, mute it, or start presenting
 | **Clipboard and notes** | Copy here, paste there; notes both ways with a Copy button |
 | **Remote** | The laptop's music on the phone with album art; Mute; your own buttons |
 | **Presentations** | Start/End per app (PowerPoint, Impress, Google Slides, Canva, full screen), Next / Previous, black screen, volume-key clicker, pointer |
-| **Little things** | Lock the laptop from the phone (also a Quick Settings tile) and unlock it after your fingerprint (off until you allow it), ring a lost phone or laptop, open a link on the other device, battery alerts, phone battery and 5G/4G signal on the laptop |
+| **Little things** | Lock the laptop from the phone, and when it's locked the same tile unlocks it after your fingerprint (off until you allow it), ring a lost phone or laptop, open a link on the other device, battery alerts, phone battery and 5G/4G signal on the laptop |
 | **Staying connected** | Reconnects after sleep, reboots and new IP addresses; Bluetooth backup; a battery saver that turns on by itself when the laptop runs low |
 
 ## Private by design

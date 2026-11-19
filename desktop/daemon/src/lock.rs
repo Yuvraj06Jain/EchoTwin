@@ -74,62 +74,178 @@ fn my_uid() -> u32 {
     std::fs::metadata("/proc/self").map(|m| m.uid()).unwrap_or(u32::MAX)
 }
 
-/// Unlock this user's graphical sessions (through logind). Returns how many. Blocking.
-pub fn unlock_screen(buses: &Buses) -> Result<usize, String> {
-    match session_call(buses, "Unlock") {
-        Ok(0) => Err("no graphical session of this user".into()),
-        Ok(n) => Ok(n),
-        Err(e) => Err(format!("logind: {e}")),
+/// What an unlock did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Unlocked {
+    /// Graphical sessions of this user that were unlocked.
+    pub sessions: usize,
+    /// The session wasn't the one on screen (Switch user: the login screen shows): `Some(true)`
+    /// if it was brought back, `Some(false)` if logind refused.
+    pub reactivated: Option<bool>,
+}
+
+/// Unlock this user's graphical sessions (through logind), and bring one back on screen if
+/// another session or the login screen is showing ("Switch user"). Blocking.
+pub fn unlock_screen(buses: &Buses) -> Result<Unlocked, String> {
+    let c = open(&buses.system, true).map_err(|e| format!("logind: {e}"))?;
+    let sessions = my_graphical_sessions(&c).map_err(|e| format!("logind: {e}"))?;
+    if sessions.is_empty() {
+        return Err("no graphical session of this user".into());
     }
+    let mut reactivated = None;
+    for path in &sessions {
+        session_method(&c, path, "Unlock").map_err(|e| format!("logind: {e}"))?;
+        if session_bool(&c, path, "Active") == Some(false) {
+            reactivated = Some(session_method(&c, path, "Activate").is_ok());
+        }
+    }
+    Ok(Unlocked { sessions: sessions.len(), reactivated })
 }
 
 /// Lock this user's graphical sessions through logind. Returns how many were locked.
 fn lock_with_logind(buses: &Buses) -> zbus::Result<usize> {
-    session_call(buses, "Lock")
+    let c = open(&buses.system, true)?;
+    let sessions = my_graphical_sessions(&c)?;
+    for path in &sessions {
+        session_method(&c, path, "Lock")?;
+    }
+    Ok(sessions.len())
 }
 
-/// Call `method` ("Lock" or "Unlock") on each graphical logind session of this user.
-fn session_call(buses: &Buses, method: &str) -> zbus::Result<usize> {
-    let c = open(&buses.system, true)?;
-    let dest = "org.freedesktop.login1";
+const LOGIND: &str = "org.freedesktop.login1";
+const SESSION: &str = "org.freedesktop.login1.Session";
+
+/// This user's graphical logind sessions (not ssh/tty ones: no screen to lock or unlock).
+fn my_graphical_sessions(c: &Connection) -> zbus::Result<Vec<zbus::zvariant::OwnedObjectPath>> {
     let sessions: Vec<(String, u32, String, String, zbus::zvariant::OwnedObjectPath)> = c
-        .call_method(
-            Some(dest),
-            "/org/freedesktop/login1",
-            Some("org.freedesktop.login1.Manager"),
-            "ListSessions",
-            &(),
-        )?
+        .call_method(Some(LOGIND), "/org/freedesktop/login1", Some("org.freedesktop.login1.Manager"), "ListSessions", &())?
         .body()
         .deserialize()?;
     let uid = my_uid();
-    let mut locked = 0;
+    let mut out = vec![];
     for (_, session_uid, _, _, path) in sessions {
         if session_uid != uid {
             continue;
         }
         let kind: zbus::zvariant::OwnedValue = c
-            .call_method(
-                Some(dest),
-                path.as_str(),
-                Some("org.freedesktop.DBus.Properties"),
-                "Get",
-                &("org.freedesktop.login1.Session", "Type"),
-            )?
+            .call_method(Some(LOGIND), path.as_str(), Some("org.freedesktop.DBus.Properties"), "Get", &(SESSION, "Type"))?
             .body()
             .deserialize()?;
         let kind: String = kind.try_into().unwrap_or_default();
-        if !["x11", "wayland", "mir"].contains(&kind.as_str()) {
-            continue; // ssh/tty sessions have no screen to lock or unlock
+        if ["x11", "wayland", "mir"].contains(&kind.as_str()) {
+            out.push(path);
         }
-        c.call_method(
-            Some(dest),
-            path.as_str(),
-            Some("org.freedesktop.login1.Session"),
-            method,
-            &(),
-        )?;
-        locked += 1;
     }
-    Ok(locked)
+    Ok(out)
 }
+
+fn session_method(c: &Connection, path: &zbus::zvariant::OwnedObjectPath, method: &str) -> zbus::Result<()> {
+    c.call_method(Some(LOGIND), path.as_str(), Some(SESSION), method, &()).map(|_| ())
+}
+
+fn session_bool(c: &Connection, path: &zbus::zvariant::OwnedObjectPath, prop: &str) -> Option<bool> {
+    let v: zbus::zvariant::OwnedValue = c
+        .call_method(Some(LOGIND), path.as_str(), Some("org.freedesktop.DBus.Properties"), "Get", &(SESSION, prop))
+        .ok()?
+        .body()
+        .deserialize()
+        .ok()?;
+    bool::try_from(v).ok()
+}
+
+// ---------------------------------------------------------------- is the screen locked?
+
+/// Locked or not, or `None` if this desktop doesn't say: the screen saver's `GetActive`
+/// (KDE: active == locked), else logind's `LockedHint` of this user's graphical session.
+/// Blocking.
+pub fn screen_locked(buses: &Buses) -> Option<bool> {
+    if let Ok(c) = open(&buses.session, false) {
+        for (dest, path, iface) in &SCREEN_SAVERS[..2] {
+            if let Ok(m) = c.call_method(Some(*dest), *path, Some(*iface), "GetActive", &()) {
+                if let Ok(active) = m.body().deserialize::<bool>() {
+                    return Some(active);
+                }
+            }
+        }
+    }
+    let c = open(&buses.system, true).ok()?;
+    let sessions = my_graphical_sessions(&c).ok()?;
+    // Locked if any of this user's graphical sessions says so.
+    let hints: Vec<bool> = sessions.iter().filter_map(|p| session_bool(&c, p, "LockedHint")).collect();
+    if hints.is_empty() {
+        None
+    } else {
+        Some(hints.contains(&true))
+    }
+}
+
+/// Follow the lock state: sends the current state at once (if known), then every change.
+/// Signals only (the screen saver's `ActiveChanged`, logind's `PropertiesChanged`), no polling.
+pub fn watch_lock_state(buses: Buses, tx: tokio::sync::mpsc::UnboundedSender<bool>) {
+    std::thread::Builder::new()
+        .name("phonelink-lock-state".into())
+        .spawn(move || {
+            let (tick_tx, tick_rx) = std::sync::mpsc::channel::<()>();
+            let mut conns = vec![];
+            if let Ok(c) = open(&buses.session, false) {
+                let rule = zbus::MatchRule::builder()
+                    .msg_type(zbus::message::Type::Signal)
+                    .interface("org.freedesktop.ScreenSaver")
+                    .and_then(|b| b.member("ActiveChanged"))
+                    .map(|b| b.build());
+                if let Ok(rule) = rule {
+                    if let Ok(it) = zbus::blocking::MessageIterator::for_match_rule(rule, &c, Some(16)) {
+                        let t = tick_tx.clone();
+                        std::thread::spawn(move || {
+                            for m in it {
+                                if m.is_err() || t.send(()).is_err() {
+                                    break;
+                                }
+                            }
+                        });
+                    }
+                }
+                conns.push(c);
+            }
+            if let Ok(c) = open(&buses.system, true) {
+                let rule = zbus::MatchRule::builder()
+                    .msg_type(zbus::message::Type::Signal)
+                    .sender(LOGIND)
+                    .and_then(|b| b.interface("org.freedesktop.DBus.Properties"))
+                    .and_then(|b| b.member("PropertiesChanged"))
+                    .map(|b| b.build());
+                if let Ok(rule) = rule {
+                    if let Ok(it) = zbus::blocking::MessageIterator::for_match_rule(rule, &c, Some(16)) {
+                        let t = tick_tx.clone();
+                        std::thread::spawn(move || {
+                            for m in it {
+                                if m.is_err() || t.send(()).is_err() {
+                                    break;
+                                }
+                            }
+                        });
+                    }
+                }
+                conns.push(c);
+            }
+            drop(tick_tx);
+            let mut last = None;
+            loop {
+                let now = screen_locked(&buses);
+                if now.is_some() && now != last {
+                    if tx.send(now.unwrap_or(false)).is_err() {
+                        return;
+                    }
+                    last = now;
+                }
+                if tick_rx.recv().is_err() {
+                    return; // nothing to listen to on this machine
+                }
+                // A burst of signals (both object paths, several properties): read once.
+                std::thread::sleep(std::time::Duration::from_millis(150));
+                while tick_rx.try_recv().is_ok() {}
+            }
+        })
+        .expect("spawn lock-state thread");
+}
+

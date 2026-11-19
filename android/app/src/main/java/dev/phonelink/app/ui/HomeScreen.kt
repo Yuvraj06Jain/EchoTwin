@@ -224,10 +224,7 @@ private fun ActionGrid(d: Device, state: UiState, actions: Actions, onNote: () -
     val bluetooth = d.connected && d.via == "bluetooth"
     var ringing by remember { mutableStateOf(false) }
     val tiles = buildList<@Composable (Modifier) -> Unit> {
-        add { m -> ActionTile("Lock", Icons.Filled.Lock, d.canLock, m, actions::lock) }
-        if (d.canUnlock) {
-            add { m -> ActionTile("Unlock", null, true, m, onClick = actions::unlock, glyph = "🔓") }
-        }
+        add { m -> LockUnlockTile(d, state.lockFailedMs, actions, m) }
         add { m -> ActionTile("Clipboard", Icons.Filled.Share, d.canClipboard && state.clipboardOn, m, actions::sendClipboard) }
         add { m -> ActionTile("Send files", Icons.AutoMirrored.Filled.Send, !bluetooth, m, actions::sendFiles) }
         add { m -> ActionTile("Note", Icons.Filled.Edit, true, m, onNote) }
@@ -240,7 +237,7 @@ private fun ActionGrid(d: Device, state: UiState, actions: Actions, onNote: () -
             }
         }
         if (d.canMute) {
-            add { m -> ActionTile("Mute", null, true, m, onClick = { actions.computerMedia(MediaCommand.ToggleMute) }, glyph = "🔇") }
+            add { m -> ActionTile("Mute", Glyphs.VolumeOff, true, m, onClick = { actions.computerMedia(MediaCommand.ToggleMute) }) }
         }
         if (d.canRemote && state.commands.isNotEmpty()) {
             add { m -> ActionTile("My buttons", Icons.AutoMirrored.Filled.List, true, m, onClick = actions::openButtons) }
@@ -256,6 +253,49 @@ private fun ActionGrid(d: Device, state: UiState, actions: Actions, onNote: () -
         // Always its own last row, as wide as three tiles.
         if (d.canPresent) PresentationTile(actions::openPresenter)
     }
+}
+
+/**
+ * One tile for both: "Lock" while the computer is unlocked, "Unlock" (open padlock) while it
+ * is locked (see [lockTile]). After a press it waits ("Locking…" / "Unlocking…") until the
+ * computer's lock state changes, the request fails, or a timeout (6 s / 15 s: KDE can take a
+ * few seconds to let go).
+ */
+@Composable
+private fun LockUnlockTile(d: Device, lockFailedMs: Long, actions: Actions, modifier: Modifier) {
+    var pending by remember { mutableStateOf<LockPending?>(null) }
+    var pendingSince by remember { mutableStateOf(0L) }
+    // Done waiting: the state changed, the phone went offline, or the request failed.
+    LaunchedEffect(d.locked, d.connected) { pending = null }
+    LaunchedEffect(lockFailedMs) { if (lockFailedMs >= pendingSince) pending = null }
+    LaunchedEffect(pending) {
+        val p = pending ?: return@LaunchedEffect
+        delay(if (p == LockPending.LOCKING) 6_000 else 15_000)
+        pending = null
+    }
+    val start = { p: LockPending ->
+        pendingSince = System.currentTimeMillis()
+        pending = p
+    }
+    val tile = lockTile(d, pending)
+    ActionTile(
+        tile.label,
+        if (tile.open) Glyphs.LockOpen else Icons.Filled.Lock,
+        tile.enabled,
+        modifier,
+        onClick = {
+            when (tile.does) {
+                LockDo.LOCK -> {
+                    // Only wait if the computer will tell us it locked; else just send.
+                    if (d.locked != null) start(LockPending.LOCKING)
+                    actions.lock()
+                }
+                LockDo.UNLOCK -> actions.unlock { start(LockPending.UNLOCKING) }
+                LockDo.EXPLAIN -> actions.explainUnlock()
+                LockDo.NOTHING -> Unit
+            }
+        },
+    )
 }
 
 /** The full-width Presentation tile. */

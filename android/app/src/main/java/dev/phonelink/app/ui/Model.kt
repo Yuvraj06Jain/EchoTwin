@@ -39,6 +39,8 @@ data class UiState(
     val computerPlayedMs: Long = 0L,
     /** Presentation app for Start: office | slides | canva | fullscreen. */
     val presentApp: String = "office",
+    /** When a lock or unlock request last failed (ms; 0 = never), so the tile stops waiting. */
+    val lockFailedMs: Long = 0L,
     /** Where received files are saved ("Download/EchoTwin" or the chosen folder), and if chosen. */
     val receiveFolder: String = "Download/EchoTwin",
     val receiveFolderChosen: Boolean = false,
@@ -58,8 +60,10 @@ interface Actions {
     fun pair()
     fun reconnect()
     fun lock()
-    /** Unlock the computer, after the phone's fingerprint or screen lock. */
-    fun unlock()
+    /** Unlock the computer after the phone's fingerprint or screen lock; `onSent` once asked. */
+    fun unlock(onSent: () -> Unit)
+    /** The computer is locked but doesn't let this phone unlock it: say how to allow it. */
+    fun explainUnlock()
     fun ring(on: Boolean)
     fun openButtons()
     fun setPresentApp(app: String)
@@ -111,4 +115,31 @@ fun formatEta(secs: Long): String = when {
     secs < 60 -> "about ${secs.coerceAtLeast(1)} s left"
     secs < 3600 -> "about ${(secs + 30) / 60} min left"
     else -> "about ${secs / 3600} h ${secs % 3600 / 60} min left"
+}
+
+/** What the Lock / Unlock tile is waiting for after a press. */
+enum class LockPending { LOCKING, UNLOCKING }
+
+/** What pressing the Lock / Unlock tile does. */
+enum class LockDo { LOCK, UNLOCK, EXPLAIN, NOTHING }
+
+/** The one Lock / Unlock tile: its label, whether it shows the open padlock, enabled, action. */
+data class LockTile(val label: String, val open: Boolean, val enabled: Boolean, val does: LockDo)
+
+/**
+ * The tile from the computer's state, kept pure so the table is easy to check:
+ * - offline or no lock support: "Lock", disabled
+ * - waiting after a press: "Locking…" / "Unlocking…", disabled
+ * - the computer hasn't said (older version, or its desktop doesn't tell): "Lock"
+ * - unlocked: "Lock"
+ * - locked and this phone may unlock it: "Unlock"
+ * - locked, unlocking not allowed there: "Locked" (a tap explains how to allow it)
+ */
+fun lockTile(d: Device, pending: LockPending?): LockTile = when {
+    !d.connected || !d.canLock -> LockTile("Lock", false, false, LockDo.NOTHING)
+    pending == LockPending.LOCKING -> LockTile("Locking…", false, false, LockDo.NOTHING)
+    pending == LockPending.UNLOCKING -> LockTile("Unlocking…", true, false, LockDo.NOTHING)
+    d.locked != true -> LockTile("Lock", false, true, LockDo.LOCK)
+    d.canUnlock && d.unlockAllowed -> LockTile("Unlock", true, true, LockDo.UNLOCK)
+    else -> LockTile("Locked", true, true, LockDo.EXPLAIN)
 }

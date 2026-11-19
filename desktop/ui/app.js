@@ -1543,7 +1543,7 @@
   };
   const NOTIFICATION_EVENTS = ['text', 'notification_posted', 'notification_removed', 'notifications_changed'];
   api.onEvent((ev) => {
-    if (ev.kind === 'pointer') return undefined; // the overlay draws it, up to 30 a second
+    if (ev.kind === 'pointer' || ev.kind === 'screen_lock_changed') return undefined; // pointer: the overlay draws it, up to 30 a second
     if (NOTIFICATION_EVENTS.includes(ev.kind)) return refreshNotifications();
     if (ev.kind === 'action_result') {
       if (!ev.ok) toast(`Your phone couldn't do that: ${ev.message}`);

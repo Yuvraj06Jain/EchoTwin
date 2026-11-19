@@ -77,6 +77,13 @@ class TouchpadTest {
                 assertTrue(phone.touch(listOf(Finger(0u, 1u, 0.5f, 0.5f))))
                 assertTrue(phone.touch(emptyList()))
                 assertTrue(phone.button(true, false))
+                assertTrue(phone.scroll(-240))
+
+                // Switched off on the laptop: the phone is told why.
+                val off = proc(env, "phonelink", "touchpad", "off").redirectErrorStream(true).start()
+                check(off.waitFor(15, TimeUnit.SECONDS) && off.exitValue() == 0) { off.inputStream.bufferedReader().readText() }
+                val failed = events.await<PadEvent.PadFailed>()
+                assertTrue(failed.message.contains("switched off"), failed.message)
                 phone.closePad()
                 assertTrue(phone.latencyMs() != null)
 

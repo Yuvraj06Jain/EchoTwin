@@ -885,6 +885,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_reconnect_now(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_scroll(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_shutdown(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_touch(
@@ -1075,6 +1077,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_touchpadlink_reconnect_now(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_touchpadlink_scroll(`ptr`: Long,`v120`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     external fun uniffi_phonelink_ffi_fn_method_touchpadlink_shutdown(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_touchpadlink_touch(`ptr`: Long,`fingers`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1372,6 +1376,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_reconnect_now() and 0xFFFF) != 38242) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_scroll() and 0xFFFF) != 63464) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_shutdown() and 0xFFFF) != 54494) {
@@ -4835,6 +4842,12 @@ public interface TouchpadLinkInterface {
      */
     fun `reconnectNow`()
     
+    /**
+     * The scroll strip moved: hi-res wheel units (120 = one notch, positive = up). Sent at
+     * once, never queued. Returns false if it could not be sent (pad closed, not connected).
+     */
+    fun `scroll`(`v120`: kotlin.Int): kotlin.Boolean
+    
     fun `shutdown`()
     
     /**
@@ -5077,6 +5090,24 @@ open class TouchpadLink: Disposable, AutoCloseable, TouchpadLinkInterface
 }
     }
     
+    
+
+    
+    /**
+     * The scroll strip moved: hi-res wheel units (120 = one notch, positive = up). Sent at
+     * once, never queued. Returns false if it could not be sent (pad closed, not connected).
+     */override fun `scroll`(`v120`: kotlin.Int): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_touchpadlink_scroll(
+        it,
+        
+        FfiConverterInt.lower(`v120`),_status)
+}
+    }
+    )
+    }
     
 
     override fun `shutdown`()
@@ -7256,10 +7287,23 @@ sealed class PadEvent {
     
     
     /**
-     * The laptop could not create its virtual touchpad (`message` says how to fix it).
+     * The laptop could not create its virtual touchpad (`message` says how to fix it), or
+     * its touchpad is switched off there.
      */
     data class PadFailed(
         val `message`: kotlin.String) : PadEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * The laptop's own touchpad is in use (or no longer): meanwhile the phone is ignored.
+     */
+    data class LaptopTouchpad(
+        val `inUse`: kotlin.Boolean) : PadEvent()
         
     {
         
@@ -7293,6 +7337,9 @@ public object FfiConverterTypePadEvent : FfiConverterRustBuffer<PadEvent>{
             4 -> PadEvent.PadReady
             5 -> PadEvent.PadFailed(
                 FfiConverterString.read(buf),
+                )
+            6 -> PadEvent.LaptopTouchpad(
+                FfiConverterBoolean.read(buf),
                 )
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
         }
@@ -7332,6 +7379,13 @@ public object FfiConverterTypePadEvent : FfiConverterRustBuffer<PadEvent>{
                 + FfiConverterString.allocationSize(value.`message`)
             )
         }
+        is PadEvent.LaptopTouchpad -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterBoolean.allocationSize(value.`inUse`)
+            )
+        }
     }
 
     override fun write(value: PadEvent, buf: ByteBuffer) {
@@ -7357,6 +7411,11 @@ public object FfiConverterTypePadEvent : FfiConverterRustBuffer<PadEvent>{
             is PadEvent.PadFailed -> {
                 buf.putInt(5)
                 FfiConverterString.write(value.`message`, buf)
+                Unit
+            }
+            is PadEvent.LaptopTouchpad -> {
+                buf.putInt(6)
+                FfiConverterBoolean.write(value.`inUse`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }

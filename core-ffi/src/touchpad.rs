@@ -73,8 +73,11 @@ pub enum PadEvent {
     Disconnected,
     /// The laptop created its virtual touchpad: touches now move the pointer.
     PadReady,
-    /// The laptop could not create its virtual touchpad (`message` says how to fix it).
+    /// The laptop could not create its virtual touchpad (`message` says how to fix it), or
+    /// its touchpad is switched off there.
     PadFailed { message: String },
+    /// The laptop's own touchpad is in use (or no longer): meanwhile the phone is ignored.
+    LaptopTouchpad { in_use: bool },
 }
 
 /// One finger, as Android reports it. `x`, `y` are 0.0–1.0 across the pad.
@@ -265,6 +268,7 @@ impl TouchpadLink {
                             Some(Msg::PadStatus { ok: false, message }) => {
                                 Some(PadEvent::PadFailed { message })
                             }
+                            Some(Msg::LaptopTouchpad { in_use }) => Some(PadEvent::LaptopTouchpad { in_use }),
                             _ => None,
                         },
                         Event::PeerPaused { .. } | Event::Datagram { .. } => None,
@@ -406,6 +410,16 @@ impl TouchpadLink {
         // Start the heartbeat clock now, so a held button is kept alive from here.
         st.last_sent = Some(Instant::now());
         sent
+    }
+
+    /// The scroll strip moved: hi-res wheel units (120 = one notch, positive = up). Sent at
+    /// once, never queued. Returns false if it could not be sent (pad closed, not connected).
+    pub fn scroll(&self, v120: i32) -> bool {
+        let st = lock(&self.touch);
+        if st.pad.is_none() || v120 == 0 {
+            return false;
+        }
+        send_msg(&self.node, &st, Msg::scroll(v120))
     }
 
     /// Round-trip time to the laptop the pad drives, for a latency indicator.
@@ -561,12 +575,21 @@ mod tests {
         let after = collect(&rt, &mut lrx, Duration::from_millis(300));
         assert!(after.is_empty(), "nothing once everything is let go");
 
+        // The scroll strip, and the laptop saying its own touchpad is in use.
+        assert!(phone.scroll(-240));
+        assert!(!phone.scroll(0), "nothing to send");
+        let got = collect(&rt, &mut lrx, Duration::from_millis(300));
+        assert!(got.iter().any(|g| matches!(g, Got::Msg(Msg::Scroll { v120: -240 }))));
+        laptop.send_fleeting(&pfp, Msg::LaptopTouchpad { in_use: true }.encode()).unwrap();
+        assert_eq!(wait(&rx, |e| matches!(e, PadEvent::LaptopTouchpad { .. })), PadEvent::LaptopTouchpad { in_use: true });
+
         // Leaving the tab lifts everything on the laptop.
         assert!(phone.button(true, true));
         phone.close_pad();
         let got = collect(&rt, &mut lrx, Duration::from_millis(300));
         assert!(got.iter().any(|g| matches!(g, Got::Msg(Msg::Release))));
         assert!(!phone.button(true, true), "closed pad: buttons do nothing");
+        assert!(!phone.scroll(120), "closed pad: no scrolling either");
 
         assert_eq!(phone.laptops().len(), 1);
         phone.unpair(l.id).unwrap();

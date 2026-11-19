@@ -30,8 +30,8 @@ use std::{
 use phonelink_core::{
     lan::Lan,
     touchpad::{
-        offer_from_pair_uri, Button, Contact, Msg, PadInfo, TouchFrame, CAP_TOUCHPAD, COORD_MAX,
-        MAX_CONTACTS,
+        keymap, offer_from_pair_uri, Button, Contact, Key, Msg, PadInfo, TouchFrame, CAP_TOUCHPAD,
+        COORD_MAX, MAX_CONTACTS,
     },
     Event, Fingerprint, Node, NodeConfig, PeerRecord,
 };
@@ -78,6 +78,64 @@ pub enum PadEvent {
     PadFailed { message: String },
     /// The laptop's own touchpad is in use (or no longer): meanwhile the phone is ignored.
     LaptopTouchpad { in_use: bool },
+    /// Typing is switched off on the laptop.
+    KeyboardOff,
+}
+
+/// A key for [`TouchpadLink::key`]. `Char` holds one character (a shortcut with Ctrl, say).
+#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
+pub enum PadKey {
+    Enter,
+    Backspace,
+    Tab,
+    Escape,
+    Left,
+    Right,
+    Up,
+    Down,
+    Home,
+    End,
+    Delete,
+    PageUp,
+    PageDown,
+    Char { c: String },
+}
+
+/// Part of what was typed: `typeable` runs are typed as keys, the others pasted.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TextRun {
+    pub typeable: bool,
+    pub text: String,
+}
+
+/// Split `text` into typed and pasted runs (the laptop's layout is US).
+#[uniffi::export]
+pub fn text_runs(text: String) -> Vec<TextRun> {
+    keymap::runs(&text).into_iter().map(|(typeable, text)| TextRun { typeable, text }).collect()
+}
+
+fn to_key(k: &PadKey) -> Option<Key> {
+    Some(match k {
+        PadKey::Enter => Key::Enter,
+        PadKey::Backspace => Key::Backspace,
+        PadKey::Tab => Key::Tab,
+        PadKey::Escape => Key::Escape,
+        PadKey::Left => Key::Left,
+        PadKey::Right => Key::Right,
+        PadKey::Up => Key::Up,
+        PadKey::Down => Key::Down,
+        PadKey::Home => Key::Home,
+        PadKey::End => Key::End,
+        PadKey::Delete => Key::Delete,
+        PadKey::PageUp => Key::PageUp,
+        PadKey::PageDown => Key::PageDown,
+        PadKey::Char { c } => {
+            let mut chars = c.chars();
+            let (Some(ch), None) = (chars.next(), chars.next()) else { return None };
+            keymap::us(ch)?;
+            Key::Char(ch)
+        }
+    })
 }
 
 /// One finger, as Android reports it. `x`, `y` are 0.0–1.0 across the pad.
@@ -269,6 +327,7 @@ impl TouchpadLink {
                                 Some(PadEvent::PadFailed { message })
                             }
                             Some(Msg::LaptopTouchpad { in_use }) => Some(PadEvent::LaptopTouchpad { in_use }),
+                            Some(Msg::KeyboardOff) => Some(PadEvent::KeyboardOff),
                             _ => None,
                         },
                         Event::PeerPaused { .. } | Event::Datagram { .. } => None,
@@ -420,6 +479,26 @@ impl TouchpadLink {
             return false;
         }
         send_msg(&self.node, &st, Msg::scroll(v120))
+    }
+
+    /// Type `text` on the laptop. Only characters the laptop's keyboard can type are sent
+    /// (split them off first with [`text_runs`]); returns false if nothing went (not
+    /// connected, or nothing typeable). Never blocks.
+    pub fn type_text(&self, text: String) -> bool {
+        let typeable: String = text.chars().filter(|c| keymap::us(*c).is_some()).collect();
+        if typeable.is_empty() {
+            return false;
+        }
+        let st = lock(&self.touch);
+        Msg::texts(&typeable).into_iter().all(|m| send_msg(&self.node, &st, m))
+    }
+
+    /// Press one key with modifiers (`mods`: Ctrl 1, Alt 2, Shift 4, Super 8). Returns false
+    /// if it could not be sent (not connected, or a character the keyboard doesn't have).
+    pub fn key(&self, key: PadKey, mods: u8) -> bool {
+        let Some(key) = to_key(&key) else { return false };
+        let st = lock(&self.touch);
+        send_msg(&self.node, &st, Msg::Key { key, mods: mods & 0x0f })
     }
 
     /// Round-trip time to the laptop the pad drives, for a latency indicator.
@@ -582,6 +661,34 @@ mod tests {
         assert!(got.iter().any(|g| matches!(g, Got::Msg(Msg::Scroll { v120: -240 }))));
         laptop.send_fleeting(&pfp, Msg::LaptopTouchpad { in_use: true }.encode()).unwrap();
         assert_eq!(wait(&rx, |e| matches!(e, PadEvent::LaptopTouchpad { .. })), PadEvent::LaptopTouchpad { in_use: true });
+
+        // Typing: text in pieces of at most 200 bytes, keys with modifiers, emoji left out.
+        assert!(phone.type_text("Hi 😀 there".into()));
+        assert!(!phone.type_text("😀".into()), "nothing typeable");
+        assert!(phone.key(PadKey::Char { c: "c".into() }, 1));
+        assert!(!phone.key(PadKey::Char { c: "€".into() }, 1));
+        assert!(!phone.key(PadKey::Char { c: "ab".into() }, 0));
+        assert!(phone.key(PadKey::Enter, 0));
+        let got = collect(&rt, &mut lrx, Duration::from_millis(300));
+        let msgs: Vec<&Msg> = got.iter().filter_map(|g| match g { Got::Msg(m) => Some(m), _ => None }).collect();
+        assert_eq!(
+            msgs,
+            [
+                &Msg::Text { text: "Hi  there".into() },
+                &Msg::Key { key: Key::Char('c'), mods: 1 },
+                &Msg::Key { key: Key::Enter, mods: 0 },
+            ]
+        );
+        laptop.send_fleeting(&pfp, Msg::KeyboardOff.encode()).unwrap();
+        assert_eq!(wait(&rx, |e| matches!(e, PadEvent::KeyboardOff)), PadEvent::KeyboardOff);
+        assert_eq!(
+            text_runs("ok 😀!".into()),
+            [
+                TextRun { typeable: true, text: "ok ".into() },
+                TextRun { typeable: false, text: "😀".into() },
+                TextRun { typeable: true, text: "!".into() },
+            ]
+        );
 
         // Leaving the tab lifts everything on the laptop.
         assert!(phone.button(true, true));

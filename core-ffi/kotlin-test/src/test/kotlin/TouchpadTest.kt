@@ -79,6 +79,16 @@ class TouchpadTest {
                 assertTrue(phone.button(true, false))
                 assertTrue(phone.scroll(-240))
 
+                // Typing: the emoji is a run of its own (pasted by the app), the rest typed.
+                val runs = dev.phonelink.core.textRuns("Hi 😀")
+                assertEquals(listOf(true, false), runs.map { it.typeable })
+                assertTrue(phone.typeText("Hello"))
+                assertTrue(phone.key(dev.phonelink.core.PadKey.Char("c"), 1u))
+                val typingOff = proc(env, "phonelink", "touchpad", "typing", "off").redirectErrorStream(true).start()
+                check(typingOff.waitFor(15, TimeUnit.SECONDS) && typingOff.exitValue() == 0) { typingOff.inputStream.bufferedReader().readText() }
+                assertTrue(phone.typeText("x"))
+                events.await<PadEvent.KeyboardOff>()
+
                 // Switched off on the laptop: the phone is told why.
                 val off = proc(env, "phonelink", "touchpad", "off").redirectErrorStream(true).start()
                 check(off.waitFor(15, TimeUnit.SECONDS) && off.exitValue() == 0) { off.inputStream.bufferedReader().readText() }

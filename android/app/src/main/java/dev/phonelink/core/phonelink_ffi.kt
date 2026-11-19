@@ -769,6 +769,8 @@ internal object IntegrityCheckingUniffiLib {
     }
 
     internal fun ensureInitialized() = Unit
+    external fun uniffi_phonelink_ffi_checksum_func_text_runs(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_eventlistener_on_event(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_filesource_open(
@@ -873,6 +875,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_close_pad(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_key(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_laptops(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_latency_ms(
@@ -890,6 +894,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_shutdown(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_touch(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_type_text(
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_unpair(
     ): Int
@@ -1065,6 +1071,8 @@ internal object UniffiLib {
     ): Byte
     external fun uniffi_phonelink_ffi_fn_method_touchpadlink_close_pad(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_touchpadlink_key(`ptr`: Long,`key`: RustBuffer.ByValue,`mods`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     external fun uniffi_phonelink_ffi_fn_method_touchpadlink_laptops(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_phonelink_ffi_fn_method_touchpadlink_latency_ms(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1083,8 +1091,12 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_phonelink_ffi_fn_method_touchpadlink_touch(`ptr`: Long,`fingers`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
+    external fun uniffi_phonelink_ffi_fn_method_touchpadlink_type_text(`ptr`: Long,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     external fun uniffi_phonelink_ffi_fn_method_touchpadlink_unpair(`ptr`: Long,`laptopId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_phonelink_ffi_fn_func_text_runs(`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun ffi_phonelink_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun ffi_phonelink_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1204,6 +1216,9 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 }
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
+    if ((lib.uniffi_phonelink_ffi_checksum_func_text_runs() and 0xFFFF) != 46907) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_phonelink_ffi_checksum_method_eventlistener_on_event() and 0xFFFF) != 10404) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1360,6 +1375,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_close_pad() and 0xFFFF) != 29399) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_key() and 0xFFFF) != 42596) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_laptops() and 0xFFFF) != 24938) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1385,6 +1403,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_touch() and 0xFFFF) != 10878) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_type_text() and 0xFFFF) != 21081) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_unpair() and 0xFFFF) != 6412) {
@@ -4814,6 +4835,12 @@ public interface TouchpadLinkInterface {
      */
     fun `closePad`()
     
+    /**
+     * Press one key with modifiers (`mods`: Ctrl 1, Alt 2, Shift 4, Super 8). Returns false
+     * if it could not be sent (not connected, or a character the keyboard doesn't have).
+     */
+    fun `key`(`key`: PadKey, `mods`: kotlin.UByte): kotlin.Boolean
+    
     fun `laptops`(): List<PadLaptop>
     
     /**
@@ -4855,6 +4882,13 @@ public interface TouchpadLinkInterface {
      * Returns false if nothing could be sent (not connected).
      */
     fun `touch`(`fingers`: List<Finger>): kotlin.Boolean
+    
+    /**
+     * Type `text` on the laptop. Only characters the laptop's keyboard can type are sent
+     * (split them off first with [`text_runs`]); returns false if nothing went (not
+     * connected, or nothing typeable). Never blocks.
+     */
+    fun `typeText`(`text`: kotlin.String): kotlin.Boolean
     
     fun `unpair`(`laptopId`: kotlin.String)
     
@@ -4996,6 +5030,25 @@ open class TouchpadLink: Disposable, AutoCloseable, TouchpadLinkInterface
     
     
 
+    
+    /**
+     * Press one key with modifiers (`mods`: Ctrl 1, Alt 2, Shift 4, Super 8). Returns false
+     * if it could not be sent (not connected, or a character the keyboard doesn't have).
+     */override fun `key`(`key`: PadKey, `mods`: kotlin.UByte): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_touchpadlink_key(
+        it,
+        
+        FfiConverterTypePadKey.lower(`key`),
+        FfiConverterUByte.lower(`mods`),_status)
+}
+    }
+    )
+    }
+    
+
     override fun `laptops`(): List<PadLaptop> {
             return FfiConverterSequenceTypePadLaptop.lift(
     callWithHandle {
@@ -5134,6 +5187,25 @@ open class TouchpadLink: Disposable, AutoCloseable, TouchpadLinkInterface
         it,
         
         FfiConverterSequenceTypeFinger.lower(`fingers`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Type `text` on the laptop. Only characters the laptop's keyboard can type are sent
+     * (split them off first with [`text_runs`]); returns false if nothing went (not
+     * connected, or nothing typeable). Never blocks.
+     */override fun `typeText`(`text`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_touchpadlink_type_text(
+        it,
+        
+        FfiConverterString.lower(`text`),_status)
 }
     }
     )
@@ -6014,6 +6086,47 @@ public object FfiConverterTypeRemoteButton: FfiConverterRustBuffer<RemoteButton>
     override fun write(value: RemoteButton, buf: ByteBuffer) {
             FfiConverterString.write(value.`id`, buf)
             FfiConverterString.write(value.`name`, buf)
+    }
+}
+
+
+
+/**
+ * Part of what was typed: `typeable` runs are typed as keys, the others pasted.
+ */
+data class TextRun (
+    var `typeable`: kotlin.Boolean
+    , 
+    var `text`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTextRun: FfiConverterRustBuffer<TextRun> {
+    override fun read(buf: ByteBuffer): TextRun {
+        return TextRun(
+            FfiConverterBoolean.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: TextRun) = (
+            FfiConverterBoolean.allocationSize(value.`typeable`) +
+            FfiConverterString.allocationSize(value.`text`)
+    )
+
+    override fun write(value: TextRun, buf: ByteBuffer) {
+            FfiConverterBoolean.write(value.`typeable`, buf)
+            FfiConverterString.write(value.`text`, buf)
     }
 }
 
@@ -7311,6 +7424,12 @@ sealed class PadEvent {
         companion object
     }
     
+    /**
+     * Typing is switched off on the laptop.
+     */
+    object KeyboardOff : PadEvent()
+    
+    
 
     
 
@@ -7341,6 +7460,7 @@ public object FfiConverterTypePadEvent : FfiConverterRustBuffer<PadEvent>{
             6 -> PadEvent.LaptopTouchpad(
                 FfiConverterBoolean.read(buf),
                 )
+            7 -> PadEvent.KeyboardOff
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
         }
     }
@@ -7386,6 +7506,12 @@ public object FfiConverterTypePadEvent : FfiConverterRustBuffer<PadEvent>{
                 + FfiConverterBoolean.allocationSize(value.`inUse`)
             )
         }
+        is PadEvent.KeyboardOff -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
     }
 
     override fun write(value: PadEvent, buf: ByteBuffer) {
@@ -7416,6 +7542,254 @@ public object FfiConverterTypePadEvent : FfiConverterRustBuffer<PadEvent>{
             is PadEvent.LaptopTouchpad -> {
                 buf.putInt(6)
                 FfiConverterBoolean.write(value.`inUse`, buf)
+                Unit
+            }
+            is PadEvent.KeyboardOff -> {
+                buf.putInt(7)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+/**
+ * A key for [`TouchpadLink::key`]. `Char` holds one character (a shortcut with Ctrl, say).
+ */
+sealed class PadKey {
+    
+    object Enter : PadKey()
+    
+    
+    object Backspace : PadKey()
+    
+    
+    object Tab : PadKey()
+    
+    
+    object Escape : PadKey()
+    
+    
+    object Left : PadKey()
+    
+    
+    object Right : PadKey()
+    
+    
+    object Up : PadKey()
+    
+    
+    object Down : PadKey()
+    
+    
+    object Home : PadKey()
+    
+    
+    object End : PadKey()
+    
+    
+    object Delete : PadKey()
+    
+    
+    object PageUp : PadKey()
+    
+    
+    object PageDown : PadKey()
+    
+    
+    data class Char(
+        val `c`: kotlin.String) : PadKey()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePadKey : FfiConverterRustBuffer<PadKey>{
+    override fun read(buf: ByteBuffer): PadKey {
+        return when(buf.getInt()) {
+            1 -> PadKey.Enter
+            2 -> PadKey.Backspace
+            3 -> PadKey.Tab
+            4 -> PadKey.Escape
+            5 -> PadKey.Left
+            6 -> PadKey.Right
+            7 -> PadKey.Up
+            8 -> PadKey.Down
+            9 -> PadKey.Home
+            10 -> PadKey.End
+            11 -> PadKey.Delete
+            12 -> PadKey.PageUp
+            13 -> PadKey.PageDown
+            14 -> PadKey.Char(
+                FfiConverterString.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: PadKey): ULong = when(value) {
+        is PadKey.Enter -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is PadKey.Backspace -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is PadKey.Tab -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is PadKey.Escape -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is PadKey.Left -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is PadKey.Right -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is PadKey.Up -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is PadKey.Down -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is PadKey.Home -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is PadKey.End -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is PadKey.Delete -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is PadKey.PageUp -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is PadKey.PageDown -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is PadKey.Char -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`c`)
+            )
+        }
+    }
+
+    override fun write(value: PadKey, buf: ByteBuffer) {
+        when(value) {
+            is PadKey.Enter -> {
+                buf.putInt(1)
+                Unit
+            }
+            is PadKey.Backspace -> {
+                buf.putInt(2)
+                Unit
+            }
+            is PadKey.Tab -> {
+                buf.putInt(3)
+                Unit
+            }
+            is PadKey.Escape -> {
+                buf.putInt(4)
+                Unit
+            }
+            is PadKey.Left -> {
+                buf.putInt(5)
+                Unit
+            }
+            is PadKey.Right -> {
+                buf.putInt(6)
+                Unit
+            }
+            is PadKey.Up -> {
+                buf.putInt(7)
+                Unit
+            }
+            is PadKey.Down -> {
+                buf.putInt(8)
+                Unit
+            }
+            is PadKey.Home -> {
+                buf.putInt(9)
+                Unit
+            }
+            is PadKey.End -> {
+                buf.putInt(10)
+                Unit
+            }
+            is PadKey.Delete -> {
+                buf.putInt(11)
+                Unit
+            }
+            is PadKey.PageUp -> {
+                buf.putInt(12)
+                Unit
+            }
+            is PadKey.PageDown -> {
+                buf.putInt(13)
+                Unit
+            }
+            is PadKey.Char -> {
+                buf.putInt(14)
+                FfiConverterString.write(value.`c`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -8024,6 +8398,34 @@ public object FfiConverterSequenceTypeRemoteButton: FfiConverterRustBuffer<List<
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeTextRun: FfiConverterRustBuffer<List<TextRun>> {
+    override fun read(buf: ByteBuffer): List<TextRun> {
+        val len = buf.getInt()
+        return List<TextRun>(len) {
+            FfiConverterTypeTextRun.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<TextRun>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeTextRun.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<TextRun>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeTextRun.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeCallActionFfi: FfiConverterRustBuffer<List<CallActionFfi>> {
     override fun read(buf: ByteBuffer): List<CallActionFfi> {
         val len = buf.getInt()
@@ -8045,4 +8447,18 @@ public object FfiConverterSequenceTypeCallActionFfi: FfiConverterRustBuffer<List
         }
     }
 }
+        /**
+         * Split `text` into typed and pasted runs (the laptop's layout is US).
+         */ fun `textRuns`(`text`: kotlin.String): List<TextRun> {
+            return FfiConverterSequenceTypeTextRun.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_func_text_runs(
+    
+        
+        FfiConverterString.lower(`text`),_status)
+}
+    )
+    }
+    
+
 

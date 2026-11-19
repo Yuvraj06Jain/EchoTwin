@@ -33,7 +33,7 @@ use tokio::{runtime::Runtime, task::JoinHandle};
 uniffi::setup_scaffolding!();
 
 pub mod touchpad;
-pub use touchpad::{Finger, PadError, PadEvent, PadLaptop, PadListener, TouchpadLink};
+pub use touchpad::{text_runs, Finger, PadError, PadEvent, PadKey, PadLaptop, PadListener, TextRun, TouchpadLink};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]

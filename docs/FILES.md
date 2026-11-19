@@ -35,14 +35,14 @@ phonelink/
 
 | File | What it does |
 |---|---|
-| `Cargo.toml` | Rust workspace: `core`, `core-ffi`, `desktop/daemon`, `desktop/app`. Shared version/edition/license. |
+| `Cargo.toml` | Rust workspace: `core`, `core-ffi`, `desktop/daemon`, `desktop/touchpad`, `desktop/app`. Shared version/edition/license. |
 | `Cargo.lock` | Exact Rust dependency versions (committed so builds are reproducible). |
 | `.cargo/config.toml` | Android builds: align native code to 16 KB pages so it loads on Android 15+ devices. |
 | `.gitignore` | Keeps build output (`target/`, Android `build/`, `jniLibs/`), SQLite files and keystores out of git. |
 | `README.md` | Repo front page: what EchoTwin is, security in brief, features, screenshots. |
 | `LICENSE` | GPL-3.0 license text. |
-| `SETUP.md` | Install guide for the laptop and phone, the numbered device test checklist (rows 1–60), troubleshooting. |
-| `docs/` | File map (this file), features, protocol, developer guide; `docs/img/` the README pictures (laptop side rendered from `desktop/ui` and the widget preview with sample data; the phone pictures are real screenshots). |
+| `SETUP.md` | Install guide for the laptop and phone, the numbered device test checklist, troubleshooting. |
+| `docs/` | File map (this file), features, protocol, developer guide; `docs/plans/` plans adopted as written (`touchpad-tab.md`); `docs/img/` the README pictures (laptop side rendered from `desktop/ui` and the widget preview with sample data; the phone pictures are real screenshots). |
 
 ## core/ (shared Rust library)
 
@@ -69,12 +69,14 @@ The same code runs on the laptop (inside `phonelinkd`) and on the phone (inside 
 | `core/src/limiter.rs` | Handshake flood protection: 20 handshakes per IP per 10 s, at most 64 in flight. | `HandshakeLimiter` |
 | `core/src/error.rs` | The crate's error type. | `Error`, `Result` |
 | `core/src/util.rs` | Small helpers (serde for byte arrays, time). | |
+| `core/src/touchpad.rs` | The Touchpad tab's protocol with the laptop's touchpad service: `Msg` (pad size, release, status, Left/Right button) on the control stream, `TouchFrame` snapshots as datagrams, strict decoding, its own pairing code `phonelink:touchpad?`. Append-only. | `Msg`, `Button`, `TouchFrame`, `Contact`, `seq_newer`, `to_pair_uri`, `offer_from_pair_uri`, `CAP_TOUCHPAD` |
 | `core/examples/fake_phone.rs` | A stand-in phone for testing the laptop without Android: `cargo run -p phonelink-core --example fake_phone -- '<pairing URI>'`. | |
 | `core/tests/common/mod.rs` | Test helpers: start nodes on localhost, pair them. | |
 | `core/tests/sessions.rs` | Pairing, messaging both ways, offline queue survives restarts (exactly once, in order), reconnect, simultaneous dials, unpair. | |
 | `core/tests/attacker.rs` | A stranger on the network: unpaired certs refused, no pairing without the QR secret, single-use QR, expired window, impostor laptop, handshake flood. | |
 | `core/tests/discovery.rs` | Laptop moves to a new address: address hints, live mDNS, subnet search (and that it fails without it). | |
 | `core/tests/stream.rs` | Bluetooth backup over an in-memory pipe: same pinned TLS, failover and back, strangers refused, malformed Bluetooth addresses ignored. | |
+| `core/tests/touchpad.rs` | Touchpad sessions: finger frames as QUIC datagrams, a node without `datagrams` never reports them, touchpad messages in order. | |
 | `core/tests/files.rs` | File transfers: integrity, resume after cuts and restarts, cancel both sides, damaged data, Bluetooth-only waits, full disk, hostile names. | |
 
 ## core-ffi/ (Android bridge)
@@ -84,8 +86,25 @@ The same code runs on the laptop (inside `phonelinkd`) and on the phone (inside 
 | `core-ffi/Cargo.toml` | Crate `phonelink-ffi` (cdylib for Android). Feature `bindgen` builds the bindings generator. |
 | `core-ffi/uniffi.toml` | UniFFI settings (Kotlin package `dev.phonelink.core`). |
 | `core-ffi/src/lib.rs` | The Kotlin-facing API. Object `PhoneLink` (`start`, `pair`, `devices`, `send_text`, `post_notification`, `set_queue_notifications`, `send_snapshot`, `lock_computer`, `send_clipboard`, `send_now_playing`, `send_media_art`, `send_file`, `cancel_transfer`, `sms_*`, `send_phone_status`, `open_stream`, `on_network_changed`, `shutdown`, …). Records (`Device`, `MirroredNotification`, `PhoneMedia`, `PhoneSms`, `PhoneSmsThread`, `FileTransfer`, `PairingCode`). `LinkEvent` enum delivered to Kotlin. Callback traits `EventListener`, `FileSource`, `StreamSink`; object `StreamPipe`. Stable phone port in `port.txt`. Contains the FFI tests (`mod tests`). |
+| `core-ffi/src/touchpad.rs` | The Touchpad tab's object `TouchpadLink`, separate from `PhoneLink` (own node, keys and pairing in `filesDir/touchpad`): `start`, `pair`, `laptops`, `unpair`, `reconnect_now`, `open_pad`, `close_pad`, `touch`, `button`, `latency_ms`; `PadEvent`, `PadListener`, `Finger`, `PadLaptop`. 100 ms heartbeat while a finger or button is down, repeated lift. Has its FFI test. |
+| `core-ffi/examples/fake_touchpad_phone.rs` | Drives the laptop's touchpad service without a phone: `pair '<code>'`, `gestures` (incl. Right click and a Left-click drag), `forget`. |
 | `core-ffi/src/bin/uniffi-bindgen.rs` | The generator binary used by `scripts/gen-kotlin-bindings.sh`. |
-| `core-ffi/kotlin-test/…` | A JVM test (`EndToEndTest.kt`) that calls the generated Kotlin bindings against the host-built library (`scripts/test-kotlin-bindings.sh`). |
+| `core-ffi/kotlin-test/…` | JVM tests that call the generated Kotlin bindings against the host-built library (`scripts/test-kotlin-bindings.sh`): `EndToEndTest.kt` with the real `phonelinkd`, `TouchpadTest.kt` with the real `phonelink-touchpad`. |
+
+## desktop/touchpad/ (phonelink-touchpad, the Touchpad tab's laptop side)
+
+Crate `phonelink-touchpad`, ported from the TouchTwin project. A system service of its own,
+deliberately not part of `phonelinkd` (which runs as you): only it may create input devices.
+
+| File | What it does | Key items |
+|---|---|---|
+| `src/main.rs` | `run` (the system service: its own node on port 47830, mDNS, control socket, finger frames and buttons → the virtual touchpad, 400 ms watchdog), `mirror`, `pair`, `devices`, `unpair`, `demo`. Uses `desktop/daemon/src/netaddrs.rs` directly. | `run`, `Pad`, `use_pad`, `data_dir` |
+| `src/pad.rs` | Pure: finger snapshots → multitouch protocol B events; the two buttons. | `PadState::apply`, `Geometry`, `Buttons` |
+| `src/uinput.rs` | The uinput device "EchoTwin Touchpad" (BTN_LEFT, BTN_RIGHT, not a clickpad). | `VirtualPad::create`, `DEVICE_NAME` |
+| `src/control.rs` | Control socket `/run/phonelink-touchpad/control.sock`, JSON lines; `pair`/`unpair` checked with polkit per request; the client side prints the QR code. | `serve`, `client_pair`, `client_devices`, `client_unpair` |
+| `src/polkit.rs` | `CheckAuthorization` for `dev.echotwin.touchpad.manage-phones` (your password). | `authorize`, `parse_start_time` |
+| `src/kwin.rs` | Copies the real touchpad's libinput settings to the virtual one through KWin's D-Bus. | `mirror_forever` |
+| `tests/service.rs` | The real binary end to end: pairing over the control socket, pad status, button, unpair; pairing refused without polkit. | |
 
 ## desktop/daemon/ (phonelinkd + phonelink CLI)
 
@@ -194,7 +213,9 @@ Package `dev.phonelink.app` in `android/app/src/main/java/dev/phonelink/app/`.
 | `Tiles.kt` | Quick Settings tiles: Lock computer, Send clipboard. |
 | `LockReceiver.kt` | "Lock computer" button on the status notification. |
 | `BluetoothBackup.kt` | After 15 s (paired) or 2 min (not paired) without Wi-Fi: RFCOMM socket to the laptop, piped into the core (`open_stream`). Never scans; failures name their cause and Settings → Test lists each attempt. |
-| `ui/Glyphs.kt` | Icons the core Material set lacks (open padlock, speaker off), from Material path data. |
+| `ui/Glyphs.kt` | Icons the core Material set lacks (open padlock, speaker off, the Touchpad tab's finger), from Material path data. |
+| `ui/TouchpadScreen.kt` | The Touchpad tab: setup card (scan `phonelink touchpad pair`), status line, Left click / Right click, the pad. |
+| `TouchPadView.kt` | The pad's touch surface: raw multitouch with stable slots, every finger forwarded; keeps the back gesture off its edges. |
 | `UnlockPrompt.kt` | Android's fingerprint / screen-lock prompt before asking the computer to unlock. |
 | `CopyReceiver.kt` | "Copy" on a note's notification: puts the note on the phone's clipboard (not exported). |
 | `StatusWatcher.kt` | Battery (sticky broadcast), Wi-Fi/mobile (ConnectivityManager), 5G/4G + signal (TelephonyCallback) → `send_phone_status`. |
@@ -212,6 +233,8 @@ Package `dev.phonelink.app` in `android/app/src/main/java/dev/phonelink/app/`.
 
 | File | What it does |
 |---|---|
+| `install-touchpad.sh`, `uninstall-touchpad.sh` | Install / remove the Touchpad tab's laptop side (needs sudo inside; refuses while TouchTwin is still installed). |
+| `touchpad/` | The touchpad service's system user (`phonelink-touchpad.sysusers`), udev rules (`60-phonelink-uinput.rules`, `71-touchpad-phonelink.rules`, `72-phonelink-pad.rules.in`), hardened unit `phonelink-touchpad.service`, user unit `phonelink-touchpad-mirror.service`, polkit action `dev.echotwin.touchpad.policy`. |
 | `install.sh` | Builds (or uses prebuilt) binaries into `~/.local/bin`, installs the systemd user unit, Dolphin service menu, desktop entry + icons, the KDE widget (`kpackagetool6`), then starts `phonelinkd`. |
 | `uninstall.sh` | Removes all of the above (`--purge` also deletes keys and pairings). |
 | `systemd/phonelinkd.service` | User service (`systemctl --user … phonelinkd`). |

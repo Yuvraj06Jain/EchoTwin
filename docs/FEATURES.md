@@ -29,6 +29,9 @@ Contents
 16. [CLI](#16-cli)
 17. [Privacy guard rails (permissions audit)](#17-privacy-guard-rails)
 
+Later sections: 18 one-time codes, 19 battery alerts, 20 open a link, 21 ring, 22 calls,
+23 remote, 24 presentation remote, 25 new SMS, [26 Touchpad tab](#26-touchpad-tab-the-phone-as-the-laptops-touchpad).
+
 ---
 
 ## 1. Pairing
@@ -816,3 +819,83 @@ already asked for with SMS). Nothing is stored on the laptop.
 
 **Tests:** `desktop/daemon/tests/sms.rs` `a_new_conversation_can_be_started_from_the_computer`,
 `without_contacts_support_the_number_is_typed_by_hand`; FFI test; UI suite ("New SMS").
+
+## 26. Touchpad tab: the phone as the laptop's touchpad
+
+**What:** the phone's **Touchpad** tab (bottom bar: Home · Files · Touchpad · Settings) turns
+the screen into the laptop's touchpad. **Left click** and **Right click** buttons sit on top
+(held while your finger is on them; hold Left and move a finger to drag), and the pad fills
+the rest. Taps, two-finger scrolling and three-finger swipes behave exactly like the laptop's
+own touchpad, InputActions gestures included, because the laptop sees a real multitouch
+touchpad. Your touchpad settings (speed, natural scrolling, …) are copied to it.
+
+**How:** the phone doesn't interpret gestures. It streams every finger it sees (slot, touch
+id, position) as unreliable QUIC datagrams: each frame is a full snapshot, a lost one is
+corrected by the next, and older frames are ignored (`seq_newer`). The buttons and the pad
+size go as `touchpad::Msg` on the control stream with `send_fleeting` (in order, never queued:
+a press must not replay after a reconnect). The laptop's **`phonelink-touchpad`** service
+replays it all on a uinput device named **"EchoTwin Touchpad"** (multitouch protocol B,
+`BTN_LEFT` + `BTN_RIGHT`, not a clickpad), so libinput, KWin and InputActions take it as a
+touchpad. While a finger or a button is down the phone sends a frame at least every 100 ms;
+after 400 ms of silence the laptop lets go of everything. The lift is sent three times.
+
+**Why a separate service with its own pairing:** `phonelinkd` runs as you, so any program of
+yours could talk to it, and input power must not be reachable that way. The touchpad service
+runs as the system user `phonelink-touchpad`, the only one whose group may open
+`/dev/uinput`. Its keys and paired phones live in `/var/lib/phonelink-touchpad`, which your
+programs can't write. It listens on its own port (47830) with its own certificate. Pairing
+or forgetting a phone goes through polkit (your password). The phone side is a separate
+`TouchpadLink` with its own keys in `filesDir/touchpad`. The main EchoTwin pairing gives no
+touchpad power, and this pairing gives nothing else. The codes differ (`phonelink:touchpad?`
+vs `phonelink:pair?`) and each scanner refuses the other's code. The virtual device node is
+readable but not writable by you, via udev rules 71/72, so InputActions can follow the fingers
+but no program can inject events. `phonelink-touchpad mirror` (a user service, no privileges)
+copies the real touchpad's libinput settings through KWin's D-Bus.
+
+**Setup (once, on the laptop):**
+
+```bash
+./packaging/install-touchpad.sh
+```
+
+```bash
+phonelink touchpad pair
+```
+
+Approve the admin prompt, then scan the code in the Touchpad tab. If ufw is on:
+`sudo ufw allow 47830/udp`.
+
+| Layer | File | Functions |
+|---|---|---|
+| core | `core/src/touchpad.rs` | `Msg` (PadInfo, Release, PadStatus, Button), `TouchFrame`, `Contact`, `seq_newer`, `to_pair_uri`, `offer_from_pair_uri` |
+| core | `core/src/node.rs` | `NodeConfig::datagrams`, `Event::Datagram`, `send_datagram`, `rtt` |
+| laptop service | `desktop/touchpad/src/main.rs` | `run` (events, watchdog), `Pad` (fingers + buttons), `use_pad`, `demo` |
+| laptop service | `desktop/touchpad/src/pad.rs` | `PadState::apply` (snapshot → MT protocol B), `Buttons` |
+| laptop service | `desktop/touchpad/src/uinput.rs` | `VirtualPad::create` ("EchoTwin Touchpad") |
+| laptop service | `desktop/touchpad/src/control.rs`, `polkit.rs` | control socket `/run/phonelink-touchpad/control.sock`; `pair`/`unpair` need `dev.echotwin.touchpad.manage-phones` |
+| laptop service | `desktop/touchpad/src/kwin.rs` | `mirror_forever` (settings copy) |
+| CLI | `desktop/daemon/src/bin/phonelink.rs` | `phonelink touchpad pair\|devices\|unpair` (runs `phonelink-touchpad`) |
+| packaging | `packaging/touchpad/`, `packaging/install-touchpad.sh`, `uninstall-touchpad.sh` | system user, udev rules, hardened unit, polkit action, mirror unit |
+| FFI | `core-ffi/src/touchpad.rs` | `TouchpadLink`: `start`, `pair`, `laptops`, `unpair`, `open_pad`, `close_pad`, `touch`, `button`, `latency_ms`; `PadEvent` |
+| Android | `android/…/ui/TouchpadScreen.kt` | setup card, status line, `ClickButton`, the pad |
+| Android | `android/…/TouchPadView.kt` | raw multitouch → `Finger` slots; back gesture kept off the edges |
+| Android | `android/…/LinkManager.kt` | `startTouchpad`, `pairTouchpad`, `openPad`/`closePad`, `touch`, `button` (straight to the core) |
+
+**Honest limits:** the phone must reach the laptop over the network (Wi-Fi or hotspot); there
+is no Bluetooth backup for the touchpad. Unpairing in the app forgets the laptop on the
+phone only; run `phonelink touchpad unpair <phone>` on the laptop too.
+
+**Tests:** `core/src/touchpad.rs` (frames, strict decoding, `Button` appended last, the two
+pairing codes never mix); `core/tests/touchpad.rs` (datagrams arrive; a node without
+datagrams never reports them; touchpad messages in order); `desktop/touchpad/src/pad.rs`
+(protocol B reports, `Buttons`); `desktop/touchpad/tests/service.rs` (the real binary: pair
+over the control socket, open the pad, button, unpair; pairing refused without polkit);
+`core-ffi/src/touchpad.rs` (heartbeat, repeated lift, held button keeps the heartbeat,
+close lets go); `core-ffi/kotlin-test/…/TouchpadTest.kt` (the Kotlin API against the real
+service). Without a phone: `cargo run -p phonelink-ffi --example fake_touchpad_phone -- pair
+'<code>'`, then `-- gestures`.
+
+**To change…** the protocol: append to `Msg`, never reorder. The device: `uinput.rs` (keep
+the name in step with `packaging/touchpad/71-touchpad-phonelink.rules` and `kwin.rs`).
+
+The original plan is in [plans/touchpad-tab.md](plans/touchpad-tab.md).

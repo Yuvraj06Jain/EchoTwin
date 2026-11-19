@@ -67,6 +67,14 @@ What plays on the laptop shows on the phone's Home screen, with the album cover 
 plus a **Mute** tile for the laptop and **My buttons** for your own one-tap commands
 ("Lab VPN", "Dim screen"…).
 
+### 🖱️ The phone is the touchpad
+
+On the couch with the laptop on the TV? Open the **Touchpad** tab: the whole screen is the
+laptop's touchpad, with **Left click** and **Right click** on top. Tap to click, two fingers
+to scroll, three-finger swipes: all exactly like the laptop's own touchpad, because the
+laptop sees a real one. A small separate service on the laptop is the only thing allowed to
+create it, with its own pairing.
+
 ### 🔋 Always there in the panel
 
 A little phone sits in your KDE panel: its battery, a badge for new things, a green handset
@@ -128,6 +136,7 @@ or files, write a note, ring the laptop to find it, mute it, or start presenting
 | **Files** | Both ways, drag and drop, share sheet, Dolphin's right-click menu; resumes after drops; you choose the folder they land in, on each device |
 | **Clipboard and notes** | Copy here, paste there; notes both ways with a Copy button |
 | **Remote** | The laptop's music on the phone with album art; Mute; your own buttons |
+| **Touchpad** | The phone as the laptop's touchpad: every gesture your real touchpad knows, Left / Right click buttons; its own locked-down service and pairing |
 | **Presentations** | Start/End per app (PowerPoint, Impress, Google Slides, Canva, full screen), Next / Previous, black screen, volume-key clicker, pointer |
 | **Little things** | Lock the laptop from the phone, and when it's locked the same tile unlocks it after your fingerprint (off until you allow it), ring a lost phone or laptop, open a link on the other device, battery alerts, phone battery and 5G/4G signal on the laptop |
 | **Staying connected** | Reconnects after sleep, reboots and new IP addresses; Bluetooth backup; a battery saver that turns on by itself when the laptop runs low |
@@ -152,6 +161,12 @@ git clone https://github.com/Yuvraj06Jain/EchoTwin.git ~/phonelink
 
 ```bash
 cd ~/phonelink && ./packaging/install.sh
+```
+
+For the phone's Touchpad tab (optional; asks for sudo once):
+
+```bash
+./packaging/install-touchpad.sh
 ```
 
 For the call card and the pointer on Wayland, also install:

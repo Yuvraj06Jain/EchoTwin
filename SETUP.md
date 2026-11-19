@@ -244,6 +244,12 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 104 | Phone Home, laptop unlocked: the first tile reads **Lock**. Lock the laptop with Meta+L | within a second the tile turns into **Unlock** (open padlock) |
 | 105 | Press **Unlock** → fingerprint | "Unlocking…", then the laptop unlocks and the tile reads **Lock** again; with the laptop switch off the tile reads **Locked** and a tap explains |
 | 106 | Laptop: Switch user (the login screen shows); phone: **Unlock** | your session comes back unlocked |
+| 107 | Remove TouchTwin first if it is installed (see "Touchpad" below), then run `./packaging/install-touchpad.sh` | its checks print `ok: /dev/uinput is root:phonelink-touchpad 0660`, "your programs cannot open /dev/uinput" and "phonelink-touchpad.service is running"; `systemd-analyze security phonelink-touchpad` is about 1.9 |
+| 108 | `phonelink touchpad pair` → approve the KDE password dialog; phone: **Touchpad** tab → **Scan** | "Paired with Galaxy S24 FE" on the laptop; the tab shows the pad, the status line "connected · N ms" |
+| 109 | One finger on the pad; tap; two fingers up/down; three fingers up | the pointer moves; a tap clicks; two fingers scroll; your InputActions three-finger swipe runs (e.g. volume up) |
+| 110 | **Right click** on a file in Dolphin; hold **Left click** and move a finger over text | a context menu opens; the text is selected (a drag) |
+| 111 | Hold a finger on the pad and switch to the Home tab (or press the phone's Home button) | the laptop lets go at once: no stuck click or drag |
+| 112 | `getfacl /dev/input/eventN` for "EchoTwin Touchpad" (find N with `sudo libinput list-devices`) | `user:<you>:r--`; writing to it as you is refused |
 
 When something fails, include:
 - the step number
@@ -345,6 +351,22 @@ When something fails, include:
 |---|---|
 | no notification when the phone rings | the KDE notification shows on every ring now. If it doesn't: `journalctl --user -u phonelinkd -n 50 \| grep -i call` (is there a "call from the phone" line?) and make sure both the laptop and the phone are updated |
 | the notification shows but no card at the top | run `phonelink-app --overlay-check` and paste its whole output when asking for help; it says which step fails |
+
+### Touchpad
+
+| Symptom | Fix |
+|---|---|
+| `install-touchpad.sh` says TouchTwin is still installed | remove it first: `~/Desktop/Projects/PhoneMouse/scripts/uninstall-system.sh` (both use port 47830 and /dev/uinput's group), then run the installer again |
+| the tab says "The touchpad service isn't running" or stays "looking for it…" | `systemctl status phonelink-touchpad` and `sudo journalctl -u phonelink-touchpad -n 50`; with ufw on: `sudo ufw allow 47830/udp` |
+| "the laptop cannot create a touchpad: /dev/uinput …" in red | run `./packaging/install-touchpad.sh` again; `ls -l /dev/uinput` must say `root phonelink-touchpad` |
+| `phonelink touchpad pair` says "not authorised" | the KDE password dialog was cancelled or polkit's KDE agent isn't running; try again from your desktop session |
+| taps don't click, or scrolling feels different from the real touchpad | `systemctl --user status phonelink-touchpad-mirror` (it copies your touchpad settings) |
+| the Touchpad tab says "That's EchoTwin's main pairing code" | that QR was from `phonelink pair`; the touchpad has its own: `phonelink touchpad pair` |
+
+To remove only the touchpad:
+```bash
+./packaging/uninstall-touchpad.sh
+```
 
 ### Bluetooth backup
 

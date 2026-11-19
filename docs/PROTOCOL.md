@@ -14,6 +14,7 @@ Contents
 - [File data streams](#file-data-streams)
 - [Compatibility rules (read before changing anything)](#compatibility-rules-read-before-changing-anything)
 - [The local control socket (laptop only)](#the-local-control-socket-laptop-only)
+- [The touchpad session](#the-touchpad-session)
 
 ## Layers
 
@@ -227,3 +228,32 @@ the daemon checks the peer's uid. One JSON object per line.
   `MediaChanged`, `PhoneStatusChanged`, `TransferChanged`, `SmsChanged`, `SmsSendResult`.
 
 Try it: `phonelink --json status`, `phonelink --json watch`.
+
+## The touchpad session
+
+The Touchpad tab talks to the laptop's `phonelink-touchpad` service, not to `phonelinkd`:
+a session of its own on the same transport (QUIC, pinned mutual TLS, `Hello`), with its own
+identities, its own trust stores and port 47830. Only capability `touchpad/1` is offered.
+Source of truth: `core/src/touchpad.rs`.
+
+- **Pairing code:** `phonelink:touchpad?v=1&fp=…&s=…&a=…&n=…` (the same fields as the main
+  code). `PairingOffer::from_uri` refuses it and `touchpad::offer_from_pair_uri` refuses a
+  main `phonelink:pair?` code, so neither pairing can be made with the other's QR.
+- **Finger frames:** QUIC datagrams (`Node::send_datagram`, at most 512 bytes), postcard
+  `TouchFrame { seq: u32, contacts: Vec<Contact { slot: u8, id: u16, x: u16, y: u16 }> }`.
+  Each frame is a full snapshot; at most 5 contacts, slots 0–4 and unique, coordinates
+  0–10000; anything else is dropped. A frame not newer than the last one applied (wrapping
+  `seq`) is ignored. Only a node started with `NodeConfig::datagrams` reads them.
+- **Messages:** postcard `touchpad::Msg` in `Control::Fleeting` on the control stream: sent
+  only while connected, in order, never queued or repeated.
+
+| # | Message | Direction | Meaning |
+|---|---|---|---|
+| 0 | `PadInfo { width_dmm, height_dmm }` | phone → laptop | the pad is on screen at this size (tenths of a mm); sent on every connect and size change |
+| 1 | `Release` | phone → laptop | the pad left the screen: lift every finger, let go of both buttons |
+| 2 | `PadStatus { ok, message }` | laptop → phone | the virtual touchpad is ready, or why not (message ≤ 200 bytes) |
+| 3 | `Button { button: Left \| Right, down }` | phone → laptop | Left click / Right click pressed or released |
+
+- **Liveness:** while a finger or a button is down the phone sends a frame at least every
+  100 ms (empty frames while only a button is held). After 400 ms without one, the laptop
+  lifts every finger and releases both buttons. Also on disconnect and on `Release`.

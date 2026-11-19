@@ -55,7 +55,9 @@ Local build (needs Android SDK + NDK): `./scripts/build-android.sh`.
 | All Rust tests | `cargo test --workspace` | core (sessions, attacker, discovery, stream, files), FFI call sequences, daemon end-to-end with simulated phones and stand-in D-Bus services |
 | One test file | `cargo test -p phonelink-desktop --test sms` | |
 | Lint | `cargo clippy --workspace --all-targets` | keep it warning-free |
-| Kotlin bindings on the JVM | `./scripts/test-kotlin-bindings.sh` | |
+| Kotlin bindings on the JVM | `./scripts/test-kotlin-bindings.sh` | also `TouchpadTest` against the real `phonelink-touchpad` |
+| Touchpad service | `cargo test -p phonelink-touchpad` | the pad state machine, polkit parsing, and `tests/service.rs` (the real binary; polkit bypassed with `PHONELINK_TOUCHPAD_DEV_NO_AUTH`) |
+| Touchpad on a real laptop (manual) | `./packaging/install-touchpad.sh`, then `phonelink touchpad pair --uri` and `cargo run -p phonelink-ffi --example fake_touchpad_phone -- pair '<code>'` / `-- gestures` | needs /dev/uinput; see FEATURES §26 |
 | <a id="ui-tests"></a>Window UI (preview + fake Tauri) | `cd desktop/ui/tests && npm install && npx playwright install chromium && npm test` | ~115 + ~234 checks plus `overlay.test.js` (call card, pointer), screenshots in `desktop/ui/tests/shots/` |
 | Overlays on a real compositor (manual) | `sway` headless + `phonelink-app --overlay-check` + `grim` | see FEATURES §22 |
 | Widget look with a call | `ECHOTWIN_PREVIEW_CALL=1 packaging/plasmoid/tests/preview/render.sh /tmp/w.png` | |

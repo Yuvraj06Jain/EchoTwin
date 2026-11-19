@@ -55,6 +55,8 @@ import dev.phonelink.app.ui.SettingsScreen
 import dev.phonelink.app.ui.PresenterScreen
 import dev.phonelink.app.ui.ButtonsScreen
 import dev.phonelink.app.ui.SetupScreen
+import dev.phonelink.app.ui.TouchpadScreen
+import dev.phonelink.app.ui.Glyphs
 import dev.phonelink.app.ui.UiState
 import dev.phonelink.core.Device
 import dev.phonelink.core.PairingCode
@@ -80,6 +82,16 @@ class MainActivity : ComponentActivity() {
 
     private val scan = registerForActivityResult(ScanContract()) { result ->
         result.contents?.let { onScanned(it) }
+    }
+    /** The Touchpad tab's own scan (`phonelink touchpad pair`). */
+    private val scanTouchpad = registerForActivityResult(ScanContract()) { result ->
+        giveUpCamera()
+        val uri = result.contents ?: return@registerForActivityResult
+        if (uri.startsWith("phonelink:pair?")) {
+            notice = "That's EchoTwin's main pairing code. For the touchpad, run `phonelink touchpad pair` on the laptop."
+        } else {
+            LinkManager.pairTouchpad(uri)
+        }
     }
     private var receiveFolder by mutableStateOf<String?>(null)
     /** Android's folder chooser: EchoTwin gets access to that one folder only, kept across restarts. */
@@ -164,6 +176,7 @@ class MainActivity : ComponentActivity() {
                 val computerArt by LinkManager.computerArt.collectAsStateWithLifecycle()
                 val computerPlayedMs by LinkManager.computerPlayedMs.collectAsStateWithLifecycle()
                 val lockFailedMs by LinkManager.lockFailedMs.collectAsStateWithLifecycle()
+                val touchpad by LinkManager.touchpad.collectAsStateWithLifecycle()
                 val state = UiState(
                     myId = myId,
                     devices = devices,
@@ -190,6 +203,7 @@ class MainActivity : ComponentActivity() {
                     connectionOn = connectionOn,
                     busy = busy,
                     bluetoothProblem = BluetoothBackup.problem,
+                    touchpad = touchpad,
                 )
                 val snackbar = remember { SnackbarHostState() }
                 LaunchedEffect(notice) {
@@ -227,6 +241,7 @@ class MainActivity : ComponentActivity() {
                         setupOpen -> SetupScreen(state.access, actions, { setupOpen = false }, m)
                         tab == 1 -> FilesScreen(state, actions, m)
                         tab == 2 -> SettingsScreen(state, actions, { setupOpen = true }, m)
+                        tab == 3 -> TouchpadScreen(state, actions, m)
                         else -> HomeScreen(state, actions, { setupOpen = true }, m)
                     }
                     pendingPair?.let { (uri, code) ->
@@ -326,6 +341,24 @@ class MainActivity : ComponentActivity() {
         override fun allowPhoneStatus() = askPhoneStatus.launch(StatusWatcher.PHONE_PERMISSION)
         override fun openAppInfo() = this@MainActivity.openAppInfo()
         override fun unpair(device: Device) = this@MainActivity.unpair(device)
+        override fun scanTouchpad() {
+            scanTouchpad.launch(
+                ScanOptions()
+                    .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                    .setPrompt("Scan the code shown by `phonelink touchpad pair` on your laptop")
+                    .setBeepEnabled(false)
+                    .setOrientationLocked(true)
+            )
+        }
+        override fun forgetTouchpad() {
+            LinkManager.forgetTouchpad()
+            notice = "Touchpad pairing forgotten. On the laptop: phonelink touchpad unpair <this phone>"
+        }
+        override fun openPad(widthMm: Float, heightMm: Float) = LinkManager.openPad(widthMm, heightMm)
+        override fun closePad() = LinkManager.closePad()
+        override fun touch(fingers: List<dev.phonelink.core.Finger>) = LinkManager.touch(fingers)
+        override fun button(left: Boolean, down: Boolean) = LinkManager.button(left, down)
+        override fun touchpadLatency(): Int? = LinkManager.touchpadLatency()
     }
 
     /** While presenting, the volume keys work as a clicker: down = next, up = previous. */
@@ -378,7 +411,13 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             val code = withContext(Dispatchers.IO) { runCatching { LinkManager.link().readPairingCode(contents) } }
             code.onSuccess { pendingPair = contents to it }
-                .onFailure { notice = "That is not a EchoTwin pairing code." }
+                .onFailure {
+                    notice = if (contents.startsWith("phonelink:touchpad?")) {
+                        "That's the touchpad's code: scan it in the Touchpad tab."
+                    } else {
+                        "That is not a EchoTwin pairing code."
+                    }
+                }
         }
     }
 
@@ -473,15 +512,17 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** Home · Files · Touchpad · Settings. The numbers are the tabs' fixed ids (Touchpad came last). */
 @Composable
 private fun BottomBar(selected: Int, onSelect: (Int) -> Unit) {
     val items = listOf(
-        "Home" to Icons.Filled.Home,
-        "Files" to Icons.AutoMirrored.Filled.List,
-        "Settings" to Icons.Filled.Settings,
+        Triple(0, "Home", Icons.Filled.Home),
+        Triple(1, "Files", Icons.AutoMirrored.Filled.List),
+        Triple(3, "Touchpad", Glyphs.TouchApp),
+        Triple(2, "Settings", Icons.Filled.Settings),
     )
     NavigationBar(containerColor = Pl.Panel) {
-        items.forEachIndexed { i, (label, icon) ->
+        items.forEach { (i, label, icon) ->
             NavigationBarItem(
                 selected = selected == i,
                 onClick = { onSelect(i) },

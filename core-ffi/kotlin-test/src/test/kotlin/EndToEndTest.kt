@@ -58,6 +58,9 @@ class EndToEndTest {
             val events = LinkedBlockingQueue<LinkEvent>()
             val phone = PhoneLink.start("$tmp/phone", "Galaxy S24 FE", object : EventListener {
                 override fun onEvent(event: LinkEvent) { events.put(event) }
+            }, object : dev.phonelink.core.FileSource {
+                // This test sends no files from the phone.
+                override fun open(transferId: String, source: String): Int = -1
             })
             val code = phone.readPairingCode(uri)
             assertEquals("Kubuntu", code.name)

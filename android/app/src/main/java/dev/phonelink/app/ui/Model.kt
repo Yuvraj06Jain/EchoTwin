@@ -53,7 +53,30 @@ data class UiState(
     val busy: Boolean,
     /** Why the Bluetooth backup can't connect, if it can't. */
     val bluetoothProblem: String?,
-)
+    /** The Touchpad tab. */
+    val touchpad: TouchpadStatus = TouchpadStatus(),
+) {
+    val touchpadPaired: Boolean get() = touchpad.paired
+}
+
+/**
+ * The Touchpad tab: its own pairing with the laptop's touchpad service (not the main link).
+ * `laptops` are names; `connectedTo` the one the pad drives now.
+ */
+data class TouchpadStatus(
+    val started: Boolean = false,
+    val startError: String? = null,
+    val laptops: List<String> = emptyList(),
+    val connectedTo: String? = null,
+    /** The laptop made its virtual touchpad: fingers move the pointer now. */
+    val padReady: Boolean = false,
+    /** Why the laptop couldn't make it (shown in red). */
+    val padError: String? = null,
+    /** "Pairing…" while a scanned code is being used. */
+    val pairing: String? = null,
+) {
+    val paired: Boolean get() = laptops.isNotEmpty()
+}
 
 /** Everything the screens can ask for; implemented by MainActivity. */
 interface Actions {
@@ -95,6 +118,18 @@ interface Actions {
     fun testBluetooth()
     fun openAppInfo()
     fun unpair(device: Device)
+    /** Touchpad tab: scan `phonelink touchpad pair`, forget its laptops. */
+    fun scanTouchpad()
+    fun forgetTouchpad()
+    /** The pad is on screen at this size (mm) / left the screen. */
+    fun openPad(widthMm: Float, heightMm: Float)
+    fun closePad()
+    /** Every touch event: the fingers down now. Never blocks. */
+    fun touch(fingers: List<dev.phonelink.core.Finger>)
+    /** Left click (`left`) or Right click went down or up. Never blocks. */
+    fun button(left: Boolean, down: Boolean)
+    /** Round trip to the laptop the pad drives, ms (null: not connected). Call off the main thread. */
+    fun touchpadLatency(): Int?
 }
 
 val FileTransfer.isActive: Boolean get() = state == "active" || state == "waiting" || state == "queued"

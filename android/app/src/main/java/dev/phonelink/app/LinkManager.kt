@@ -189,6 +189,134 @@ object LinkManager {
         return peers.exists() && peers.readText().contains("\"fingerprint\"")
     }
 
+    // ------------------------------------------------------------------ Touchpad tab
+
+    /**
+     * The Touchpad tab's own link to the laptop's touchpad service: its own keys and paired
+     * laptops (filesDir/touchpad), never the main link's. Started the first time the tab
+     * is shown.
+     */
+    @Volatile
+    private var pad: dev.phonelink.core.TouchpadLink? = null
+
+    private val _touchpad = MutableStateFlow(dev.phonelink.app.ui.TouchpadStatus())
+    val touchpad: StateFlow<dev.phonelink.app.ui.TouchpadStatus> = _touchpad
+
+    /** Starting and pairing (they block); touches never go through here. */
+    private val padSetup = Executors.newSingleThreadExecutor { r -> Thread(r, "touchpad-setup") }
+
+    /** mDNS needs it; the background service holds one too, but only while the connection is on. */
+    private var padMulticast: android.net.wifi.WifiManager.MulticastLock? = null
+
+    @Synchronized
+    private fun touchpadLink(): dev.phonelink.core.TouchpadLink {
+        pad?.let { return it }
+        val dir = File(app.filesDir, "touchpad").apply { mkdirs() }
+        val started = dev.phonelink.core.TouchpadLink.start(dir.path, deviceName(), padListener)
+        pad = started
+        refreshTouchpad()
+        return started
+    }
+
+    private fun refreshTouchpad() {
+        val p = pad ?: return
+        val laptops = runCatching { p.laptops() }.getOrDefault(emptyList())
+        val st = _touchpad.value
+        _touchpad.value = st.copy(
+            started = true,
+            startError = null,
+            laptops = laptops.map { it.name },
+            connectedTo = st.connectedTo?.takeIf { laptops.any { l -> l.connected } },
+        )
+    }
+
+    private val padListener = object : dev.phonelink.core.PadListener {
+        override fun onEvent(event: dev.phonelink.core.PadEvent) {
+            val st = _touchpad.value
+            _touchpad.value = when (event) {
+                is dev.phonelink.core.PadEvent.Paired -> st.copy(pairing = null)
+                is dev.phonelink.core.PadEvent.Connected ->
+                    st.copy(connectedTo = event.name, padReady = false, padError = null)
+                is dev.phonelink.core.PadEvent.Disconnected -> st.copy(connectedTo = null, padReady = false)
+                is dev.phonelink.core.PadEvent.PadReady -> st.copy(padReady = true, padError = null)
+                is dev.phonelink.core.PadEvent.PadFailed -> st.copy(padReady = false, padError = event.message)
+            }
+            refreshTouchpad()
+        }
+    }
+
+    /** The pad's size while it is on screen (sent again once the link has started). */
+    @Volatile
+    private var padOpenMm: Pair<Float, Float>? = null
+
+    /** The Touchpad tab was opened: start its link if needed and connect right away. */
+    fun startTouchpad() = padSetup.execute {
+        try {
+            val p = touchpadLink()
+            p.reconnectNow()
+            padOpenMm?.let { (w, h) -> p.openPad(w, h) }
+        } catch (e: Exception) {
+            _touchpad.value = _touchpad.value.copy(startError = e.message ?: "The touchpad could not start")
+        }
+    }
+
+    /** Pair with the scanned `phonelink touchpad pair` code. */
+    fun pairTouchpad(uri: String) {
+        _touchpad.value = _touchpad.value.copy(pairing = "Pairing…")
+        padSetup.execute {
+            val msg = try {
+                val l = touchpadLink().pair(uri)
+                "Touchpad paired with ${l.name}"
+            } catch (e: Exception) {
+                "Touchpad pairing failed: ${e.message}"
+            }
+            _touchpad.value = _touchpad.value.copy(pairing = null)
+            refreshTouchpad()
+            toast(msg)
+        }
+    }
+
+    /** Forget every laptop the Touchpad tab is paired with (the laptop keeps its record until `phonelink touchpad unpair`). */
+    fun forgetTouchpad() = padSetup.execute {
+        val p = runCatching { touchpadLink() }.getOrNull() ?: return@execute
+        for (l in runCatching { p.laptops() }.getOrDefault(emptyList())) runCatching { p.unpair(l.id) }
+        _touchpad.value = _touchpad.value.copy(connectedTo = null, padReady = false, padError = null)
+        refreshTouchpad()
+    }
+
+    /** The pad is on screen. Direct call: it only records the size and sends one small message. */
+    fun openPad(widthMm: Float, heightMm: Float) {
+        if (padMulticast == null) {
+            val wifi = app.applicationContext.getSystemService(android.net.wifi.WifiManager::class.java)
+            padMulticast = wifi?.createMulticastLock("phonelink-touchpad-mdns")?.apply {
+                setReferenceCounted(false)
+                runCatching { acquire() }
+            }
+        }
+        padOpenMm = widthMm to heightMm
+        val p = pad
+        if (p != null) p.openPad(widthMm, heightMm) else startTouchpad()
+    }
+
+    /** The pad left the screen: lift every finger and button on the laptop. */
+    fun closePad() {
+        padOpenMm = null
+        pad?.closePad()
+        padMulticast?.takeIf { it.isHeld }?.let { runCatching { it.release() } }
+        padMulticast = null
+    }
+
+    /** Straight to the core, not through `io`: queueing behind notification work would add lag. */
+    fun touch(fingers: List<dev.phonelink.core.Finger>) {
+        pad?.touch(fingers)
+    }
+
+    fun button(left: Boolean, down: Boolean) {
+        pad?.button(left, down)
+    }
+
+    fun touchpadLatency(): Int? = pad?.latencyMs()?.toInt()
+
     // ------------------------------------------------------------------ notification mirroring
 
     /** Disk + network work for mirroring, off the listener's main thread, in order. */

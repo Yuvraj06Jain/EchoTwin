@@ -32,6 +32,9 @@ use tokio::{runtime::Runtime, task::JoinHandle};
 
 uniffi::setup_scaffolding!();
 
+pub mod touchpad;
+pub use touchpad::{Finger, PadError, PadEvent, PadLaptop, PadListener, TouchpadLink};
+
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum LinkError {

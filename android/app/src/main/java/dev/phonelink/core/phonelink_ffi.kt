@@ -662,6 +662,9 @@ internal interface UniffiCallbackInterfaceStreamSinkMethod0 : com.sun.jna.Callba
 internal interface UniffiCallbackInterfaceStreamSinkMethod1 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
 }
+internal interface UniffiCallbackInterfacePadListenerMethod0 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`event`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
 @Structure.FieldOrder("uniffiFree", "uniffiClone", "onEvent")
 internal open class UniffiVTableCallbackInterfaceEventListener(
     @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
@@ -719,6 +722,25 @@ internal open class UniffiVTableCallbackInterfaceStreamSink(
         `uniffiClone` = other.`uniffiClone`
         `write` = other.`write`
         `closeLink` = other.`closeLink`
+    }
+
+}
+@Structure.FieldOrder("uniffiFree", "uniffiClone", "onEvent")
+internal open class UniffiVTableCallbackInterfacePadListener(
+    @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+    @JvmField internal var `uniffiClone`: UniffiCallbackInterfaceClone? = null,
+    @JvmField internal var `onEvent`: UniffiCallbackInterfacePadListenerMethod0? = null,
+) : Structure() {
+    class UniffiByValue(
+        `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+        `uniffiClone`: UniffiCallbackInterfaceClone? = null,
+        `onEvent`: UniffiCallbackInterfacePadListenerMethod0? = null,
+    ): UniffiVTableCallbackInterfacePadListener(`uniffiFree`,`uniffiClone`,`onEvent`,), Structure.ByValue
+
+   internal fun uniffiSetValue(other: UniffiVTableCallbackInterfacePadListener) {
+        `uniffiFree` = other.`uniffiFree`
+        `uniffiClone` = other.`uniffiClone`
+        `onEvent` = other.`onEvent`
     }
 
 }
@@ -845,7 +867,33 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_phonelink_ffi_checksum_method_streamsink_close_link(
     ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_padlistener_on_event(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_button(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_close_pad(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_laptops(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_latency_ms(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_my_id(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_open_pad(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_pair(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_reconnect_now(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_shutdown(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_touch(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_method_touchpadlink_unpair(
+    ): Int
     external fun uniffi_phonelink_ffi_checksum_constructor_phonelink_start(
+    ): Int
+    external fun uniffi_phonelink_ffi_checksum_constructor_touchpadlink_start(
     ): Int
     external fun ffi_phonelink_ffi_uniffi_contract_version(
     ): Int
@@ -865,6 +913,7 @@ internal object UniffiLib {
         Native.register(UniffiLib::class.java, findLibraryName(componentName = "phonelink_ffi"))
         uniffiCallbackInterfaceEventListener.register(this)
         uniffiCallbackInterfaceFileSource.register(this)
+        uniffiCallbackInterfacePadListener.register(this)
         uniffiCallbackInterfaceStreamSink.register(this)
         
     }
@@ -995,6 +1044,42 @@ internal object UniffiLib {
     external fun uniffi_phonelink_ffi_fn_method_streamsink_write(`ptr`: Long,`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     external fun uniffi_phonelink_ffi_fn_method_streamsink_close_link(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_clone_padlistener(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_phonelink_ffi_fn_free_padlistener(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_init_callback_vtable_padlistener(`vtable`: UniffiVTableCallbackInterfacePadListener,
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_padlistener_on_event(`ptr`: Long,`event`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_clone_touchpadlink(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_phonelink_ffi_fn_free_touchpadlink(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_constructor_touchpadlink_start(`dataDir`: RustBuffer.ByValue,`deviceName`: RustBuffer.ByValue,`listener`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_phonelink_ffi_fn_method_touchpadlink_button(`ptr`: Long,`left`: Byte,`down`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_phonelink_ffi_fn_method_touchpadlink_close_pad(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_touchpadlink_laptops(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_phonelink_ffi_fn_method_touchpadlink_latency_ms(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_phonelink_ffi_fn_method_touchpadlink_my_id(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_phonelink_ffi_fn_method_touchpadlink_open_pad(`ptr`: Long,`widthMm`: Float,`heightMm`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_touchpadlink_pair(`ptr`: Long,`uri`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_phonelink_ffi_fn_method_touchpadlink_reconnect_now(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_touchpadlink_shutdown(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_phonelink_ffi_fn_method_touchpadlink_touch(`ptr`: Long,`fingers`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_phonelink_ffi_fn_method_touchpadlink_unpair(`ptr`: Long,`laptopId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun ffi_phonelink_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1262,7 +1347,46 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_phonelink_ffi_checksum_method_streamsink_close_link() and 0xFFFF) != 53975) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_padlistener_on_event() and 0xFFFF) != 21150) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_button() and 0xFFFF) != 62951) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_close_pad() and 0xFFFF) != 29399) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_laptops() and 0xFFFF) != 24938) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_latency_ms() and 0xFFFF) != 23895) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_my_id() and 0xFFFF) != 11840) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_open_pad() and 0xFFFF) != 11106) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_pair() and 0xFFFF) != 35914) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_reconnect_now() and 0xFFFF) != 38242) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_shutdown() and 0xFFFF) != 54494) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_touch() and 0xFFFF) != 10878) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_method_touchpadlink_unpair() and 0xFFFF) != 6412) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_phonelink_ffi_checksum_constructor_phonelink_start() and 0xFFFF) != 37858) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_phonelink_ffi_checksum_constructor_touchpadlink_start() and 0xFFFF) != 26337) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1573,6 +1697,29 @@ public object FfiConverterULong: FfiConverter<ULong, Long> {
 
     override fun write(value: ULong, buf: ByteBuffer) {
         buf.putLong(value.toLong())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterFloat: FfiConverter<Float, Float> {
+    override fun lift(value: Float): Float {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Float {
+        return buf.getFloat()
+    }
+
+    override fun lower(value: Float): Float {
+        return value
+    }
+
+    override fun allocationSize(value: Float) = 4UL
+
+    override fun write(value: Float, buf: ByteBuffer) {
+        buf.putFloat(value)
     }
 }
 
@@ -2310,6 +2457,323 @@ public object FfiConverterTypeFileSource: FfiConverter<FileSource, Long> {
     override fun allocationSize(value: FileSource) = 8UL
 
     override fun write(value: FileSource, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Implemented in Kotlin. Called on a background thread, one event at a time, in order.
+ */
+public interface PadListener {
+    
+    fun `onEvent`(`event`: PadEvent)
+    
+    companion object
+}
+
+/**
+ * Implemented in Kotlin. Called on a background thread, one event at a time, in order.
+ */
+open class PadListenerImpl: Disposable, AutoCloseable, PadListener
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_phonelink_ffi_fn_free_padlistener(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_phonelink_ffi_fn_clone_padlistener(handle, status)
+        }
+    }
+
+    override fun `onEvent`(`event`: PadEvent)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_padlistener_on_event(
+        it,
+        
+        FfiConverterTypePadEvent.lower(`event`),_status)
+}
+    }
+    
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+
+// Put the implementation in an object so we don't pollute the top-level namespace
+internal object uniffiCallbackInterfacePadListener {
+    internal object `onEvent`: UniffiCallbackInterfacePadListenerMethod0 {
+        override fun callback(`uniffiHandle`: Long,`event`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePadListener.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`onEvent`(
+                    FfiConverterTypePadEvent.lift(`event`),
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+
+    internal object uniffiFree: UniffiCallbackInterfaceFree {
+        override fun callback(handle: Long) {
+            FfiConverterTypePadListener.handleMap.remove(handle)
+        }
+    }
+
+    internal object uniffiClone: UniffiCallbackInterfaceClone {
+        override fun callback(handle: Long): Long {
+            return FfiConverterTypePadListener.handleMap.clone(handle)
+        }
+    }
+
+    internal var vtable = UniffiVTableCallbackInterfacePadListener.UniffiByValue(
+        uniffiFree,
+        uniffiClone,
+        `onEvent`,
+    )
+
+    // Registers the foreign callback with the Rust side.
+    // This method is generated for each callback interface.
+    internal fun register(lib: UniffiLib) {
+        lib.uniffi_phonelink_ffi_fn_init_callback_vtable_padlistener(vtable)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePadListener: FfiConverter<PadListener, Long> {
+    internal val handleMap = UniffiHandleMap<PadListener>()
+
+    override fun lower(value: PadListener): Long {
+        if (value is PadListenerImpl) {
+             // Rust-implemented object.  Clone the handle and return it
+            return value.uniffiCloneHandle()
+         } else {
+            // Kotlin object, generate a new vtable handle and return that.
+            return handleMap.insert(value)
+         }
+    }
+
+    override fun lift(value: Long): PadListener {
+        if ((value and 1.toLong()) == 0.toLong()) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return PadListenerImpl(UniffiWithHandle, value)
+        } else {
+            // Kotlin-generated handle, get the object from the handle map
+            return handleMap.remove(value)
+        }
+    }
+
+    override fun read(buf: ByteBuffer): PadListener {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: PadListener) = 8UL
+
+    override fun write(value: PadListener, buf: ByteBuffer) {
         buf.putLong(lower(value))
     }
 }
@@ -4235,6 +4699,486 @@ public object FfiConverterTypeStreamSink: FfiConverter<StreamSink, Long> {
 }
 
 
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+public interface TouchpadLinkInterface {
+    
+    /**
+     * The Left click (`left`) or Right click button went down or up. Holding Left while a
+     * finger moves is a drag. Returns false if it could not be sent (not connected).
+     */
+    fun `button`(`left`: kotlin.Boolean, `down`: kotlin.Boolean): kotlin.Boolean
+    
+    /**
+     * The pad left the screen: lift every finger and let go of both buttons on the laptop.
+     */
+    fun `closePad`()
+    
+    fun `laptops`(): List<PadLaptop>
+    
+    /**
+     * Round-trip time to the laptop the pad drives, for a latency indicator.
+     */
+    fun `latencyMs`(): kotlin.UInt?
+    
+    /**
+     * This phone's touchpad id, as shown by `phonelink touchpad devices` on the laptop.
+     */
+    fun `myId`(): kotlin.String
+    
+    /**
+     * The pad is on screen (or changed size). Physical size in millimetres.
+     */
+    fun `openPad`(`widthMm`: kotlin.Float, `heightMm`: kotlin.Float)
+    
+    /**
+     * Pair with the laptop whose touchpad QR code (`phonelink touchpad pair`) was scanned.
+     * Blocks for up to ~20 s.
+     */
+    fun `pair`(`uri`: kotlin.String): PadLaptop
+    
+    /**
+     * Retry connecting at once (tab opened, network changed).
+     */
+    fun `reconnectNow`()
+    
+    fun `shutdown`()
+    
+    /**
+     * Every touch event: the fingers that are down now (empty when the last one lifts).
+     * Returns false if nothing could be sent (not connected).
+     */
+    fun `touch`(`fingers`: List<Finger>): kotlin.Boolean
+    
+    fun `unpair`(`laptopId`: kotlin.String)
+    
+    companion object
+}
+
+open class TouchpadLink: Disposable, AutoCloseable, TouchpadLinkInterface
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_phonelink_ffi_fn_free_touchpadlink(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_phonelink_ffi_fn_clone_touchpadlink(handle, status)
+        }
+    }
+
+    
+    /**
+     * The Left click (`left`) or Right click button went down or up. Holding Left while a
+     * finger moves is a drag. Returns false if it could not be sent (not connected).
+     */override fun `button`(`left`: kotlin.Boolean, `down`: kotlin.Boolean): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_touchpadlink_button(
+        it,
+        
+        FfiConverterBoolean.lower(`left`),
+        FfiConverterBoolean.lower(`down`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The pad left the screen: lift every finger and let go of both buttons on the laptop.
+     */override fun `closePad`()
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_touchpadlink_close_pad(
+        it,
+        _status)
+}
+    }
+    
+    
+
+    override fun `laptops`(): List<PadLaptop> {
+            return FfiConverterSequenceTypePadLaptop.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_touchpadlink_laptops(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Round-trip time to the laptop the pad drives, for a latency indicator.
+     */override fun `latencyMs`(): kotlin.UInt? {
+            return FfiConverterOptionalUInt.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_touchpadlink_latency_ms(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * This phone's touchpad id, as shown by `phonelink touchpad devices` on the laptop.
+     */override fun `myId`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_touchpadlink_my_id(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The pad is on screen (or changed size). Physical size in millimetres.
+     */override fun `openPad`(`widthMm`: kotlin.Float, `heightMm`: kotlin.Float)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_touchpadlink_open_pad(
+        it,
+        
+        FfiConverterFloat.lower(`widthMm`),
+        FfiConverterFloat.lower(`heightMm`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Pair with the laptop whose touchpad QR code (`phonelink touchpad pair`) was scanned.
+     * Blocks for up to ~20 s.
+     */
+    @Throws(PadException::class)override fun `pair`(`uri`: kotlin.String): PadLaptop {
+            return FfiConverterTypePadLaptop.lift(
+    callWithHandle {
+    uniffiRustCallWithError(PadException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_touchpadlink_pair(
+        it,
+        
+        FfiConverterString.lower(`uri`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Retry connecting at once (tab opened, network changed).
+     */override fun `reconnectNow`()
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_touchpadlink_reconnect_now(
+        it,
+        _status)
+}
+    }
+    
+    
+
+    override fun `shutdown`()
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_touchpadlink_shutdown(
+        it,
+        _status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Every touch event: the fingers that are down now (empty when the last one lifts).
+     * Returns false if nothing could be sent (not connected).
+     */override fun `touch`(`fingers`: List<Finger>): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_touchpadlink_touch(
+        it,
+        
+        FfiConverterSequenceTypeFinger.lower(`fingers`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(PadException::class)override fun `unpair`(`laptopId`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(PadException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_method_touchpadlink_unpair(
+        it,
+        
+        FfiConverterString.lower(`laptopId`),_status)
+}
+    }
+    
+    
+
+    
+
+    
+
+
+    
+    companion object {
+        
+    /**
+     * Start the touchpad's own node. `data_dir`: a directory of its own (the app uses
+     * `filesDir/touchpad`), never the main link's.
+     */
+    @Throws(PadException::class) fun `start`(`dataDir`: kotlin.String, `deviceName`: kotlin.String, `listener`: PadListener): TouchpadLink {
+            return FfiConverterTypeTouchpadLink.lift(
+    uniffiRustCallWithError(PadException) { _status ->
+    UniffiLib.uniffi_phonelink_ffi_fn_constructor_touchpadlink_start(
+    
+        
+        FfiConverterString.lower(`dataDir`),
+        FfiConverterString.lower(`deviceName`),
+        FfiConverterTypePadListener.lower(`listener`),_status)
+}
+    )
+    }
+    
+
+        
+    }
+    
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTouchpadLink: FfiConverter<TouchpadLink, Long> {
+    override fun lower(value: TouchpadLink): Long {
+        return value.uniffiCloneHandle()
+    }
+
+    override fun lift(value: Long): TouchpadLink {
+        return TouchpadLink(UniffiWithHandle, value)
+    }
+
+    override fun read(buf: ByteBuffer): TouchpadLink {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: TouchpadLink) = 8UL
+
+    override fun write(value: TouchpadLink, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+
+
 
 /**
  * A contact found on this phone, for the computer's "New message" search.
@@ -4570,6 +5514,60 @@ public object FfiConverterTypeFileTransfer: FfiConverterRustBuffer<FileTransfer>
 
 
 /**
+ * One finger, as Android reports it. `x`, `y` are 0.0–1.0 across the pad.
+ */
+data class Finger (
+    var `slot`: kotlin.UByte
+    , 
+    /**
+     * New for every touch (Android's pointer id plus a counter, any u16).
+     */
+    var `id`: kotlin.UShort
+    , 
+    var `x`: kotlin.Float
+    , 
+    var `y`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFinger: FfiConverterRustBuffer<Finger> {
+    override fun read(buf: ByteBuffer): Finger {
+        return Finger(
+            FfiConverterUByte.read(buf),
+            FfiConverterUShort.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: Finger) = (
+            FfiConverterUByte.allocationSize(value.`slot`) +
+            FfiConverterUShort.allocationSize(value.`id`) +
+            FfiConverterFloat.allocationSize(value.`x`) +
+            FfiConverterFloat.allocationSize(value.`y`)
+    )
+
+    override fun write(value: Finger, buf: ByteBuffer) {
+            FfiConverterUByte.write(value.`slot`, buf)
+            FfiConverterUShort.write(value.`id`, buf)
+            FfiConverterFloat.write(value.`x`, buf)
+            FfiConverterFloat.write(value.`y`, buf)
+    }
+}
+
+
+
+/**
  * A notification shown on this phone, to mirror to the computer.
  */
 data class MirroredNotification (
@@ -4635,6 +5633,55 @@ public object FfiConverterTypeMirroredNotification: FfiConverterRustBuffer<Mirro
             FfiConverterULong.write(value.`postedMs`, buf)
             FfiConverterBoolean.write(value.`canReply`, buf)
             FfiConverterSequenceString.write(value.`actions`, buf)
+    }
+}
+
+
+
+/**
+ * A laptop paired with the Touchpad tab.
+ */
+data class PadLaptop (
+    /**
+     * Short id shown on both screens, e.g. `3F2A-91C0-77DE-0B14`.
+     */
+    var `id`: kotlin.String
+    , 
+    var `name`: kotlin.String
+    , 
+    var `connected`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePadLaptop: FfiConverterRustBuffer<PadLaptop> {
+    override fun read(buf: ByteBuffer): PadLaptop {
+        return PadLaptop(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PadLaptop) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterBoolean.allocationSize(value.`connected`)
+    )
+
+    override fun write(value: PadLaptop, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterBoolean.write(value.`connected`, buf)
     }
 }
 
@@ -6137,6 +7184,189 @@ public object FfiConverterTypeMediaCommand : FfiConverterRustBuffer<MediaCommand
 
 
 
+
+
+sealed class PadException(message: String): kotlin.Exception(message) {
+        
+        class Failed(message: String) : PadException(message)
+        
+
+    companion object ErrorHandler : UniffiRustCallStatusErrorHandler<PadException> {
+        override fun lift(error_buf: RustBuffer.ByValue): PadException = FfiConverterTypePadError.lift(error_buf)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePadError : FfiConverterRustBuffer<PadException> {
+    override fun read(buf: ByteBuffer): PadException {
+        
+            return when(buf.getInt()) {
+            1 -> PadException.Failed(FfiConverterString.read(buf))
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+        
+    }
+
+    override fun allocationSize(value: PadException): ULong {
+        return 4UL
+    }
+
+    override fun write(value: PadException, buf: ByteBuffer) {
+        when(value) {
+            is PadException.Failed -> {
+                buf.putInt(1)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
+
+
+
+sealed class PadEvent {
+    
+    data class Paired(
+        val `name`: kotlin.String) : PadEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class Connected(
+        val `name`: kotlin.String) : PadEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    object Disconnected : PadEvent()
+    
+    
+    /**
+     * The laptop created its virtual touchpad: touches now move the pointer.
+     */
+    object PadReady : PadEvent()
+    
+    
+    /**
+     * The laptop could not create its virtual touchpad (`message` says how to fix it).
+     */
+    data class PadFailed(
+        val `message`: kotlin.String) : PadEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePadEvent : FfiConverterRustBuffer<PadEvent>{
+    override fun read(buf: ByteBuffer): PadEvent {
+        return when(buf.getInt()) {
+            1 -> PadEvent.Paired(
+                FfiConverterString.read(buf),
+                )
+            2 -> PadEvent.Connected(
+                FfiConverterString.read(buf),
+                )
+            3 -> PadEvent.Disconnected
+            4 -> PadEvent.PadReady
+            5 -> PadEvent.PadFailed(
+                FfiConverterString.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: PadEvent): ULong = when(value) {
+        is PadEvent.Paired -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`name`)
+            )
+        }
+        is PadEvent.Connected -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`name`)
+            )
+        }
+        is PadEvent.Disconnected -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is PadEvent.PadReady -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is PadEvent.PadFailed -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`message`)
+            )
+        }
+    }
+
+    override fun write(value: PadEvent, buf: ByteBuffer) {
+        when(value) {
+            is PadEvent.Paired -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.`name`, buf)
+                Unit
+            }
+            is PadEvent.Connected -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`name`, buf)
+                Unit
+            }
+            is PadEvent.Disconnected -> {
+                buf.putInt(3)
+                Unit
+            }
+            is PadEvent.PadReady -> {
+                buf.putInt(4)
+                Unit
+            }
+            is PadEvent.PadFailed -> {
+                buf.putInt(5)
+                FfiConverterString.write(value.`message`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
 /**
  * How the presentation pointer looks.
  */
@@ -6253,6 +7483,38 @@ public object FfiConverterOptionalUByte: FfiConverterRustBuffer<kotlin.UByte?> {
         } else {
             buf.put(1)
             FfiConverterUByte.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalUInt: FfiConverterRustBuffer<kotlin.UInt?> {
+    override fun read(buf: ByteBuffer): kotlin.UInt? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterUInt.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.UInt?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterUInt.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.UInt?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterUInt.write(value, buf)
         }
     }
 }
@@ -6535,6 +7797,34 @@ public object FfiConverterSequenceTypeFileTransfer: FfiConverterRustBuffer<List<
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeFinger: FfiConverterRustBuffer<List<Finger>> {
+    override fun read(buf: ByteBuffer): List<Finger> {
+        val len = buf.getInt()
+        return List<Finger>(len) {
+            FfiConverterTypeFinger.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<Finger>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFinger.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<Finger>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFinger.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeMirroredNotification: FfiConverterRustBuffer<List<MirroredNotification>> {
     override fun read(buf: ByteBuffer): List<MirroredNotification> {
         val len = buf.getInt()
@@ -6553,6 +7843,34 @@ public object FfiConverterSequenceTypeMirroredNotification: FfiConverterRustBuff
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeMirroredNotification.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypePadLaptop: FfiConverterRustBuffer<List<PadLaptop>> {
+    override fun read(buf: ByteBuffer): List<PadLaptop> {
+        val len = buf.getInt()
+        return List<PadLaptop>(len) {
+            FfiConverterTypePadLaptop.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<PadLaptop>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypePadLaptop.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<PadLaptop>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypePadLaptop.write(it, buf)
         }
     }
 }

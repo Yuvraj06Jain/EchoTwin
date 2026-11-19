@@ -33,7 +33,7 @@
     }
   }
 
-  const listeners = { event: [], daemon: [], pairing: [], open: [], drop: [] };
+  const listeners = { event: [], daemon: [], pairing: [], open: [], drop: [], touchpadPairing: [] };
   const SMS_STATUS = { sent: 'sent', sending: 'sending', failed: 'failed' };
   const toThread = (t) => ({
     id: t.id,
@@ -99,6 +99,7 @@
   });
   T.event.listen('phonelink://daemon', ({ payload }) => listeners.daemon.forEach((cb) => cb(payload)));
   T.event.listen('phonelink://pairing', ({ payload }) => listeners.pairing.forEach((cb) => cb(payload)));
+  T.event.listen('phonelink://touchpad-pairing', ({ payload }) => listeners.touchpadPairing.forEach((cb) => cb(payload)));
   // The window was asked to come forward (a popup was clicked while it was open).
   T.event.listen('phonelink://open', ({ payload }) => listeners.open.forEach((cb) => cb(payload)));
 
@@ -352,6 +353,27 @@
     },
     async cancelPairing() {
       await invoke('cancel_pairing');
+    },
+
+    // The phone's Touchpad tab: its own service on this laptop (not phonelinkd).
+    async touchpadStatus() {
+      return invoke('touchpad_status');
+    },
+    async touchpadSetEnabled(on) {
+      return invoke('touchpad_set_enabled', { on });
+    },
+    async touchpadUnpair(fingerprint) {
+      return invoke('touchpad_unpair', { device: fingerprint });
+    },
+    async touchpadStartPairing() {
+      const p = await invoke('touchpad_start_pairing');
+      return { qr: p.qr, expiresIn: p.expires_in };
+    },
+    async touchpadCancelPairing() {
+      await invoke('touchpad_cancel_pairing');
+    },
+    onTouchpadPairing(cb) {
+      listeners.touchpadPairing.push(cb);
     },
     async startDaemon() {
       await invoke('start_daemon');

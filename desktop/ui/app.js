@@ -1407,7 +1407,82 @@
       </div>
       <div data-download-section>${downloadSection(s)}</div>
       <div data-commands-section>${commandsSection(s)}</div>
+      <div data-touchpad-section>${touchpadSection()}</div>
       ${appearanceSection()}`;
+  }
+
+  // ------------------------------------------------------------------ touchpad
+  // The phone's Touchpad tab drives this laptop through its own service (installed with
+  // packaging/install-touchpad.sh). state.touchpad: its status, or null while asking.
+  // state.touchpadPairing: null, or { loading } / { qr, expiresAt } / { error }.
+
+  function touchpadSection() {
+    if (!api.touchpadStatus) return '';
+    const t = state.touchpad;
+    let body;
+    if (!t) {
+      body = '<div class="row faint">Checking the touchpad service…</div>';
+    } else if (!t.installed) {
+      body = `<div class="row"><div class="grow"><div>The touchpad service isn't installed on this laptop.</div>
+        <div class="row-desc">From your EchoTwin folder run: <span class="mono">./packaging/install-touchpad.sh</span></div></div></div>`;
+    } else if (!t.running) {
+      body = `<div class="row"><div class="grow"><div>The touchpad service isn't running.</div>
+        <div class="row-desc">Start it with: <span class="mono">sudo systemctl start phonelink-touchpad</span></div></div>
+        <button type="button" class="btn btn-sm" data-action="touchpad-refresh">Check again</button></div>`;
+    } else {
+      const p = state.touchpadPairing;
+      const devices = t.devices
+        .map((d) => `<div class="row" data-touchpad-fp="${esc(d.fingerprint)}">
+          <span class="dot ${d.connected ? 'ok' : 'warn'}"></span>
+          <div class="grow"><div>${esc(d.name)}</div><div class="row-desc mono">${esc(d.id)}${d.connected ? ' · connected' : ''}</div></div>
+          <button type="button" class="btn btn-danger btn-sm" data-action="touchpad-forget" aria-label="Forget ${esc(d.name)} for the touchpad">Forget</button></div>`)
+        .join('');
+      let pairing;
+      if (!p) {
+        pairing = `<div class="row"><div class="grow"><div class="row-desc">Pairing asks for your password.</div></div>
+          <button type="button" class="btn btn-primary btn-sm" data-action="touchpad-pair">Pair a phone</button></div>`;
+      } else if (p.loading) {
+        pairing = '<div class="row faint" data-touchpad-waiting>Waiting for your password (KDE asks in a separate window)…</div>';
+      } else if (p.error) {
+        pairing = `<div class="row"><div class="grow"><div>Couldn't show a code</div><div class="row-desc">${esc(p.error)}</div></div>
+          <button type="button" class="btn btn-sm" data-action="touchpad-pair">Try again</button></div>`;
+      } else {
+        pairing = `<div class="touchpad-pair" data-touchpad-qr>
+          <div class="qr-box"><svg viewBox="0 0 ${p.qr.size} ${p.qr.size}" role="img" aria-label="Touchpad pairing code to scan with your phone"><path fill="#111417" d="${esc(p.qr.path)}"/></svg></div>
+          <div class="grow"><div>On your phone: <b>Touchpad</b> tab → <b>Scan</b></div>
+            <div class="row-desc">This is the touchpad's own code (not the one for pairing EchoTwin). It works for 2 minutes.</div>
+            <button type="button" class="btn btn-sm" data-action="touchpad-cancel">Cancel</button></div></div>`;
+      }
+      body = `${switchRow("Let your phone be this laptop's touchpad", "Your phone's Touchpad tab moves the pointer here, clicks and scrolls. Your own touchpad always wins: while you use it, the phone is ignored.", 'toggle-touchpad', !!t.enabled)}
+        ${devices || '<div class="row faint">No phone paired with the touchpad yet.</div>'}
+        ${pairing}`;
+    }
+    return `<div class="sheet-section"><p class="section-label">Touchpad</p>${body}</div>`;
+  }
+
+  function redrawTouchpad() {
+    const slot = $('.sheet-body [data-touchpad-section]');
+    if (slot) slot.innerHTML = touchpadSection();
+  }
+
+  async function loadTouchpad() {
+    if (!api.touchpadStatus) return;
+    try {
+      state.touchpad = await api.touchpadStatus();
+    } catch (err) {
+      state.touchpad = { installed: true, running: false, enabled: false, devices: [] };
+    }
+    redrawTouchpad();
+  }
+
+  if (api.onTouchpadPairing) {
+    api.onTouchpadPairing((ev) => {
+      state.touchpadPairing = null;
+      if (ev.kind === 'paired') toast(`Touchpad paired with ${ev.name}`);
+      else if (ev.kind === 'expired') toast('The touchpad code expired');
+      else toast(`Touchpad pairing failed: ${ev.message || 'unknown error'}`);
+      loadTouchpad();
+    });
   }
 
   async function openSettings() {
@@ -1425,6 +1500,9 @@
         if (changed) redrawCommands();
       }).catch(() => {});
     }
+    state.touchpad = null;
+    state.touchpadPairing = null;
+    loadTouchpad();
     openDialog(`<section class="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <header class="sheet-head"><h2 id="settings-title">Settings</h2>
         <button type="button" class="icon-btn" data-action="close-dialog" aria-label="Close settings">${icon('close')}</button></header>
@@ -1892,6 +1970,42 @@
         const gone = state.commands[i];
         await saveCommands(state.commands.filter((_, j) => j !== i));
         return toast(`Removed “${gone.name}”`);
+      }
+      case 'toggle-touchpad': {
+        const on = !state.touchpad.enabled;
+        state.touchpad.enabled = on;
+        setSwitch(a, on);
+        try {
+          await api.touchpadSetEnabled(on);
+        } catch (err) {
+          state.touchpad.enabled = !on;
+          setSwitch(a, !on);
+          throw err;
+        }
+        return undefined;
+      }
+      case 'touchpad-refresh':
+        return loadTouchpad();
+      case 'touchpad-pair': {
+        state.touchpadPairing = { loading: true };
+        redrawTouchpad();
+        try {
+          const code = await api.touchpadStartPairing();
+          state.touchpadPairing = { qr: code.qr, expiresAt: Date.now() + code.expiresIn * 1000 };
+        } catch (err) {
+          state.touchpadPairing = { error: (err && err.message) || String(err) };
+        }
+        return redrawTouchpad();
+      }
+      case 'touchpad-cancel':
+        state.touchpadPairing = null;
+        redrawTouchpad();
+        return api.touchpadCancelPairing();
+      case 'touchpad-forget': {
+        const fp = a.closest('[data-touchpad-fp]').dataset.touchpadFp;
+        const name = await api.touchpadUnpair(fp);
+        toast(`${name || 'The phone'} can no longer use the touchpad`);
+        return loadTouchpad();
       }
       case 'toggle-setting': {
         const key = a.dataset.key;

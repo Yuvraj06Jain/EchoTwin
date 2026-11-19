@@ -28,6 +28,13 @@
   };
 
   let mode = 'connected'; // connected | offline | unpaired
+
+  const touchpad = {
+    installed: true,
+    running: true,
+    enabled: true,
+    devices: [{ name: 'Galaxy S24 FE', id: 'A914-D7AB-078D-25BD', fingerprint: 'a914d7ab078d25bd', connected: true }],
+  };
   let paired = true;
   let lastSeen = ago(4);
 
@@ -219,6 +226,29 @@
       return { qr: window.PREVIEW_QR, id: computer.id, expiresIn: 120 };
     },
     async cancelPairing() {},
+
+    // The Touchpad tab's laptop side (sample data: installed, on, one phone).
+    async touchpadStatus() {
+      await wait(40);
+      return clone(touchpad);
+    },
+    async touchpadSetEnabled(on) {
+      await wait(60);
+      touchpad.enabled = on;
+      return on;
+    },
+    async touchpadUnpair(fingerprint) {
+      await wait(120);
+      const d = touchpad.devices.find((x) => x.fingerprint === fingerprint);
+      touchpad.devices = touchpad.devices.filter((x) => x !== d);
+      return d ? d.name : '';
+    },
+    async touchpadStartPairing() {
+      await wait(150);
+      return { qr: window.PREVIEW_QR, expiresIn: 120 };
+    },
+    async touchpadCancelPairing() {},
+    onTouchpadPairing() {},
     async startDaemon() {},
     async reconnect() {
       await wait(100);

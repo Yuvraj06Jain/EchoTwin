@@ -779,3 +779,8 @@ img.app-badge.app-icon { background: transparent; object-fit: contain; }
 .round-btn.no { background: #d9534f; }
 .round-btn.nt { background: var(--raised, #25292e); color: var(--text, #e6e8ea); }
 .round-btn:focus-visible { outline: 2px solid var(--accent-text, #3dbb82); outline-offset: 2px; }
+
+/* Settings → Touchpad: the touchpad's own pairing code, beside its instructions. */
+.touchpad-pair { display: flex; gap: 18px; align-items: center; padding: 8px 0; }
+.touchpad-pair .qr-box { width: 168px; height: 168px; padding: 12px; flex: none; }
+.touchpad-pair .grow { display: grid; gap: 8px; justify-items: start; }

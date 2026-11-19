@@ -23,6 +23,7 @@ use tokio::sync::oneshot;
 #[cfg(target_os = "linux")]
 mod blur;
 mod overlay;
+mod touchpad;
 
 /// Error string the UI recognises as "the background service is not running".
 const DAEMON_DOWN: &str = "daemon-down";
@@ -72,7 +73,7 @@ struct NotificationsDto {
 }
 
 #[derive(Serialize)]
-struct QrDto {
+pub(crate) struct QrDto {
     size: usize,
     path: String,
 }
@@ -111,7 +112,7 @@ fn unexpected(r: Reply) -> String {
 }
 
 /// QR code as one SVG path (1 unit per module), drawn by the UI.
-fn qr_path(data: &str) -> Result<QrDto, String> {
+pub(crate) fn qr_path(data: &str) -> Result<QrDto, String> {
     let code = qrcode::QrCode::with_error_correction_level(data.as_bytes(), qrcode::EcLevel::M)
         .map_err(|e| e.to_string())?;
     let size = code.width();
@@ -1008,6 +1009,7 @@ fn main() {
     builder
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
+        .manage(touchpad::TouchpadPairing::default())
         .invoke_handler(tauri::generate_handler![
             set_blur,
             open_blur_settings,
@@ -1056,6 +1058,11 @@ fn main() {
             reconnect,
             start_pairing,
             cancel_pairing,
+            touchpad::touchpad_status,
+            touchpad::touchpad_set_enabled,
+            touchpad::touchpad_unpair,
+            touchpad::touchpad_start_pairing,
+            touchpad::touchpad_cancel_pairing,
             start_daemon
         ])
         .setup(move |app| {

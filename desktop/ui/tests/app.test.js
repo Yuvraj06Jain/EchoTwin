@@ -51,6 +51,7 @@ function fakeTauri() {
     notifs: [],
     apps: [],
     muted: [],
+    touchpad: { installed: true, running: true, enabled: true, devices: [{ name: 'Galaxy S24 FE', id: 'A914-D7AB-078D-25BD', fingerprint: 'a914d7ab078d25bd', connected: true }] },
   };
   const win = {};
   for (const m of ['minimize', 'toggleMaximize', 'close', 'startDragging', 'startResizeDragging']) {
@@ -73,6 +74,26 @@ function fakeTauri() {
         if (cmd === 'start_daemon') {
           fake.daemonUp = true;
           return null;
+        }
+        // The touchpad has its own service: these work whether or not phonelinkd runs.
+        const tp = fake.touchpad;
+        switch (cmd) {
+          case 'touchpad_status':
+            return JSON.parse(JSON.stringify(tp));
+          case 'touchpad_set_enabled':
+            tp.enabled = args.on;
+            return args.on;
+          case 'touchpad_unpair': {
+            const d = tp.devices.find((x) => x.fingerprint === args.device);
+            tp.devices = tp.devices.filter((x) => x !== d);
+            return d ? d.name : '';
+          }
+          case 'touchpad_start_pairing':
+            if (tp.pairError) throw tp.pairError;
+            return { qr: { size: 21, path: 'M0 0h7v7h-7zM14 0h7v7h-7z' }, expires_in: 120 };
+          case 'touchpad_cancel_pairing':
+            return null;
+          default:
         }
         if (!fake.daemonUp) throw 'daemon-down';
         switch (cmd) {
@@ -573,6 +594,39 @@ function fakeTauri() {
   await page.waitForTimeout(250);
   check((await lastCall('set_download_dir'))[1].path === null, 'Default asks for the default');
   check((await txt('.sheet [data-download-dir]')) === '~/Downloads/EchoTwin', 'back to the default');
+  console.log('Touchpad');
+  const tpSection = '.sheet [data-touchpad-section]';
+  check((await txt(tpSection)).includes("Let your phone be this laptop's touchpad"), 'the touchpad switch is in Settings');
+  check((await page.getAttribute(`${tpSection} [data-action="toggle-touchpad"]`, 'aria-checked')) === 'true', 'the touchpad is on by default');
+  check((await txt(tpSection)).includes('Galaxy S24 FE') && (await txt(tpSection)).includes('A914-D7AB-078D-25BD'), 'the paired phone is listed with its id');
+  await page.click(`${tpSection} [data-action="toggle-touchpad"]`);
+  await page.waitForTimeout(150);
+  check((await lastCall('touchpad_set_enabled'))[1].on === false, 'the switch calls touchpad_set_enabled(false)');
+  check((await page.getAttribute(`${tpSection} [data-action="toggle-touchpad"]`, 'aria-checked')) === 'false', 'and shows off');
+  await page.click(`${tpSection} [data-action="toggle-touchpad"]`);
+  await page.waitForTimeout(150);
+  await page.click(`${tpSection} [data-action="touchpad-pair"]`);
+  await page.waitForTimeout(250);
+  check((await page.$$eval(`${tpSection} [data-touchpad-qr] svg path`, (p) => p.length)) === 1, 'Pair a phone shows the touchpad code');
+  check((await txt(tpSection)).includes("touchpad's own code"), 'and says it is the touchpad\'s own code');
+  await page.$eval('.sheet-body', (el) => { el.scrollTop = el.scrollHeight; });
+  await page.screenshot({ path: `${OUT}/app-5c-touchpad.png` });
+  await page.evaluate(() => window.__emit('phonelink://touchpad-pairing', { kind: 'paired', name: 'Pixel 9' }));
+  await page.waitForTimeout(250);
+  check((await txt('#toast')).includes('Touchpad paired with Pixel 9'), 'a paired phone is announced');
+  check((await page.$$eval(`${tpSection} [data-touchpad-qr]`, (p) => p.length)) === 0, 'and the code goes away');
+  await page.click(`${tpSection} [data-action="touchpad-forget"]`);
+  await page.waitForTimeout(250);
+  check((await lastCall('touchpad_unpair'))[1].device === 'a914d7ab078d25bd', 'Forget unpairs by fingerprint');
+  check((await txt(tpSection)).includes('No phone paired with the touchpad yet'), 'and the list is empty');
+  // Not installed: the section names the one command to run (seen on reopening Settings).
+  await page.evaluate(() => { window.__fake.touchpad = { installed: false, running: false, enabled: false, devices: [] }; });
+  await page.click('.sheet [data-action="close-dialog"]');
+  await page.waitForTimeout(200);
+  await page.click('[data-action="open-settings"]');
+  await page.waitForTimeout(400);
+  check((await txt(tpSection)).includes('./packaging/install-touchpad.sh'), 'not installed: names install-touchpad.sh');
+  check((await page.$$eval(`${tpSection} [data-action="toggle-touchpad"]`, (b) => b.length)) === 0, 'and offers no switch');
   await page.evaluate(() => { window.__fake.pickTo = null; });
   await page.click('.sheet [data-action="pick-download-dir"]');
   await page.waitForTimeout(250);

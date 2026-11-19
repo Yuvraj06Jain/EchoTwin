@@ -117,6 +117,12 @@ enum Cmd {
     On,
     /// Switch the connection off: disconnect and stop searching until `phonelink on`.
     Off,
+    /// The phone's Touchpad tab: pair it, list or forget phones (runs `phonelink-touchpad`).
+    /// The touchpad has its own pairing; install it with packaging/install-touchpad.sh.
+    Touchpad {
+        #[command(subcommand)]
+        cmd: TouchpadCmd,
+    },
     /// Battery saver on or off: fewer background checks (a phone that left is noticed
     /// ~10 s later and searched for less often). `saver auto 20` turns it on by itself at or
     /// below 20% battery (`saver auto off` = never).
@@ -126,6 +132,56 @@ enum Cmd {
         /// With `auto`: a percentage (0–50) or `off`.
         level: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum TouchpadCmd {
+    /// Show a QR code to scan in the Touchpad tab (asks for your password).
+    Pair {
+        /// Also print the code as text.
+        #[arg(long)]
+        uri: bool,
+    },
+    /// Phones paired with the touchpad.
+    Devices,
+    /// Forget a phone (name or fingerprint prefix; asks for your password).
+    Unpair { device: String },
+}
+
+/// `phonelink-touchpad`, next to this program or else on the PATH.
+fn touchpad_program() -> std::path::PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|d| d.join("phonelink-touchpad")))
+        .filter(|p| p.is_file())
+        .unwrap_or_else(|| "phonelink-touchpad".into())
+}
+
+/// Run the touchpad service's own command (it talks to its own socket, not phonelinkd).
+fn touchpad(cmd: TouchpadCmd) -> anyhow::Result<()> {
+    let args: Vec<String> = match cmd {
+        TouchpadCmd::Pair { uri } => {
+            let mut a = vec!["pair".to_string()];
+            if uri {
+                a.push("--uri".into());
+            }
+            a
+        }
+        TouchpadCmd::Devices => vec!["devices".into()],
+        TouchpadCmd::Unpair { device } => vec!["unpair".into(), device],
+    };
+    let program = touchpad_program();
+    let status = std::process::Command::new(&program).args(&args).status().map_err(|e| {
+        anyhow::anyhow!(
+            "could not run {} ({e}). Install the touchpad with packaging/install-touchpad.sh",
+            program.display()
+        )
+    })?;
+    if !status.success() {
+        // It already said why.
+        std::process::exit(status.code().unwrap_or(1));
+    }
+    Ok(())
 }
 
 /// One JSON object for the panel widget: phone status, music, notifications, SMS, files.
@@ -438,6 +494,10 @@ fn fail_on_error(reply: &Reply) -> anyhow::Result<()> {
 }
 
 async fn run(cli: Cli) -> anyhow::Result<()> {
+    let cli = match cli.cmd {
+        Cmd::Touchpad { cmd } => return touchpad(cmd),
+        _ => cli,
+    };
     let mut c = Client::connect(&paths::socket_path()).await?;
     let show = |r: &Reply| {
         if cli.json {
@@ -445,6 +505,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         }
     };
     match cli.cmd {
+        Cmd::Touchpad { .. } => unreachable!("handled before connecting to phonelinkd"),
         Cmd::Status => {
             let r = c.request(&Request::Status).await?;
             fail_on_error(&r)?;

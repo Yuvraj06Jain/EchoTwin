@@ -1,0 +1,28 @@
+[package]
+name = "phonelink-touchpad"
+description = "EchoTwin touchpad service: replays the phone's fingers and buttons on a virtual touchpad"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "phonelink-touchpad"
+path = "src/main.rs"
+
+[dependencies]
+phonelink-core = { path = "../../core" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "fs", "net", "io-util"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+evdev = "0.13"
+# Same zbus features as phonelinkd, so building the workspace never changes its runtime.
+zbus = { version = "5", default-features = false, features = ["async-io"] }
+qrcode = { version = "0.14", default-features = false }
+if-addrs = "0.15"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures-lite = "2"
+
+[dev-dependencies]
+tempfile = "3"

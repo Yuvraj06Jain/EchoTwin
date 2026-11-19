@@ -1,7 +1,11 @@
+// combinedClickable (tap and long press on the modifier keys) is still marked experimental.
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package dev.phonelink.app.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -130,7 +134,7 @@ fun PhoneKeyboard(target: String, keyboardOff: Boolean, actions: Actions) {
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Surface(
-            modifier = Modifier.fillMaxWidth().combinedClickable(onClick = { focus.requestFocus(); ime?.show() }),
+            modifier = Modifier.fillMaxWidth().clickable { focus.requestFocus(); ime?.show() },
             shape = RoundedCornerShape(12.dp),
             color = Pl.Panel,
             border = BorderStroke(1.dp, Pl.Edge),

@@ -257,6 +257,12 @@ The QR code is valid for 2 minutes and works only once. If the id doesn't match,
 | 117 | **Pointer speed** 2×, then 0.5× | the same swipe moves the pointer about twice as far, then half as far |
 | 118 | Keep a finger moving on the phone's pad and put a finger on the laptop's own touchpad | the phone stops moving the pointer at once and shows "its touchpad is in use"; half a second after you lift from the laptop's touchpad, the phone works again |
 | 119 | `getfacl /dev/input/eventN` for your real touchpad | `group:phonelink-touchpad:r--` (read only); your keyboard's node has no such entry |
+| 120 | Touchpad tab → the round keyboard button; type "Hello, World!" into a text editor on the laptop | it appears there exactly; the strip shows "Typing to …" and the text |
+| 121 | Type a word, Backspace twice, then Enter | the two letters go and a new line starts on the laptop |
+| 122 | Select text on the laptop; special keys: tap **Ctrl**, then type c; click elsewhere; **Ctrl**, then v | the text is copied and pasted (Ctrl lights up while armed) |
+| 123 | Special keys ← ↑ ↓ →, Home, End, Del in the editor | the cursor moves and Del deletes, as on the laptop's keyboard |
+| 124 | Type an emoji 😀 (clipboard sharing on, both devices) | it appears on the laptop; the strip says it was pasted |
+| 125 | Laptop window → Settings → Touchpad → turn "Let your phone type here" off; type on the phone | nothing is typed; the strip says typing is switched off on the laptop; the pointer still works |
 
 When something fails, include:
 - the step number
@@ -369,6 +375,8 @@ When something fails, include:
 | "the laptop cannot create a touchpad: /dev/uinput …" in red | run `./packaging/install-touchpad.sh` again; `ls -l /dev/uinput` must say `root phonelink-touchpad` |
 | `phonelink touchpad pair` says "not authorised" | the KDE password dialog was cancelled or polkit's KDE agent isn't running; try again from your desktop session |
 | taps don't click, or scrolling feels different from the real touchpad | `systemctl --user status phonelink-touchpad-mirror` (it copies your touchpad settings) |
+| typed letters come out wrong on the laptop (e.g. y and z swapped) | the laptop's keyboard layout isn't US; EchoTwin types for US (System Settings → Keyboard → Layouts) |
+| emoji don't arrive, the strip asks for clipboard sharing | turn on clipboard sharing in the phone's Settings and in the laptop window's Settings |
 | the phone says "switched off on the laptop" | laptop window → Settings → Touchpad → switch it on, or `phonelink touchpad on` |
 | the phone always says "its touchpad is in use" | a finger (or palm) rests on the laptop's touchpad; `sudo journalctl -u phonelink-touchpad -n 30` names the touchpad it watches |
 | Settings → Touchpad says "isn't installed" | `./packaging/install-touchpad.sh` |

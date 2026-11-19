@@ -104,6 +104,7 @@ deliberately not part of `phonelinkd` (which runs as you): only it may create in
 | `src/control.rs` | Control socket `/run/phonelink-touchpad/control.sock`, JSON lines; `pair`/`unpair` checked with polkit per request; the client side prints the QR code. | `serve`, `client_pair`, `client_devices`, `client_unpair` |
 | `src/polkit.rs` | `CheckAuthorization` for `dev.echotwin.touchpad.manage-phones` (your password). | `authorize`, `parse_start_time` |
 | `src/kwin.rs` | Copies the real touchpad's libinput settings to the virtual one through KWin's D-Bus. | `mirror_forever` |
+| `src/keyboard.rs` | Pure: typing (`Msg::Text`, `Msg::Key`) → key presses and releases; the 400-a-second limit. | `text_reports`, `key_reports`, `RateLimit` |
 | `src/realpad.rs` | Reads the laptop's real touchpads (BTN_TOUCH only, no grab) so the phone is ignored while one is in use. | `watch`, `Busy` |
 | `tests/service.rs` | The real binary end to end: pairing over the control socket, pad status, button, unpair; pairing refused without polkit. | |
 
@@ -216,6 +217,7 @@ Package `dev.phonelink.app` in `android/app/src/main/java/dev/phonelink/app/`.
 | `BluetoothBackup.kt` | After 15 s (paired) or 2 min (not paired) without Wi-Fi: RFCOMM socket to the laptop, piped into the core (`open_stream`). Never scans; failures name their cause and Settings → Test lists each attempt. |
 | `ui/Glyphs.kt` | Icons the core Material set lacks (open padlock, speaker off, the Touchpad tab's finger), from Material path data. |
 | `ui/TouchpadScreen.kt` | The Touchpad tab: setup card (scan `phonelink touchpad pair`), status line, Left click / scroll strip / Right click in the chosen order, the pad; `TouchpadSettings` (layout, speeds, reverse scroll), also shown in the Settings tab. |
+| `ui/PhoneKeyboard.kt` | Typing on the laptop: the hidden field (what changed is sent), the "Typing to" strip, the special keys. |
 | `TouchPadView.kt` | The pad's touch surface: raw multitouch with stable slots, every finger forwarded; keeps the back gesture off its edges. |
 | `UnlockPrompt.kt` | Android's fingerprint / screen-lock prompt before asking the computer to unlock. |
 | `CopyReceiver.kt` | "Copy" on a note's notification: puts the note on the phone's clipboard (not exported). |

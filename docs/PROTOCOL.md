@@ -255,6 +255,9 @@ Source of truth: `core/src/touchpad.rs`.
 | 3 | `Button { button: Left \| Right, down }` | phone → laptop | Left click / Right click pressed or released |
 | 4 | `Scroll { v120 }` | phone → laptop | the scroll strip: hi-res wheel units (120 = one notch, positive = up), at most ±1200 |
 | 5 | `LaptopTouchpad { in_use }` | laptop → phone | the laptop's own touchpad is in use (phone input ignored) or no longer |
+| 6 | `Text { text }` | phone → laptop | type these characters (US layout; at most 200 bytes; others are pasted by the phone instead) |
+| 7 | `Key { key, mods }` | phone → laptop | one key, pressed and released, with modifiers (Ctrl 1, Alt 2, Shift 4, Super 8). `Key`: Enter, Backspace, Tab, Escape, Left, Right, Up, Down, Home, End, Delete, PageUp, PageDown, Char(c); append-only |
+| 8 | `KeyboardOff` | laptop → phone | typing is switched off on the laptop |
 
 A laptop whose touchpad is switched off answers `PadInfo` with `PadStatus { ok: false }` and
 a message saying so (and sends it to connected phones when switched off).
@@ -275,5 +278,6 @@ window.
 | `{"cmd":"unpair","who":…}` | `manage-phones` (password) | `unpaired {name}` |
 | `{"cmd":"status"}` | none | `status {enabled, devices}` |
 | `{"cmd":"set_enabled","on":…}` | `set-enabled` (your active session, no password) | `enabled {on}` |
+| `{"cmd":"set_typing","on":…}` | `set-enabled` (your active session, no password) | `typing {on}` |
 
 Any refusal or failure: `error {message}`.

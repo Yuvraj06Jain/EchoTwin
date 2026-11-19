@@ -893,6 +893,30 @@ with "its touchpad is in use".
   `DeviceAllow=char-input r`. So the service can see where your fingers are on the real
   touchpad, and nothing you type.
 
+**Typing:** the round ⌨ button over the pad's corner opens the phone's own keyboard. Type, and
+the laptop types it, as if on its own keyboard. A strip says "Typing to <laptop>" with the
+last characters sent. Above the keyboard, special keys scroll sideways: Esc, Tab, Ctrl, Alt,
+Super, the arrows, Home, End and Del. Ctrl, Alt and Super are one-shot: tap Ctrl, then C,
+and the laptop gets Ctrl+C. A long press holds a modifier until you tap it again.
+
+- **How typing is read:** the phone compares the hidden field with what it already sent.
+  New characters go out, deletions become Backspace, and a word the keyboard autocorrects
+  becomes Backspaces plus the new word. A sentinel character keeps Backspace working on an
+  empty field.
+- **What the laptop does:** the touchpad service presses the keys on a third virtual
+  device, **"EchoTwin Keyboard"**, using the US layout (`touchpad::keymap`). Every message
+  presses and releases everything it needs, so no key can stay held. It accepts at most
+  400 key presses a second.
+- **Emoji and other scripts:** anything the US layout can't type (emoji, Hindi, ₹) goes to
+  the laptop's clipboard over the main EchoTwin link, then is pasted with Ctrl+V after
+  300 ms. This needs clipboard sharing on both devices. It replaces what was on the
+  laptop's clipboard.
+- **The laptop's switch:** "Let your phone type here" (window → Settings → Touchpad, or
+  `phonelink touchpad typing on|off`) is on by default. Off: the phone hears
+  `KeyboardOff` and says so.
+- Typing is not held back while the laptop's own touchpad is in use; that rule is about
+  the pointer.
+
 **Setup (once, on the laptop):**
 
 ```bash
@@ -915,6 +939,9 @@ Approve the admin prompt, then scan the code in the Touchpad tab. If ufw is on:
 | laptop service | `desktop/touchpad/src/uinput.rs` | `VirtualPad::create` ("EchoTwin Touchpad") |
 | laptop service | `desktop/touchpad/src/control.rs`, `polkit.rs` | control socket `/run/phonelink-touchpad/control.sock`; `pair`/`unpair` need `dev.echotwin.touchpad.manage-phones` |
 | laptop service | `desktop/touchpad/src/kwin.rs` | `mirror_forever` (settings copy) |
+| laptop service | `desktop/touchpad/src/keyboard.rs` | `text_reports`, `key_reports` (press and release), `RateLimit` |
+| core | `core/src/touchpad.rs` `keymap` | `us(char)` (US layout key + Shift), `typeable`, `runs` |
+| Android | `android/…/ui/PhoneKeyboard.kt` | the hidden field and its comparison, the strip, `SpecialKeys`; `LinkManager.typeText` (typed vs pasted runs, in order) |
 | laptop service | `desktop/touchpad/src/realpad.rs` | `watch` (the laptop's touchpads), `Busy` (in use + 500 ms) |
 | laptop service | `desktop/touchpad/src/control.rs` | `Switch` (on/off, `settings.json`), `Shared`, cancel when the client leaves |
 | core | `core/src/touchpad.rs` `control` | `Request`/`Reply` of the control socket, shared by the service, the CLI and the window |

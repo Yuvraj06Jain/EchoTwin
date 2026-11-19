@@ -12,9 +12,8 @@ import dev.phonelink.core.CallActionFfi
 import dev.phonelink.core.CallPhaseFfi
 
 /**
- * Calls on this phone, for the computer's call card (Answer / Decline), its in-call buttons
- * (End, Mute, Speaker, Hold: whatever the call notification offers) and its
- * pause-the-music-during-calls. Read from the dialer's call notification (any app that
+ * Calls on this phone, for the computer's call card and notification (Answer / Decline), its
+ * End button during a call, and its pause-the-music-during-calls. Read from the dialer's call notification (any app that
  * posts a proper call notification, WhatsApp included). If no such notification shows up,
  * the phone's call state is the fallback (ringing, without a name).
  */
@@ -28,36 +27,17 @@ object CallWatcher {
     private var last = Call(CallPhaseFfi.IDLE, "") to ""
     private val answerWords = Regex("(?i)answer|accept|pick up")
 
-    /** Which button a call notification action is, by its title (any language: best effort). */
+    /** Which button a call notification action is, by its title (any language: best effort).
+     *  Only these three reach the computer: answer, decline, end. */
     private val kinds = listOf(
         CallActionFfi.ANSWER to answerWords,
         CallActionFfi.DECLINE to Regex("(?i)decline|reject|dismiss"),
         CallActionFfi.END to Regex("(?i)hang ?up|end|disconnect"),
-        CallActionFfi.MUTE to Regex("(?i)mute|microphone|\\bmic\\b"),
-        CallActionFfi.SPEAKER to Regex("(?i)speaker|loudspeaker|speakerphone"),
-        CallActionFfi.HOLD to Regex("(?i)hold|resume"),
     )
 
-    /** Android's own tag first (Mute / Unmute), else the title. */
-    internal fun classify(title: String, semantic: Int): CallActionFfi? = when (semantic) {
-        Notification.Action.SEMANTIC_ACTION_MUTE, Notification.Action.SEMANTIC_ACTION_UNMUTE -> CallActionFfi.MUTE
-        else -> kinds.firstOrNull { it.second.containsMatchIn(title) }?.first
-    }
-
-    private fun kindOf(a: Notification.Action): CallActionFfi? =
-        classify(a.title?.toString().orEmpty(), a.semanticAction)
-
-    /** What the last call notification offered, for Settings → Calls (a screenshot tells all). */
-    val lastSeen = kotlinx.coroutines.flow.MutableStateFlow("")
-
-    @Suppress("DEPRECATION")
-    private fun describe(n: Notification): String {
-        val buttons = n.actions.orEmpty().joinToString(", ") { a ->
-            val kind = kindOf(a)?.name?.lowercase() ?: "?"
-            "\"${a.title}\" → $kind" + if (a.semanticAction != 0) " (tag ${a.semanticAction})" else ""
-        }.ifEmpty { "no buttons" }
-        val custom = n.contentView != null || n.bigContentView != null
-        return buttons + if (custom) " · plus a custom layout EchoTwin can't read" else ""
+    private fun kindOf(a: Notification.Action): CallActionFfi? {
+        val title = a.title?.toString() ?: return null
+        return kinds.firstOrNull { it.second.containsMatchIn(title) }?.first
     }
 
     fun isCall(sbn: StatusBarNotification): Boolean =
@@ -79,13 +59,7 @@ object CallWatcher {
             ?: extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
             ?: ""
         val phase = if (incoming) CallPhaseFfi.RINGING else CallPhaseFfi.ACTIVE
-        var actions = n.actions.orEmpty().mapNotNull(::kindOf).distinct()
-        if (phase == CallPhaseFfi.ACTIVE) {
-            // Not offered as buttons the computer can press: done with Android's audio
-            // controls instead (CallAudio), if the phone allows it.
-            actions = actions + listOf(CallActionFfi.MUTE, CallActionFfi.SPEAKER).filter { it !in actions }
-        }
-        lastSeen.value = describe(n)
+        val actions = n.actions.orEmpty().mapNotNull(::kindOf).distinct()
         val call = Call(phase, caller, actions)
         main.post {
             calls[sbn.key] = call
@@ -151,11 +125,7 @@ object CallWatcher {
         val sbn = service.activeNotifications?.firstOrNull { it.key == key }
             ?: error("That call is no longer there")
         val action = sbn.notification.actions?.firstOrNull { kindOf(it) == kind }
-            ?: return@runCatching when (kind) {
-                CallActionFfi.MUTE -> CallAudio.toggleMute(service)
-                CallActionFfi.SPEAKER -> CallAudio.toggleSpeaker(service)
-                else -> error("Your phone's call screen doesn't offer that")
-            }
+            ?: error("Your phone's call screen doesn't offer that")
         if (Build.VERSION.SDK_INT >= 34) {
             // Answer may open the call screen: allow that from the background.
             val opts = ActivityOptions.makeBasic()

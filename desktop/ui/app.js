@@ -371,9 +371,6 @@
 
   const CALL_BUTTONS = [
     ['answer', 'Answer', '✆', 'ok'],
-    ['mute', 'Mute', '🔇', 'nt'],
-    ['speaker', 'Speaker', '🔊', 'nt'],
-    ['hold', 'Hold', '⏸', 'nt'],
     ['decline', 'Decline', '✕', 'no'],
     ['end', 'End call', '✕', 'no'],
   ];

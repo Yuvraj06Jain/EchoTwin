@@ -292,7 +292,7 @@ async fn a_call_shows_decline_and_pauses_media_until_it_ends() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_ringing_call_shows_the_card_or_else_a_notification_and_the_buttons_reach_the_phone() {
+async fn a_ringing_call_always_notifies_the_card_is_extra_and_only_answer_decline_end_reach_the_phone() {
     use CallActionKind::*;
     let Some(bus) = private_bus() else {
         eprintln!("dbus-daemon not installed; skipping");
@@ -301,32 +301,37 @@ async fn a_ringing_call_shows_the_card_or_else_a_notification_and_the_buttons_re
     let mut rig = setup_caps(&bus.address, &[CAP_CALLS, CAP_CALLS2]).await;
     rig.call_popups();
 
-    // Ringing: the app is started for the card; the event says to show it.
+    // Ringing: the KDE notification shows at once (always), and the app is started for the
+    // card on top of it.
     rig.info(CallPhase::Ringing, "Mom", &[Answer, Decline]);
-    let WatchEvent::CallChanged { phase, actions, card, active_ms, .. } = rig.call_event_full().await else { unreachable!() };
+    let WatchEvent::CallChanged { id, phase, actions, card, active_ms, .. } = rig.call_event_full().await else { unreachable!() };
     assert_eq!((phase.as_str(), actions, card, active_ms), ("ringing", vec!["answer".to_string(), "decline".to_string()], true, None));
     assert_eq!(rig.effects.take(), ["app"]);
-    tokio::time::sleep(Duration::from_millis(1500)).await;
-    assert!(rig.call_popups().is_empty(), "no KDE notification while the card has its chance");
-    // Nobody showed the card: after 4 s the KDE notification, with both buttons.
-    tokio::time::sleep(Duration::from_millis(3200)).await;
     assert_eq!(rig.call_popups(), [r#"show Mom is calling ["Answer", "Decline"] 0"#]);
+    // The card says it is on screen: the notification stays anyway.
+    assert_eq!(rig.request(Request::CallPopupShown { id }).await, Reply::Done);
+    assert!(rig.call_popups().is_empty(), "the notification isn't withdrawn for the card");
 
     // Answer from the laptop: the phone is asked to press its Answer; the popup closes.
     assert_eq!(rig.request(Request::CallAction { device: None, action: "answer".into() }).await, Reply::Done);
     assert_eq!(rig.phone_gets_call_action().await, ("0|incallui|7".to_string(), Answer));
     assert_eq!(rig.call_popups(), ["close"]);
     // Not offered right now: refused.
-    let r = rig.request(Request::CallAction { device: None, action: "hold".into() }).await;
-    assert!(matches!(r, Reply::Error { .. }), "{r:?}");
+    let r = rig.request(Request::CallAction { device: None, action: "end".into() }).await;
+    assert!(matches!(r, Reply::Error { .. }), "not offered while ringing: {r:?}");
     let r = rig.request(Request::CallAction { device: None, action: "dance".into() }).await;
     assert!(matches!(r, Reply::Error { .. }), "{r:?}");
 
-    // On the call: the buttons the dialer shows, and the time it started (this computer's clock).
+    // On the call: only End is offered here, whatever else the phone reports; and the time
+    // it started (this computer's clock).
     let before = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
     rig.info(CallPhase::Active, "Mom", &[End, Mute, Speaker]);
     let WatchEvent::CallChanged { phase, actions, card, active_ms, .. } = rig.call_event_full().await else { unreachable!() };
-    assert_eq!((phase.as_str(), actions.len(), card), ("active", 3, false));
+    assert_eq!((phase.as_str(), actions, card), ("active", vec!["end".to_string()], false));
+    for action in ["mute", "speaker", "hold"] {
+        let r = rig.request(Request::CallAction { device: None, action: action.into() }).await;
+        assert!(matches!(r, Reply::Error { .. }), "{action} is never offered: {r:?}");
+    }
     let started = active_ms.expect("active_ms");
     assert!(started >= before);
     let Reply::Status { call: Some(c), .. } = rig.request(Request::Status).await else { panic!("status has the call") };
@@ -342,7 +347,7 @@ async fn a_ringing_call_shows_the_card_or_else_a_notification_and_the_buttons_re
     let Reply::Status { call, .. } = rig.request(Request::Status).await else { panic!() };
     assert!(call.is_none());
 
-    // "Desktop notifications" off: a ringing call still notifies when no card shows.
+    // "Desktop notifications" off: a ringing call still notifies.
     assert_eq!(rig.request(Request::SetNotifications { enabled: false }).await, Reply::Done);
     rig.call_popups();
     let off = Request::SetSwitch { name: "call_popup".into(), on: false };
@@ -355,12 +360,10 @@ async fn a_ringing_call_shows_the_card_or_else_a_notification_and_the_buttons_re
     let on = Request::SetSwitch { name: "call_popup".into(), on: true };
     assert_eq!(rig.request(on).await, Reply::Done);
 
-    // The card was shown this time: no KDE notification at all.
+    // A new ring soon after: notification again, the app isn't started again within 30 s.
     rig.call_popups();
     rig.info(CallPhase::Ringing, "", &[Answer, Decline]);
-    let WatchEvent::CallChanged { id, .. } = rig.call_event_full().await else { unreachable!() };
-    assert_eq!(rig.request(Request::CallPopupShown { id }).await, Reply::Done);
-    tokio::time::sleep(Duration::from_millis(4600)).await;
-    assert!(rig.call_popups().iter().all(|p| p == "close"), "no notification once the card showed");
+    rig.call_event_full().await;
+    assert_eq!(rig.call_popups(), [r#"show Incoming call ["Answer", "Decline"] 0"#]);
     assert!(rig.effects.take().is_empty(), "the app isn't started again within 30 s");
 }

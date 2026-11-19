@@ -137,16 +137,6 @@ fun SettingsScreen(state: UiState, actions: Actions, onOpenSetup: () -> Unit, mo
                 }
             }
         }
-        item { SectionTitle("Calls") }
-        item {
-            Panel {
-                Text("Buttons the last call offered", fontWeight = FontWeight.Medium)
-                Hint(
-                    state.lastCallButtons.ifEmpty { "No call seen yet. Make or take a call, then look here." } +
-                        "\nMute and Speaker work from the computer even when this list lacks them, if your phone allows it."
-                )
-            }
-        }
         item { SectionTitle("Bluetooth backup") }
         item {
             Panel {

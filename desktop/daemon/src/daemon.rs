@@ -196,14 +196,10 @@ struct CallNow {
     actions: Vec<CallActionKind>,
     /// This computer's clock when the call became active.
     active_ms: Option<u64>,
-    /// The app showed the card for this ring.
-    card_shown: bool,
-    /// The KDE notification is up for this ring.
-    kde_shown: bool,
 }
 
-/// How long the app gets to show the call card before the KDE notification shows instead.
-const CALL_CARD_WAIT: Duration = Duration::from_secs(4);
+/// The call buttons this computer offers (the phone may report more).
+const CALL_ACTIONS: [CallActionKind; 3] = [CallActionKind::Answer, CallActionKind::Decline, CallActionKind::End];
 
 fn phase_name(p: CallPhase) -> &'static str {
     match p {
@@ -593,10 +589,13 @@ impl State {
     /// window's and the widget's call controls.
     fn call_changed(self: &Arc<Self>, peer: Fingerprint, phase: CallPhase, caller: &str, key: &str, actions: Vec<CallActionKind>) {
         let caller = phonelink_core::message::truncate_text(caller, phonelink_core::message::MAX_CALLER);
-        let mut actions = actions;
+        // Only Answer, Decline and End are offered on this computer (older phones may send
+        // Mute / Speaker / Hold too).
+        let mut actions: Vec<CallActionKind> = actions.into_iter().filter(|a| CALL_ACTIONS.contains(a)).collect();
         actions.truncate(phonelink_core::message::MAX_CALL_ACTIONS);
         let card = phase == CallPhase::Ringing && self.switch_on("call_popup");
-        let (any_call, new_ring, kde_shown) = {
+        info!(phase = phase_name(phase), buttons = ?actions.iter().map(|a| a.as_str()).collect::<Vec<_>>(), card, "call from the phone");
+        let (any_call, new_ring) = {
             let mut calls = lock(&self.calls);
             let prev = calls.get(&peer).cloned();
             let new_ring = phase == CallPhase::Ringing
@@ -608,39 +607,22 @@ impl State {
                     CallPhase::Active => prev.as_ref().and_then(|p| p.active_ms).or(Some(now_ms())),
                     _ => None,
                 };
-                let keep = prev.filter(|_| !new_ring);
                 calls.insert(
                     peer,
-                    CallNow {
-                        phase,
-                        caller: caller.clone(),
-                        key: key.to_string(),
-                        actions: actions.clone(),
-                        active_ms,
-                        card_shown: keep.as_ref().is_some_and(|p| p.card_shown),
-                        kde_shown: keep.as_ref().is_some_and(|p| p.kde_shown),
-                    },
+                    CallNow { phase, caller: caller.clone(), key: key.to_string(), actions: actions.clone(), active_ms },
                 );
             }
-            (!calls.is_empty(), new_ring, calls.get(&peer).is_some_and(|c| c.kde_shown))
+            (!calls.is_empty(), new_ring)
         };
         if phase != CallPhase::Ringing {
             self.popups.send(PopupCmd::Close { id: format!("call/{}", peer.short()) });
-        } else if new_ring && card {
-            // The app shows the card and says so; if it doesn't within 4 s (not installed,
-            // no layer-shell, …), the KDE notification shows instead.
-            self.start_app();
-            let (st, k) = (self.clone(), key.to_string());
-            tokio::spawn(async move {
-                tokio::time::sleep(CALL_CARD_WAIT).await;
-                let waiting = lock(&st.calls).get(&peer).is_some_and(|c| c.phase == CallPhase::Ringing && c.key == k && !c.card_shown);
-                if waiting {
-                    info!("no call card within 4 s (app missing, no overlay, or the page didn't show): KDE notification instead");
-                    st.call_notification(peer);
-                }
-            });
-        } else if !card || kde_shown {
-            self.call_notification(peer); // new, or updated (other buttons, a name)
+        } else {
+            // The KDE notification always shows while it rings (it can't fail silently); the
+            // card at the top of the screen is an extra when the app can show it.
+            if new_ring && card {
+                self.start_app();
+            }
+            self.call_notification(peer); // new, or updated (a name, other buttons)
         }
         if !any_call {
             self.call_pause.set(false);
@@ -661,13 +643,7 @@ impl State {
 
     /// The KDE notification for a ringing call, with Answer / Decline as the phone offers.
     fn call_notification(&self, peer: Fingerprint) {
-        let Some(call) = ({
-            let mut calls = lock(&self.calls);
-            calls.get_mut(&peer).filter(|c| c.phase == CallPhase::Ringing).map(|c| {
-                c.kde_shown = true;
-                c.clone()
-            })
-        }) else {
+        let Some(call) = lock(&self.calls).get(&peer).filter(|c| c.phase == CallPhase::Ringing).cloned() else {
             return;
         };
         // Shown even when "Desktop notifications" are off: a ringing phone matters more.
@@ -690,20 +666,10 @@ impl State {
         );
     }
 
-    /// The app showed the call card: no KDE notification (and close one shown meanwhile).
+    /// The app says its call card is on screen (the notification stays too).
     fn call_card_shown(&self, short: &str) {
-        let peer = {
-            let mut calls = lock(&self.calls);
-            calls.iter_mut().find(|(fp, _)| fp.short() == short).map(|(fp, c)| {
-                c.card_shown = true;
-                (*fp, std::mem::take(&mut c.kde_shown))
-            })
-        };
-        if peer.is_some() {
+        if lock(&self.calls).keys().any(|fp| fp.short() == short) {
             info!("call card shown by the app");
-        }
-        if let Some((peer, true)) = peer {
-            self.popups.send(PopupCmd::Close { id: format!("call/{}", peer.short()) });
         }
     }
 
@@ -729,7 +695,7 @@ impl State {
             // An older phone (calls/1) only knows Decline.
             self.to_phone(&peer, AppMessage::CallDecline { key: call.key })?;
         }
-        if matches!(action, CallActionKind::Answer | CallActionKind::Decline) {
+        if matches!(action, CallActionKind::Answer | CallActionKind::Decline | CallActionKind::End) {
             self.popups.send(PopupCmd::Close { id: format!("call/{}", peer.short()) });
         }
         Ok(())
@@ -2606,6 +2572,11 @@ async fn handle_client(state: Arc<State>, stream: UnixStream) -> anyhow::Result<
                         let _ = state.to_phone(&peer, AppMessage::ActionResult { key: "present".into(), ok: false, message });
                     }
                 }
+                write_reply(&mut w, &Reply::Done).await?;
+            }
+            Request::AppLog { line } => {
+                let line: String = line.chars().filter(|c| !c.is_control()).take(500).collect();
+                info!(target: "phonelink_app", "app: {line}");
                 write_reply(&mut w, &Reply::Done).await?;
             }
             Request::CallPopupShown { id } => {

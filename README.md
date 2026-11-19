@@ -35,8 +35,7 @@ you never retype a code.
 Nothing on screen all day, until the phone rings. Then a card slides down at the top of the
 laptop screen, even over a full-screen presentation, with **Answer** and **Decline**. Music
 on the laptop pauses by itself. Answer, and the window and panel widget show the call:
-how long it's been, plus **End**, **Mute** and **Speaker**, the same buttons your dialer
-shows. The call itself stays on the phone.
+how long it's been, and **End**. The call itself stays on the phone.
 
 <p align="center"><img src="docs/img/call-card.png" alt="The incoming call card at the top of the laptop screen" width="760"></p>
 
@@ -125,7 +124,7 @@ or files, write a note, ring the laptop to find it, mute it, or start presenting
 |---|---|
 | **Notifications** | Popups with the full text, reply, the app's own buttons, dismiss on both devices, mute per app, OTP copy |
 | **SMS** | Read and reply with contact names; start a new conversation with contact search |
-| **Calls** | Card at the top of the screen with Answer / Decline; End, Mute, Speaker, Hold from the laptop; music pauses during calls |
+| **Calls** | A notification and a card at the top of the screen with Answer / Decline; End from the laptop; music pauses during calls |
 | **Files** | Both ways, drag and drop, share sheet, Dolphin's right-click menu; resumes after drops; you choose the folder they land in, on each device |
 | **Clipboard and notes** | Copy here, paste there; notes both ways with a Copy button |
 | **Remote** | The laptop's music on the phone with album art; Mute; your own buttons |

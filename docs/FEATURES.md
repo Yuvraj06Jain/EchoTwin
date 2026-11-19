@@ -634,25 +634,22 @@ a minute after its last window hid), which shows the card as a layer-shell overl
 (`overlay.rs`, see below). The card window is made after the call was announced, so the page
 asks for it on load (`phonelink://call-card-ready`; the app answers with the latest call it
 kept in `LAST_CALL`, or from `Reply::Status.call` when it was started for this ring), and says
-`phonelink://call-card-visible` once the card is really on screen; only then does the app send
-`Request::CallPopupShown`. If that doesn't come within 4 s (app missing, no layer-shell, a page
-that didn't show, anything), the KDE notification shows instead, with Answer and Decline as
-offered, even when "Desktop notifications" are off. The service logs which happened
-(`journalctl --user -u phonelinkd | grep -i call`).
+`phonelink://call-card-visible` once the card is really on screen (logged with the window's
+mapped size). **The KDE notification with Answer / Decline shows on every ring regardless**
+(even with "Desktop notifications" off), so a call can never go unseen; the card is an extra
+on top. Both close on answer, decline, end, or when the phone leaves. The service logs each
+call change and the app's overlay steps (`journalctl --user -u phonelinkd | grep -i call`).
 
-In-call buttons: the phone classifies the call notification's buttons by Android's semantic
-tag (Mute/Unmute) and by title. Samsung's notification may not expose Mute and Speaker as
-buttons, so for an active call the phone always offers them and, if the notification has no
-such button, does it with Android's audio controls (`CallAudio.kt`: `setMicrophoneMute`;
-`setCommunicationDevice` to the speaker on Android 12+), reading the state back and saying so
-if the phone didn't allow it (MODIFY_AUDIO_SETTINGS, no prompt). Whether Samsung applies these
-to a carrier call is device-only [unverified]. Phone Settings → Calls shows what the last call
-notification offered (titles, tags, custom layout), for diagnosing. The timer counts from this computer's clock when the call became active
+In-call controls are **End only** (plus Answer / Decline while ringing): the phone reads those
+three from the call notification's buttons by title; the laptop ignores anything else an older
+phone reports (Mute, Speaker, Hold), and `phonelink call` takes `answer|decline|end`.
+
+The timer counts from this computer's clock when the call became active
 (`active_ms`), and ticks only while a call is active and the window or popup is open (the
 widget hash never changes because of it). The laptop pauses every MPRIS player that is
 *Playing* and later resumes only those, if they are still paused (`mpris::CallPause`). A phone
 that disconnects mid-call counts as the call ending. Switches: `call_popup`,
-`pause_media_on_call`. CLI: `phonelink call answer|decline|end|mute|speaker|hold`.
+`pause_media_on_call`. CLI: `phonelink call answer|decline|end`.
 
 **Overlays (`desktop/app/src/overlay.rs`):** Wayland doesn't let a normal window place itself
 or stay above a full-screen window, so the card (and the presentation pointer, §24) are
@@ -660,15 +657,17 @@ or stay above a full-screen window, so the card (and the presentation pointer, �
 it), never taking the keyboard: needs `libgtk-layer-shell` (cargo feature `layer-shell`, on by
 default; `install.sh` builds without it and says so if the headers are missing). On X11 they
 are always-on-top windows placed on the primary monitor. Check on your desktop with
-`phonelink-app --overlay-check` (a sample card and pointer for 20 s, through the same steps
-as a real call; if EchoTwin already runs, that instance shows it without opening the window). Verified here under sway (headless):
+`phonelink-app --overlay-check`: always its own process (also while EchoTwin runs), it shows a
+sample card and pointer for 20 s through the same steps as a real call and prints each step
+(display, layer-shell built in and supported, realized too early?, layer surface, page shown,
+window mapped size) and a result line, to paste when asking for help. Verified here under sway (headless):
 the card sits at the top centre above a full-screen window.
 
 | Layer | File | Functions |
 |---|---|---|
 | Phone | `CallWatcher.kt` (`posted`, `kindOf`, `act`, `decline`, `removed`, `telephony`, `resend`), `MirrorService`, `StatusWatcher`, `LinkManager.sendCallInfo` | |
 | FFI | `core-ffi/src/lib.rs` | `send_call_info` (`calls/2` or `CallState`), `send_call_state`, `LinkEvent::{CallActionRequested, CallDeclineRequested}`, `CallActionFfi` |
-| Laptop | `daemon.rs` `call_changed`, `call_notification`, `call_card_shown`, `call_action`, `call_view`, `start_app`; `Request::{CallAction, CallPopupShown, DeclineCall}`; `WatchEvent::CallChanged` (`actions`, `active_ms`, `card`); `Reply::Status.call` | `mpris.rs` `CallPause`; `popups.rs` `start_app_background` |
+| Laptop | `daemon.rs` `call_changed` (`CALL_ACTIONS`), `call_notification`, `call_card_shown`, `call_action`, `call_view`, `start_app`; `Request::{CallAction, CallPopupShown, DeclineCall, AppLog}`; `WatchEvent::CallChanged` (`actions`, `active_ms`, `card`); `Reply::Status.call` | `mpris.rs` `CallPause`; `popups.rs` `start_app_background` |
 | App | `desktop/app/src/main.rs` `call_card`, `call_card_on_start`, `call_action`, `--background`, `exit_when_idle`, `--overlay-check`; `overlay.rs` | |
 | Window | `call.html` + `call.js` (the card); `app.js` `callTile`, `updateCallTimer`, `call-action` | |
 | Widget | `CallStrip.qml`, `CompactRepresentation.qml` (handset badge); `phonelink widget` `call` | |

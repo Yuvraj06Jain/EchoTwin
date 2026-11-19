@@ -187,8 +187,8 @@ pub enum Request {
     DeclineCall {
         device: Option<String>,
     },
-    /// Press a button of the phone's call: "answer", "decline", "end", "mute", "speaker" or
-    /// "hold" (only one the call offers right now). Replies `Done` once asked.
+    /// Press a button of the phone's call: "answer", "decline" or "end" (only one the call
+    /// offers right now). Replies `Done` once asked.
     CallAction {
         device: Option<String>,
         action: String,
@@ -197,7 +197,12 @@ pub enum Request {
     PointerUnavailable {
         reason: String,
     },
-    /// The app shows the call card for phone `id`: no KDE notification needed.
+    /// A line from the EchoTwin app (call card / overlay steps) for this service's log, so
+    /// `journalctl --user -u phonelinkd` shows both sides.
+    AppLog {
+        line: String,
+    },
+    /// The app shows the call card for phone `id` (logged; the notification stays).
     CallPopupShown {
         id: String,
     },
@@ -261,8 +266,7 @@ pub enum WatchEvent {
         name: String,
         phase: String,
         caller: String,
-        /// Buttons the phone's call notification offers: "answer", "decline", "end",
-        /// "mute", "speaker", "hold".
+        /// Buttons offered here: "answer", "decline", "end".
         #[serde(default)]
         actions: Vec<String>,
         /// This computer's clock when the call became active (for the timer).

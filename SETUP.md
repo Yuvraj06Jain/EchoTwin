@@ -340,9 +340,8 @@ When something fails, include:
 
 | Symptom | Fix |
 |---|---|
-| no card and no notification when the phone rings | update both sides, then `phonelink-app --overlay-check`: a sample card should show at the top for 20 s. `journalctl --user -u phonelinkd -n 50 \| grep -i call` says whether the card was shown or the notification used |
-| the card never shows but a notification does | the overlay doesn't work on this desktop: `sudo apt install libgtk-layer-shell-dev`, then `./packaging/install.sh` again |
-| during a call only End shows | phone Settings → Calls lists what the call notification offered; send a screenshot. Mute and Speaker are offered anyway and done with Android's audio controls; if the phone refuses, the laptop shows why |
+| no notification when the phone rings | the KDE notification shows on every ring now. If it doesn't: `journalctl --user -u phonelinkd -n 50 \| grep -i call` (is there a "call from the phone" line?) and make sure both the laptop and the phone are updated |
+| the notification shows but no card at the top | run `phonelink-app --overlay-check` and paste its whole output when asking for help; it says which step fails |
 
 ### Bluetooth backup
 

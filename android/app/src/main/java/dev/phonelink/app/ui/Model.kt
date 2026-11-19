@@ -42,8 +42,6 @@ data class UiState(
     /** Where received files are saved ("Download/EchoTwin" or the chosen folder), and if chosen. */
     val receiveFolder: String = "Download/EchoTwin",
     val receiveFolderChosen: Boolean = false,
-    /** What the last call notification offered (for diagnosing in-call buttons). */
-    val lastCallButtons: String = "",
     /** The pointer's look: dot | ring | spotlight, 0xRRGGBB, size 0..2. */
     val pointerShape: String = "dot",
     val pointerColor: Int = 0xFF3B30,

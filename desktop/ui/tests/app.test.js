@@ -307,7 +307,7 @@ function fakeTauri() {
   await page.evaluate(([id, t]) => window.__emit('phonelink://event', { kind: 'call_changed', id, name: 'Galaxy S24 FE', phase: 'active', caller: 'Mom', actions: ['end', 'mute', 'speaker'], active_ms: t }), [ID, started]);
   await page.waitForTimeout(150);
   check(/On call · 01:2[34]/.test(await txt('.call-tile')), `the timer counts from the start (${await txt('.call-tile .small')})`);
-  check((await page.$$eval('.call-tile [data-call]', (b) => b.map((x) => x.dataset.call))).join() === 'mute,speaker,end', 'in-call buttons: Mute, Speaker, End');
+  check((await page.$$eval('.call-tile [data-call]', (b) => b.map((x) => x.dataset.call))).join() === 'end', 'in-call: only End (Mute/Speaker from an older service are not shown)');
   await page.waitForTimeout(1100);
   check(/01:2[45]/.test(await txt('.call-tile .small')), 'the timer ticks');
   await page.click('.call-tile [data-call="end"]');

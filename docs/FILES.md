@@ -194,7 +194,6 @@ Package `dev.phonelink.app` in `android/app/src/main/java/dev/phonelink/app/`.
 | `Tiles.kt` | Quick Settings tiles: Lock computer, Send clipboard. |
 | `LockReceiver.kt` | "Lock computer" button on the status notification. |
 | `BluetoothBackup.kt` | After 15 s (paired) or 2 min (not paired) without Wi-Fi: RFCOMM socket to the laptop, piped into the core (`open_stream`). Never scans; failures name their cause and Settings → Test lists each attempt. |
-| `CallAudio.kt` | Mute / speaker for a call through Android's audio controls, when the call notification has no such buttons. |
 | `UnlockPrompt.kt` | Android's fingerprint / screen-lock prompt before asking the computer to unlock. |
 | `CopyReceiver.kt` | "Copy" on a note's notification: puts the note on the phone's clipboard (not exported). |
 | `StatusWatcher.kt` | Battery (sticky broadcast), Wi-Fi/mobile (ConnectivityManager), 5G/4G + signal (TelephonyCallback) → `send_phone_status`. |

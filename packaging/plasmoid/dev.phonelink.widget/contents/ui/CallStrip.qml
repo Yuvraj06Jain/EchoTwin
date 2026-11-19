@@ -1,6 +1,6 @@
 // The call on the phone, at the top of the dashboard: who, "Incoming call" or the time on
-// the call, and round buttons for what the phone's call screen offers (Answer green,
-// Decline / End red, Mute / Speaker / Hold neutral). Each runs `phonelink call <action>`.
+// the call, and round buttons: Answer (green), Decline / End (red), as the phone's call screen
+// offers them. Each runs `phonelink call <action>`.
 import QtQuick
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
@@ -76,8 +76,7 @@ Tile {
 
         Repeater {
             // Fixed order; only the buttons the phone offers right now.
-            model: [["answer", "Answer", "✆", "ok"], ["mute", "Mute", "🔇", "nt"], ["speaker", "Speaker", "🔊", "nt"],
-                ["hold", "Hold", "⏸", "nt"], ["decline", "Decline", "✕", "no"], ["end", "End call", "✕", "no"]]
+            model: [["answer", "Answer", "\u2706", "ok"], ["decline", "Decline", "\u2715", "no"], ["end", "End call", "\u2715", "no"]]
                 .filter(function (b) { return strip.call && (strip.call.actions || []).indexOf(b[0]) >= 0; })
             delegate: Rectangle {
                 required property var modelData

@@ -53,10 +53,9 @@ enum Cmd {
         to: Option<String>,
         url: String,
     },
-    /// Press a button of the phone's call: answer, decline, end, mute, speaker or hold
-    /// (only the ones its call screen offers right now; see `phonelink status`).
+    /// Answer, decline or end the phone's call (only what its call screen offers right now).
     Call {
-        #[arg(value_parser = ["answer", "decline", "end", "mute", "speaker", "hold"])]
+        #[arg(value_parser = ["answer", "decline", "end"])]
         action: String,
     },
     /// Where files from the phone are saved: shows it, or sets it to FOLDER

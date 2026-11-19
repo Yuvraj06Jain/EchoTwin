@@ -103,7 +103,7 @@ posted_ms, can_reply, actions }`, `NowPlaying { app, package, title, artist, alb
 duration_ms, position_ms, playing, can_previous, can_next, volume, max_volume, art_key }`,
 `SmsThread { id, address, name, messages, has_older }`, `SmsMessage { id, from_me, body,
 date_ms, state, read }`, `SmsState { Received, Sent, Sending, Failed }`,
-`PointerShape { Dot, Ring, Spotlight }`, `CallActionKind { Answer, Decline, End, Mute, Speaker, Hold }` (at most `MAX_CALL_ACTIONS` = 6 in a `CallInfo`), `MediaAction { PlayPause, Next, Previous, VolumeUp, VolumeDown, SetVolume(u32), ToggleMute }`, `PresentKeyKind { Next, Previous, Start, End, Blank, StartSlides, StartCanva, StartFullscreen }`,
+`PointerShape { Dot, Ring, Spotlight }`, `CallActionKind { Answer, Decline, End, Mute, Speaker, Hold }` (at most `MAX_CALL_ACTIONS` = 6 in a `CallInfo`; since v3.1 phones send only Answer / Decline / End and laptops use only those), `MediaAction { PlayPause, Next, Previous, VolumeUp, VolumeDown, SetVolume(u32), ToggleMute }`, `PresentKeyKind { Next, Previous, Start, End, Blank, StartSlides, StartCanva, StartFullscreen }`,
 `PhoneStatus { battery: Option<u8>, charging, network, signal }`,
 `CallPhase { Idle, Ringing, Active }`.
 

@@ -14,7 +14,7 @@ trap 'rm -f "$tmp"' EXIT
 # ECHOTWIN_PREVIEW_CALL=1: with a call in progress (the call strip and the panel's handset).
 call=null
 if [ "${ECHOTWIN_PREVIEW_CALL:-}" = 1 ]; then
-  call='{ id: "9C21", name: "Galaxy S24 FE", phase: "active", caller: "Mom", actions: ["end", "mute", "speaker"], active_ms: Date.now() - 83000 }'
+  call='{ id: "9C21", name: "Galaxy S24 FE", phase: "active", caller: "Mom", actions: ["end"], active_ms: Date.now() - 83000 }'
 fi
 sed -e "s|OUT_PATH|$out|" -e "s|CALL_VALUE|$call|" "$here/harness.qml" > "$tmp"
 rm -f "$out"
